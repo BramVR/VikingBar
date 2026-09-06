@@ -11,38 +11,42 @@ For development archives and existing private drafts, use [Build artifacts and p
 
 ## Launch
 
-Run `make smoke-app-fixture` from the repo root. It builds `.build/app/VikingBar.app`, starts its executable with `--fixture finite`, waits for its visible status item, drives the card, and stops its own process. Require exit 0 and `.build/proof/<run>/result.json` with `passed: true`.
+Run `make smoke-app-fixture` from the repo root with the exclusive Mac UI slot. It builds `.build/app/VikingBar.app`, launches three task-owned fixture processes in sequence, and uses one new `.build/proof/<run>/settings.json` file for persistence proof. Require exit 0, `result.json` with `passed: true`, and `cleanup.json` with `exited: true` and three verified Quit exits of 0.
 
-For interactive coverage, run `make package-app` and `swiftc Scripts/inspect-ui.swift -o .build/inspect-ui`, then `.build/app/VikingBar.app/Contents/MacOS/VikingBarApp --fixture finite` in a task-owned terminal session. Record PID, parent, start time, full executable path, and SHA256 before driving. Quit from the card after the check. Do not drive a pre-existing app. Native menu bar proof needs the exclusive Mac UI slot if other workers share the host.
+For interactive coverage, run `make package-app` and `swiftc Scripts/inspect-ui.swift -o .build/inspect-ui`, then launch `.build/app/VikingBar.app/Contents/MacOS/VikingBarApp --fixture finite` in a task-owned terminal session. Record PID, parent, start time, full executable path, and SHA256 before driving. Explicit fixture launches use memory for the display preference. For relaunch proof, add `--settings-file` with an absolute path inside a new task-owned directory and reuse that file. This app-only option requires `--fixture`. Never read or migrate real settings for fixture proof.
 
 ## Doctor
 
-Run `.build/inspect-ui <recorded-pid>` after compiling the helper. Require the `vikingbar.status` element and its full frame within a `peekaboo screen list --json` display. Confirm `ps -p <recorded-pid> -o pid,ppid,lstart,command` still matches the recorded executable. Never accept an offscreen item as click proof.
+Run `.build/inspect-ui <recorded-pid>`. Require `vikingbar.status` and its full frame within a `peekaboo screen list --json` display. Confirm `ps -p <recorded-pid> -o pid,ppid,lstart,command` still matches the recorded executable. Capture the visible helmet before pressing it. A hidden or offscreen status item is not click proof.
+
+The native helper waits briefly for Launch Services registration after a process starts. macOS 26 hosts status items in Control Center; the helper follows the app's `AXExtrasMenuBar` to find its real button. Peekaboo requires Screen Recording and Accessibility permission.
 
 ## Drive
 
-The executable helper `Scripts/smoke-app-fixture.py`, invoked by `make smoke-app-fixture`, records a screen with Peekaboo 4, then presses the actual status button through `Scripts/inspect-ui.swift`. The native helper targets the recorded VikingBar PID and reads its accessibility tree. Peekaboo captures the resulting card by exact window ID. macOS 26 hosts status items in Control Center, which prevents Peekaboo 4.2.0 from resolving this item reliably. The native probe follows the app's `AXExtrasMenuBar` instead. Peekaboo must have Screen Recording and Accessibility permission. This controlled fixture test authorizes its foreground menu click.
+The automatic smoke presses the real helmet, switches Data and Settings tabs, checks both display modes across all five fixtures and Not connected, verifies GB/GiB, and proves on/off persistence through real Quit and relaunch. Read [Helmet and display setting](features/helmet-and-display-setting.md) for the state and rendering matrix. [Data card](features/data-card.md) and [Fixture selection](features/fixture-selection.md) cover exact card expectations.
 
-For more coverage, use `.build/inspect-ui <pid> press vikingbar.fixturePicker`, read the tree again, then `.build/inspect-ui <pid> press Unlimited`. Re-observe after each action. See the feature files for expected states. The data-card map also covers the GB/GiB picker and real Quit action. The fixture-selection map covers **Not connected**. These routes require the interactive recipe; the smoke command only covers the five fixtures and task-process cleanup. The CLI command is `swift run vikingbar --fixture finite`; replace the state as needed.
+For targeted actions, use `.build/inspect-ui <pid> press <selector>` and re-observe after each action. Selectors match identifiers, titles, current popup values, and native tab radio-button descriptions. Press `Settings` or `Data` for the tabs. Wait for popup menu items before choosing a value; the helper prefers actual menu items over a popup's current value.
 
 ## Evidence
 
-Keep `.build/proof/<run>/` private and outside commits. It contains process identity, executable hash, build log, before screenshot, click receipt, card tree, card screenshot, result, and cleanup receipt. For fixture states, confirm the screenshot shows the fixture marker and amounts. For Not connected, require the unavailable card without a fixture marker; AX text alone cannot prove visibility. Full desktop captures may contain unrelated personal content.
+Keep raw `.build/proof/<run>/` receipts and captures private and outside commits. The run preserves per-launch process/hash receipts, native trees, click and Quit receipts, tightly cropped status images, card and Settings captures, the isolated settings file, `result.json`, and cleanup. The initial `before.png`, `click.json`, `card.png`, and `process.json` names remain available.
 
-Proof uses the real status button and card. Do not substitute internal setters, launch survival, or model tests. Capture action plus resulting state. Verify fixture isolation by tracing app and CLI entry points through their selected execution paths. The shared core includes URLSession transport, so imports alone cannot prove isolation. The CLI without arguments must exit 2 with fixture-required guidance. Only the explicit `proof auth-balance` route runs live authentication and balance requests; use its feature recipe and credential prerequisite.
+Default status title is empty; amount mode adds only the remaining decimal GB amount or an honest exceptional state. Fixture provenance stays visible in the card and Settings and explicit in tooltip, accessibility label, and CLI. Inspect the actual PNGs; AX text alone does not prove visibility or helmet appearance. Card captures must target the settled popover window, not a transient fixture menu. The smoke matches CoreGraphics window bounds to the AXPopover frame before capture.
+
+Verify fixture isolation by tracing app and CLI entry points through their selected paths. Shared core imports include network transport, so imports alone cannot prove isolation. The CLI without arguments must exit 2 with fixture-required guidance. Only explicit `proof auth-balance` runs live authentication and balance requests; follow its credential prerequisite.
 
 ## Cleanup
 
-The helper terminates only its recorded child process and waits for exit, including failed attempts. It never removes proof. Confirm `cleanup.json` reports `exited: true` and `card.png` survives successful cleanup. For interactive runs use `.build/inspect-ui <pid> press vikingbar.quit`. Require helper exit 0, its JSON receipt, and the original app process's exit 0. The helper verifies termination of the captured application, including when Quit disconnects its AX reply. This is separate from the smoke runner's cleanup termination. Never kill by app name or clean another application's state.
+The smoke's three launches must each exit through `vikingbar.quit` with code 0. Failure cleanup terminates only its recorded child process and waits for exit; that fallback is not Quit-button proof. Require `cleanup.json` to report all task processes exited and confirm screenshots survive cleanup. Interactive runs use `.build/inspect-ui <pid> press vikingbar.quit` and retain the receipt plus original process exit status. Never drive or stop a pre-existing app.
 
 ## Helpers
 
-- `make check` checks formatting, lint, build, tests, and documentation links.
+- `make check` checks formatting, lint, build, tests, documentation, CLI fixtures, and Python gates.
 - `make smoke-package` builds and inspects development archives; follow [artifact trust and download checks](features/packaged-artifacts.md).
 - `make check-proof` runs synthetic API and credential-wrapper tests without 1Password or account access.
-- `make proof-live CHECK=auth-balance` runs authorized live proof; follow [its prerequisites](features/auth-balance-proof.md) first.
-- `make smoke-app-fixture` runs executable `Scripts/smoke-app-fixture.py` end to end.
-- `.build/inspect-ui <pid>` reads the native tree; append `press <selector>` to perform a targeted AXPress. Selectors match identifiers, titles, or exact popup values. The smoke command compiles this helper with `swiftc`.
-- `make package-app` runs executable `Scripts/package-app.sh` to build the bundle for interactive checks.
+- `make proof-live CHECK=auth-balance` requires the authorized [auth/balance proof](features/auth-balance-proof.md) recipe.
+- `make smoke-app-fixture` runs `Scripts/smoke-app-fixture.py` end to end.
+- `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action.
+- `make package-app` builds the bundle for interactive checks.
 
 Use `$maintain-verification-skill` when available to update the map after product changes.

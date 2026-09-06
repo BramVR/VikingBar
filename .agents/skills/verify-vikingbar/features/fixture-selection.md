@@ -2,26 +2,28 @@
 
 ## Sub-features
 
-Finite, unlimited, exhausted, stale, error, and **Not connected** selection.
+Finite, unlimited, exhausted, stale, error, and **Not connected**.
 
-## How to get to it (user POV)
+## How to get to it
 
-Open the data card and choose an option with **Fixture state**. **Not connected** shows setup information without synthetic balances. Launching without `--fixture` starts in that same state.
+Open the helmet's **Data** tab and choose **Fixture state**. **Not connected** shows setup information without synthetic balances. Launching without `--fixture` starts in that same state.
 
-## Driving it with native AX and Peekaboo
+## Native proof
 
-Launch the bundle with `--fixture finite`. Read `.build/inspect-ui <pid>`, run `.build/inspect-ui <pid> press vikingbar.fixturePicker`, read the tree again, then press the state title. The smoke command drives all five fixtures automatically. Capture each resulting card.
+`make smoke-app-fixture` covers all five fixtures and Not connected in both icon-only and optional amount modes. It preserves status crops and card captures for each selection.
 
-Require finite used and remaining amounts; unlimited usage without a percentage; exhausted zero remaining; stale balance with its old update date and warning; error with unavailable amounts rather than zero. Every fixture retains its marker in the card and status item.
+For a targeted selection, press `vikingbar.fixturePicker`, re-read the tree until the desired `AXMenuItem` appears, then press its title. Require the selected card state and updated status tooltip/accessibility label before capturing.
 
-To leave fixture mode, run `.build/inspect-ui <pid> press vikingbar.fixturePicker`. Read the open menu, then run `.build/inspect-ui <pid> press 'Not connected'`. Read the card again and require:
+- Finite has used and remaining amounts and a partial inset bar.
+- Unlimited has usage without a fabricated percentage and an internal infinity mark.
+- Exhausted has zero remaining and an empty inset.
+- Stale retains its known fill and displays its old update date and warning.
+- Error shows unavailable amounts and an internal question mark.
 
-- **No account connected**, **Unavailable**, and **Not connected**.
-- No `vikingbar.fixtureMarker` element and no fabricated allowance.
-- Status title `VikingBar ?` and accessibility description `VikingBar ?, Unavailable, Not connected`.
+Every fixture retains visible provenance in the card and Settings and explicit provenance in status tooltip, accessibility label, and CLI. Default status title is empty. Optional amount titles are `36 GB`, `Unlimited`, `0 GB`, `36 GB`, and `Unavailable` for those five states.
 
-Capture the card through its exact window ID with Peekaboo. Finish with the [Quit recipe](data-card.md). Smoke cleanup alone does not cover **Not connected** or the Quit button.
+For **Not connected**, require **No account connected**, **Unavailable**, and **Not connected**, with no `vikingbar.fixtureMarker` or fabricated allowance. The status title is empty when amount mode is off and `Unavailable` when on. Tooltip and accessibility description contain `Not connected` and `No successful update` without `FIXTURE`. Capture the card through the settled popover window ID and finish with the real [Quit action](data-card.md).
 
 ## Gotchas
 
-Selection changes in-memory example state only. Fixture errors simulate unavailable data; they do not contact the provider. **Not connected** is not a live account mode. Re-observe between opening a picker and selecting an option.
+Fixture selection changes in-memory synthetic data only. It does not contact the provider. The display preference has separate [isolated persistence rules](helmet-and-display-setting.md). Not connected is not a live account mode.
