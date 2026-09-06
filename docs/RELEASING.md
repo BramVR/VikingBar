@@ -9,12 +9,14 @@ read_when:
 
 ## Download a development build
 
+Use a trusted, reviewed checkout for inspection, such as an approved `main` revision. `Scripts/smoke-package.py` executes the downloaded CLI binaries. Run it only when you also trust the artifact's source commit and build workflow. Checksums verify integrity against the supplied checksum list. They do not establish authenticity or execution safety.
+
 1. Open a successful `VikingBar checks` run on the repository's **Actions** page.
 2. Download the development artifact for the desired full commit SHA.
 3. Extract the Actions artifact into a new directory.
 4. Run `shasum -a 256 -c SHA256SUMS` inside that directory.
-5. From the matching source checkout, run `python3 Scripts/smoke-package.py /absolute/path/to/artifact-directory`.
-6. Check `manifest.json` for the expected commit and version before using the app or CLI.
+5. Check `manifest.json` for the expected commit and version before executing either binary.
+6. From the trusted, reviewed checkout, run `python3 Scripts/smoke-package.py /absolute/path/to/artifact-directory`.
 
 For a terminal download, use `gh run download RUN_ID --repo BramVR/VikingBar --dir DESTINATION`. Choose the directory containing `manifest.json` when inspecting an artifact. Downloaded archives include the app and a standalone CLI. Logs are separate diagnostic artifacts.
 
@@ -48,8 +50,8 @@ The workflow never publishes the draft. An existing published release, changed t
 2. Read the draft through `gh release view TAG --repo BramVR/VikingBar --json isDraft,tagName,targetCommitish,body,assets`.
 3. Confirm `isDraft` is true and the notes contain the exact version's changelog and commit SHA.
 4. Download assets into a fresh directory with `gh release download TAG --repo BramVR/VikingBar --dir DESTINATION`.
-5. Verify `SHA256SUMS` and run `Scripts/smoke-package.py` against that directory.
-6. Compare the manifest commit with `git rev-parse 'refs/tags/TAG^{commit}'` in the fetched source checkout.
+5. Verify `SHA256SUMS` and compare the manifest commit with `git rev-parse 'refs/tags/TAG^{commit}'` in the fetched source checkout.
+6. Apply the source and workflow trust checks above, then run `Scripts/smoke-package.py` from a trusted, reviewed checkout.
 7. Repeat the dispatch to test asset collision handling. Preserve the first artifact set if the rebuild differs.
 
 Keep task-owned proof releases as private drafts. Record their tag, commit, workflow run, artifact checksums, and draft identity in private proof. Never place account data or desktop captures in release assets.

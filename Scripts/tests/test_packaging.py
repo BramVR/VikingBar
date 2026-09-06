@@ -1,8 +1,11 @@
+from contextlib import redirect_stderr
 import importlib.util
+import io
 from pathlib import Path
 import tempfile
 import subprocess
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
@@ -21,6 +24,24 @@ smoke = load("smoke-package")
 
 
 class PackagingTests(unittest.TestCase):
+    def test_missing_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            residue = root / "user.txt"
+            residue.write_text("preserve me")
+            stderr = io.StringIO()
+            with patch("sys.argv", ["package-artifacts.py", "--output", str(root)]), \
+                    patch.object(package, "metadata") as metadata, \
+                    patch.object(package, "build_bundle") as build, redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as result:
+                    package.main()
+            self.assertEqual(result.exception.code, 2)
+            self.assertIn("Unexpected artifact residue; choose a fresh --output directory", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+            self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, {"user.txt": b"preserve me"})
+            metadata.assert_not_called()
+            build.assert_not_called()
+
     def test_packaging_refuses_unrecognized_residue_without_removing_it(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

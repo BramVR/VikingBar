@@ -109,6 +109,8 @@ def main():
     args = parser.parse_args()
     output = (args.output or ROOT / ".build/artifacts").resolve()
     if not args.app_only and output.exists() and any(output.iterdir()):
+        if not (output / "manifest.json").is_file():
+            parser.error("Unexpected artifact residue; choose a fresh --output directory")
         expected_names = {"manifest.json", "SHA256SUMS"}
         previous = json.loads((output / "manifest.json").read_text())
         for item in previous["files"]:
