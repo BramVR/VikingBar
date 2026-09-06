@@ -2,7 +2,7 @@
 
 ## Current state
 
-Repository and eight build issues exist. Implementation has not started. The HTML exploration predates the confirmed public-client setup; this document records the newer findings.
+The Swift package contains a fixture menu app, shared allowance models, and a JSON CLI. Live API integration remains pending. The HTML exploration predates the confirmed public-client setup; this document records the newer findings.
 
 ## Authentication
 
