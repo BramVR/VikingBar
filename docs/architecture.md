@@ -8,7 +8,7 @@ read_when:
 
 # ADR 001: Native menu app with a shared Swift core
 
-Status: implemented for fixture allowance display and the menu bar display preference. API, auth, and account persistence remain pending.
+Status: implemented for fixture allowance display and the menu bar display preference. The CLI has a separate local auth/balance proof. Live app integration and account persistence remain pending.
 
 ## Decision
 

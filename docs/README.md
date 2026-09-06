@@ -13,3 +13,6 @@ read_when:
 - [Build tickets](https://github.com/BramVR/VikingBar/issues): acceptance criteria and dependency order.
 
 - [Development commands](development.md): checks, CLI fixtures, packaging, and native UI proof.
+- [CI checks and artifacts](ci.md): toolchain, artifact contents, and merge enforcement status.
+- [Draft releases](RELEASING.md): artifact downloads, version tags, and private draft verification.
+- [Local API proof](live-proof.md): targeted credential setup, request limits, and auth/balance gates.

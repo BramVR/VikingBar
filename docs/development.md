@@ -16,7 +16,11 @@ Run the contributor gate:
 make check
 ```
 
-This checks formatting, lint, compilation, tests, and documentation links. `Scripts/test.sh` runs `swift test`; on Command Line Tools installations it supplies the bundled Swift Testing framework and runtime search paths. Full Xcode uses plain `swift test`. The lint command also locates the selected toolchain's SourceKit framework. `make format` applies formatting. Override `SWIFTFORMAT` or `SWIFTLINT` with an installed tool path when needed.
+This checks formatting, lint, compilation, tests, documentation links, and CLI fixtures. `Scripts/test.sh` runs `swift test`; on Command Line Tools installations it supplies the bundled Swift Testing framework and runtime search paths. Full Xcode uses plain `swift test`. The lint command also locates the selected toolchain's SourceKit framework. `make format` applies formatting. Override `SWIFTFORMAT` or `SWIFTLINT` with an installed tool path when needed.
+
+For the pinned tools and full CI build, run `Scripts/bootstrap-ci-tools.sh`, then `Scripts/ci-build.sh`. Tools remain under `.build/ci-tools/bin`. See [contribution checks](../CONTRIBUTING.md), [CI behavior](ci.md), and [artifact downloads](RELEASING.md).
+
+Run `make smoke-package` to build and inspect development app and CLI archives without opening the app. Run `make workflow-check` with actionlint 1.7.12 for GitHub Actions syntax, expressions, and embedded shell checks.
 
 Inspect a synthetic allowance through the shared core:
 
@@ -34,9 +38,17 @@ make package-app
 open .build/app/VikingBar.app --args --fixture finite
 ```
 
-The app has no Dock icon. Click its helmet menu bar item to inspect the data card. Choose another fixture in the card or use **Quit VikingBar** to exit. Open **Settings** to turn on **Show remaining GB in menu bar**. The label uses decimal GB independently of the card's units. Turning it off leaves only the helmet. Fixture provenance remains visible in the card and available in the tooltip, accessibility label, and CLI. This build contains no account login, network client, or Keychain store.
+The app has no Dock icon. Click its helmet menu bar item to inspect the data card. Choose another fixture in the card or use **Quit VikingBar** to exit. Open **Settings** to turn on **Show remaining GB in menu bar**. The label uses decimal GB independently of the card's units. Turning it off leaves only the helmet. Fixture provenance remains visible in the card and available in the tooltip, accessibility label, and CLI. The app remains fixture-only. The explicit [local API proof command](live-proof.md) uses the shared network client; no Keychain store exists.
 
 Explicit fixture launches keep the display preference in memory. To verify persistence, pass the app-only `--settings-file` option with an absolute path inside a task-owned temporary directory. It requires an explicit `--fixture`. Reuse that file for the task-owned relaunch; never pass a real settings file. The automatic smoke command supplies its own isolated file.
+
+Generate deterministic native icon renders without launching the app:
+
+```sh
+VIKINGBAR_RENDER_PROOF_DIR="$PWD/.build/proof/icon-renders" Scripts/test.sh --filter HelmetRendererTests
+```
+
+Inspect `helmet-contact-sheet.png` and the individual PNGs in that directory. They cover full, half, near-empty, empty, unlimited, and unavailable treatments in light and dark at 1x and 2x. Pixel tests check fixed bounds, fill direction, and distinct exceptional states.
 
 ## Capture packaged UI proof
 

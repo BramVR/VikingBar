@@ -32,6 +32,8 @@ Issues contain dependencies and required proof. CI follows the first runnable fi
 
 Swift 6.2, SwiftPM, SwiftUI/AppKit, a shared core, and a small CLI. Initial target is macOS 14+, Apple Silicon. Run `make check`, `make package-app`, and `make smoke-app-fixture`. See [development commands](docs/development.md).
 
+See [contribution checks](CONTRIBUTING.md) for CI parity and [build downloads and draft releases](docs/RELEASING.md) for development artifacts.
+
 Start with [VISION.md](VISION.md), [CONTEXT.md](CONTEXT.md), [AGENTS.md](AGENTS.md), and the [docs index](docs/README.md).
 
 ## Credentials
@@ -41,3 +43,7 @@ Start with [VISION.md](VISION.md), [CONTEXT.md](CONTEXT.md), [AGENTS.md](AGENTS.
 ## Attribution
 
 CodexBar is the reference for app structure and contributor guidance. Preserve its MIT notices when copying code. VikingBar's own code license has not yet been selected.
+
+## Local API proof
+
+See [local proof setup](docs/live-proof.md) for `make check-proof` and the credential-gated `make proof-live CHECK=auth-balance`. Ordinary fixture runs require no account access.
