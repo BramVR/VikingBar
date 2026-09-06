@@ -16,6 +16,7 @@ private let utc = TimeZone(secondsFromGMT: 0)!
     #expect(menu.percentageRemaining == 72)
     #expect(menu.percentageText == "72% remaining")
     #expect(menu.statusTitle == "Fixture 72%")
+    #expect(menu.accessibilityLabel == "VikingBar Fixture 72%, 36.00 GB, FIXTURE · Finite · Synthetic data")
 }
 
 @Test func `unlimited keeps usage without fabricated percentage`() {
@@ -92,6 +93,11 @@ func `every fixture carries explicit provenance`(state: FixtureState) {
     #expect(menu.remainingText == "Unavailable")
     #expect(menu.percentageRemaining == nil)
     #expect(!menu.statusTitle.contains("Fixture"))
+}
+
+@Test func `default accessibility label names VikingBar once`() {
+    let menu = MenuPresentation(snapshot: .notConnected)
+    #expect(menu.accessibilityLabel == "VikingBar ?, Unavailable, Not connected")
 }
 
 @Test func `zero total never produces nonfinite JSON percentage`() throws {
