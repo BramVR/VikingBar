@@ -2,7 +2,7 @@
 
 ## Current state
 
-The Swift package contains a fixture menu app, shared allowance models, and a JSON CLI. Live API integration remains pending. The HTML exploration predates the confirmed public-client setup; this document records the newer findings.
+The Swift package contains a fixture menu app, shared allowance models, and a JSON CLI. The local auth/balance proof runner exercises the shared HTTP client; live app integration remains pending. The HTML exploration predates the confirmed public-client setup; this document records the newer findings.
 
 ## Authentication
 
@@ -53,7 +53,7 @@ Other API responses can include SIM PIN/PUK and customer information. Decode and
 
 Follow the 1Password skill for targeted reads through a persistent tmux session. No credential enumeration, secret output, or service-account token in hosted CI. Exact account/item references belong in private local setup.
 
-The ad-hoc probe is evidence of feasibility, not a completed automatic gate. Issue #2 establishes repeatable live proof; subsequent API features extend it. Fixture tests alone do not close issues requiring real API behavior.
+The repeatable [local auth/balance gate](docs/live-proof.md) completed password login, token refresh, subscription discovery, and balance retrieval on 6 September 2026. It still observes the scope mismatch. Subsequent API features extend the named checks. Fixture tests alone do not close issues requiring real API behavior.
 
 ## References
 

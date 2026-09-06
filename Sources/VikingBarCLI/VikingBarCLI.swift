@@ -3,7 +3,12 @@ import VikingBarCore
 
 @main
 struct VikingBarCLI {
-    static func main() {
+    static func main() async {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments.first == "proof" {
+            await self.proof(arguments: arguments)
+            return
+        }
         do {
             let options = try LaunchOptions(arguments: Array(CommandLine.arguments.dropFirst()))
             if options.showHelp {
@@ -21,5 +26,38 @@ struct VikingBarCLI {
             FileHandle.standardError.write(Data("\(error)\n\(LaunchOptions.usage)\n".utf8))
             exit(2)
         }
+    }
+
+    private static func proof(arguments: [String]) async {
+        guard arguments == ["proof", "auth-balance"] else {
+            self.writeProof(ProofReceipt(failure: .invalidInput))
+            exit(2)
+        }
+        let credentials: ProofCredentials
+        do {
+            var input = Data()
+            while let chunk = try FileHandle.standardInput.read(upToCount: 4096), !chunk.isEmpty {
+                input.append(chunk)
+                guard input.count <= 65536 else { throw ProofFailure.invalidInput }
+            }
+            credentials = try JSONDecoder().decode(ProofCredentials.self, from: input)
+            try credentials.validate()
+        } catch {
+            self.writeProof(ProofReceipt(failure: .invalidInput))
+            exit(2)
+        }
+        let receipt = await AuthBalanceProof(transport: EphemeralProofTransport()).run(credentials: credentials)
+        self.writeProof(receipt)
+        if !receipt.passed {
+            exit(1)
+        }
+    }
+
+    private static func writeProof(_ receipt: ProofReceipt) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(receipt) else { exit(2) }
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data([0x0A]))
     }
 }

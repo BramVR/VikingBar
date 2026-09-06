@@ -34,7 +34,7 @@ make package-app
 open .build/app/VikingBar.app --args --fixture finite
 ```
 
-The app has no Dock icon. Click its **Fixture** menu bar item to inspect the data card. Choose another fixture in the card or use **Quit VikingBar** to exit. This build contains no account login, network client, or Keychain store.
+The app has no Dock icon. Click its **Fixture** menu bar item to inspect the data card. Choose another fixture in the card or use **Quit VikingBar** to exit. The app remains fixture-only. The explicit [local API proof command](live-proof.md) uses the shared network client; no Keychain store exists.
 
 ## Capture packaged UI proof
 
