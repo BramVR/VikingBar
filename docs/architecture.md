@@ -8,7 +8,7 @@ read_when:
 
 # ADR 001: Native menu app with a shared Swift core
 
-Status: accepted for the initial build. Implementation pending.
+Status: implemented for fixture allowance display. API, auth, and persistence remain pending.
 
 ## Decision
 
@@ -37,3 +37,9 @@ Hosted GitHub Actions runs checks and delivers development artifacts using the s
 ## Reuse provenance
 
 Contributor guidance starts from [CodexBar AGENTS.md](https://github.com/steipete/CodexBar/blob/98b86f39db63d230e2a7f78cdb013a845af33213/AGENTS.md), inspected on 6 September 2026. Preserve applicable wording; adapt project names, unavailable tools, runtime safety, and telecom-specific boundaries. Do not copy another project's signing configuration or secrets. Preserve upstream MIT notices with any copied code.
+
+## Fixture presentation
+
+The app owns an AppKit status item and hosts its card in a SwiftUI popover. This gives native accessibility tooling an explicit status button to inspect and press. A SwiftUI MenuBarExtra would reduce lifecycle code, but leaves more status-item behavior to the framework.
+
+The core owns immutable allowance snapshots and their menu presentation. The CLI serializes both, while the app renders the same presentation. Formatting amounts independently in each executable would let labels and unlimited semantics drift. Fixture provenance remains visible in the status title and card; no-argument launch has no synthetic balance.

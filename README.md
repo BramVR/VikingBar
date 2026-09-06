@@ -4,7 +4,7 @@ Native macOS menu bar app for Mobile Vikings usage, allowances, Viking Points, a
 
 ## Status
 
-Planning and repository setup. No runnable app, Swift package, build scripts, or CI workflows yet. Account login, token refresh, and balance retrieval were verified in a separate local probe on 6 September 2026; the reusable proof runner is still to be built.
+The fixture app and CLI show synthetic mobile data balances without account access. Account login and live data integration remain separate build tickets.
 
 ## Planned behavior
 
@@ -28,7 +28,7 @@ Issues contain dependencies and required proof. CI follows the first runnable fi
 
 ## Development
 
-Planned stack: Swift 6.2, SwiftPM, SwiftUI/AppKit, a shared core, and a small CLI. Initial target: macOS 14+, Apple Silicon. Build and verification commands will be documented when implemented.
+Swift 6.2, SwiftPM, SwiftUI/AppKit, a shared core, and a small CLI. Initial target is macOS 14+, Apple Silicon. Run `make check`, `make package-app`, and `make smoke-app-fixture`. See [development commands](docs/development.md).
 
 Start with [VISION.md](VISION.md), [CONTEXT.md](CONTEXT.md), [AGENTS.md](AGENTS.md), and the [docs index](docs/README.md).
 

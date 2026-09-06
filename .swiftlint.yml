@@ -1,0 +1,10 @@
+included:
+  - Sources
+  - Tests
+line_length: 120
+identifier_name:
+  excluded:
+    - id
+
+disabled_rules:
+  - trailing_comma

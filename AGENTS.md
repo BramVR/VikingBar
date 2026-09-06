@@ -3,17 +3,17 @@
 Adapted from [steipete/CodexBar](https://github.com/steipete/CodexBar/blob/98b86f39db63d230e2a7f78cdb013a845af33213/AGENTS.md). Preserve applicable upstream wording; change project-specific instructions only where needed.
 
 ## Project Structure & Modules
-- Planned structure below: this repository currently contains documentation and build tickets only. Do not assume targets, helpers, or commands exist before their implementation lands.
+- SwiftPM builds the app, shared core, CLI, and tests. Live API integration and release automation remain separate tickets.
 - `Sources/VikingBar`: Swift 6 menu bar app (usage/allowance display, icon renderer, settings). Keep changes small and reuse existing helpers.
 - `Sources/VikingBarCore`: shared API/auth, snapshots, bundle mapping, and injectable host services.
 - `Sources/VikingBarCLI`: CLI diagnostics and fixture/live proof using the shared core.
 - `Tests/VikingBarTests`: XCTest coverage for usage parsing, account state, icon patterns; mirror new logic with focused tests.
-- `Scripts`: planned build/package helpers. Add exact script names here as they land; no release wrapper or signing setup exists yet.
+- `Scripts`: `package-app.sh`, `smoke-app-fixture.py`, `inspect-ui.swift`, `test.sh`, and `check-docs.py`. No release wrapper or signing setup exists yet.
 - `docs`: architecture, release notes, and process. Build/release instructions arrive with their implementation. Root-level zips/appcast are generated artifacts—avoid editing except during releases.
 
 ## Build, Test, Run
-- No build/test commands exist yet. Once the Swift package lands: `swift build` (debug) or `swift build -c release`; `swift test` for the full suite.
-- Planned gates: `make check`, fixture app/package smoke tests, and the ticket-specific local live proof runner. Document their actual invocation when implemented.
+- Use `swift build` (debug) or `swift build -c release`; `swift test` for the full suite.
+- Local gates: `make check`, `swift test`, and `make smoke-app-fixture`. See `docs/development.md`. Live API proof remains separate.
 - Dev loop and packaging scripts must build a fresh `VikingBar.app`, launch it, and confirm it stays running. Stop only verified task-owned instances; never use broad `pkill` commands as incidental cleanup.
 - Release flow is not configured. Ticket #3 establishes CI artifacts and manually dispatched draft releases; signing/notarization and automatic updates are separate follow-up work.
 
@@ -51,3 +51,7 @@ Adapted from [steipete/CodexBar](https://github.com/steipete/CodexBar/blob/98b86
 - Read `CONTEXT.md` before API/auth work. The client is public, with no secret. Token responses report `read write` despite the read-only scope promised by support; enforce an explicit request allowlist and never probe write permissions by changing the account.
 - Follow the 1Password skill for targeted credential access inside one persistent tmux session. Keep secrets, personal responses, and proof artifacts out of source, logs, and hosted CI. Store only needed fields; no SIM PIN/PUK exports.
 - Preserve MIT attribution for copied CodexBar code. Browser-cookie fallback and AI-provider-specific integrations are outside the initial scope.
+
+## Local skills
+
+- For packaged fixture app or CLI verification, read `.agents/skills/verify-vikingbar/SKILL.md`.
