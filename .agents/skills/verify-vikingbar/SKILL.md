@@ -1,11 +1,11 @@
 ---
 name: verify-vikingbar
-description: "Verify VikingBar's native fixture menu and JSON CLI after UI or allowance changes."
+description: "Verify VikingBar fixture UI, JSON CLI, and authorized API proof."
 ---
 
 # Verify VikingBar
 
-Use the logged-in Mac desktop. Read [the feature map](features/README.md) before choosing coverage. Fixture mode has no network or credential implementation. Real account paths remain unproved.
+Use the logged-in Mac desktop. Read [the feature map](features/README.md) before choosing coverage. The app and explicit fixture CLI use synthetic data. The separate [auth/balance proof](features/auth-balance-proof.md) intentionally accesses the network and requires authorized credentials.
 
 ## Launch
 
@@ -27,7 +27,7 @@ For more coverage, use `.build/inspect-ui <pid> press vikingbar.fixturePicker`, 
 
 Keep `.build/proof/<run>/` private and outside commits. It contains process identity, executable hash, build log, before screenshot, click receipt, card tree, card screenshot, result, and cleanup receipt. For fixture states, confirm the screenshot shows the fixture marker and amounts. For Not connected, require the unavailable card without a fixture marker; AX text alone cannot prove visibility. Full desktop captures may contain unrelated personal content.
 
-Proof uses the real status button and card. Do not substitute internal setters, launch survival, or model tests. Capture action plus resulting state. Check that fixture mode does not produce account persistence or connections by reviewing the executable imports and running the CLI without fixture arguments. No networking, Security, or persistence boundary exists in this slice; future additions require renewed isolation proof.
+Proof uses the real status button and card. Do not substitute internal setters, launch survival, or model tests. Capture action plus resulting state. Verify fixture isolation by tracing app and CLI entry points through their selected execution paths. The shared core includes URLSession transport, so imports alone cannot prove isolation. The CLI without arguments must exit 2 with fixture-required guidance. Only the explicit `proof auth-balance` route runs live authentication and balance requests; use its feature recipe and credential prerequisite.
 
 ## Cleanup
 
@@ -36,6 +36,8 @@ The helper terminates only its recorded child process and waits for exit, includ
 ## Helpers
 
 - `make check` checks formatting, lint, build, tests, and documentation links.
+- `make check-proof` runs synthetic API and credential-wrapper tests without 1Password or account access.
+- `make proof-live CHECK=auth-balance` runs authorized live proof; follow [its prerequisites](features/auth-balance-proof.md) first.
 - `make smoke-app-fixture` runs executable `Scripts/smoke-app-fixture.py` end to end.
 - `.build/inspect-ui <pid>` reads the native tree; append `press <selector>` to perform a targeted AXPress. Selectors match identifiers, titles, or exact popup values. The smoke command compiles this helper with `swiftc`.
 - `make package-app` runs executable `Scripts/package-app.sh` to build the bundle for interactive checks.

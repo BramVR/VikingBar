@@ -16,4 +16,4 @@ Run `.build/debug/vikingbar --fixture finite --unit GiB --time-zone Europe/Bruss
 
 ## Gotchas
 
-Separate launches can use different fixture reference times. Compare deterministic model tests for exact timestamps, and compare stable amount/provenance labels across separate CLI and app launches. No credential flags exist in this slice.
+Separate launches can use different fixture reference times. Compare deterministic model tests for exact timestamps, and compare stable amount/provenance labels across separate CLI and app launches. Fixture commands need no credentials. The separate [auth/balance proof](auth-balance-proof.md) is intentionally networked; it receives credentials through stdin via the approved wrapper. Running the CLI without arguments remains a fixture-required negative check.
