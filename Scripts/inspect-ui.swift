@@ -46,8 +46,20 @@ if arguments.count == 3, arguments[1] == "press" {
     guard let target = tree.first(where: {
         (attribute($0, "AXIdentifier") as? String) == arguments[2]
             || (attribute($0, "AXTitle") as? String) == arguments[2]
+            || ((attribute($0, "AXRole") as? String) == "AXPopUpButton"
+                && (attribute($0, "AXValue") as? String) == arguments[2])
     }) else { fatalError("Requested accessibility element is absent.") }
-    guard AXUIElementPerformAction(target, kAXPressAction as CFString) == .success else {
+    let isQuit = (attribute(target, "AXIdentifier") as? String) == "vikingbar.quit"
+    guard !app.isTerminated else { fatalError("Target application already terminated.") }
+    let pressResult = AXUIElementPerformAction(target, kAXPressAction as CFString)
+    if isQuit {
+        // Quit can disconnect Accessibility before AXPress returns its response.
+        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        while !app.isTerminated, ProcessInfo.processInfo.systemUptime < deadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+        guard app.isTerminated else { fatalError("Application did not terminate after Quit.") }
+    } else if pressResult != .success {
         fatalError("Accessibility press failed.")
     }
     print("{\"pressed\":\"\(arguments[2])\",\"pid\":\(pid)}")
