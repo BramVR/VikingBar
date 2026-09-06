@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show remaining allowance inside a native Viking helmet, with an optional decimal GB label controlled by a saved Settings toggle and isolated fixture proof.
 - Avoid repeating the app name in the default status item's accessibility label.
 - Let native UI verification select GB/GiB and confirm successful Quit when the app exits before its accessibility reply.
 

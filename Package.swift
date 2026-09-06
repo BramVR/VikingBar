@@ -13,6 +13,6 @@ let package = Package(
         .target(name: "VikingBarCore"),
         .executableTarget(name: "VikingBarApp", dependencies: ["VikingBarCore"], path: "Sources/VikingBar"),
         .executableTarget(name: "VikingBarCLI", dependencies: ["VikingBarCore"]),
-        .testTarget(name: "VikingBarTests", dependencies: ["VikingBarCore"]),
+        .testTarget(name: "VikingBarTests", dependencies: ["VikingBarCore", "VikingBarApp"]),
     ]
 )

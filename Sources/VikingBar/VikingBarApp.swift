@@ -6,20 +6,53 @@ import VikingBarCore
 @MainActor
 @Observable
 final class FixtureSession {
-    var fixture: FixtureState?
-    var unit: DataUnit
-    let timeZone: TimeZone
-    let referenceDate = Date()
+    var fixture: FixtureState? {
+        didSet { self.onPresentationChange?() }
+    }
 
-    init(options: LaunchOptions) {
+    var unit: DataUnit {
+        didSet { self.onPresentationChange?() }
+    }
+
+    var showRemainingGB: Bool {
+        didSet {
+            self.preferences.setShowRemainingGB(self.showRemainingGB)
+            self.settingsError = self.preferences.errorMessage
+            self.onPresentationChange?()
+        }
+    }
+
+    private(set) var settingsError: String?
+    let timeZone: TimeZone
+    let referenceDate: Date
+    @ObservationIgnored var onPresentationChange: (() -> Void)?
+    @ObservationIgnored private let preferences: MenuBarPreferences
+
+    init(options: LaunchOptions, preferences: MenuBarPreferences, referenceDate: Date = Date()) {
         self.fixture = options.fixture
         self.unit = options.unit
         self.timeZone = options.timeZone
+        self.referenceDate = referenceDate
+        self.preferences = preferences
+        self.showRemainingGB = preferences.showRemainingGB
+        self.settingsError = preferences.errorMessage
+    }
+
+    var snapshot: UsageSnapshot {
+        self.fixture?.snapshot(referenceDate: self.referenceDate) ?? .notConnected
     }
 
     var menu: MenuPresentation {
-        let snapshot = self.fixture?.snapshot(referenceDate: self.referenceDate) ?? .notConnected
-        return MenuPresentation(snapshot: snapshot, unit: self.unit, timeZone: self.timeZone)
+        MenuPresentation(snapshot: self.snapshot, unit: self.unit, timeZone: self.timeZone)
+    }
+
+    var status: StatusPresentation {
+        StatusPresentation(
+            snapshot: self.snapshot,
+            showRemainingGB: self.showRemainingGB,
+            unit: self.unit,
+            timeZone: self.timeZone,
+        )
     }
 }
 
@@ -29,9 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let session: FixtureSession
 
-    init(options: LaunchOptions) {
-        self.session = FixtureSession(options: options)
+    init(options: LaunchOptions, preferences: MenuBarPreferences) {
+        self.session = FixtureSession(options: options, preferences: preferences)
         super.init()
+        self.session.onPresentationChange = { [weak self] in self?.updateStatus() }
     }
 
     func applicationDidFinishLaunching(_: Notification) {
@@ -43,18 +77,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.setAccessibilityIdentifier("vikingbar.status")
         self.updateStatus()
         self.popover.behavior = .transient
-        self.popover.contentSize = NSSize(width: 360, height: 520)
-        self.popover.contentViewController = NSHostingController(rootView: DataCard(
-            session: self.session,
-            onChange: { [weak self] in self?.updateStatus() },
-        ))
+        self.popover.contentSize = NSSize(width: 360, height: 570)
+        self.popover.contentViewController = NSHostingController(rootView: PopoverView(session: self.session))
     }
 
     private func updateStatus() {
-        let menu = self.session.menu
-        self.statusItem?.button?.title = menu.statusTitle
-        self.statusItem?.button?.toolTip = menu.accessibilityLabel
-        self.statusItem?.button?.setAccessibilityLabel(menu.accessibilityLabel)
+        let status = self.session.status
+        guard let button = self.statusItem?.button else { return }
+        button.image = HelmetRenderer.image(for: status.treatment)
+        button.title = status.title
+        button.imagePosition = status.title.isEmpty ? .imageOnly : .imageLeading
+        button.toolTip = status.accessibilityLabel
+        button.setAccessibilityLabel(status.accessibilityLabel)
     }
 
     @objc private func togglePopover() {
@@ -74,13 +108,18 @@ struct VikingBarApp {
     @MainActor
     static func main() {
         do {
-            let options = try LaunchOptions(arguments: Array(CommandLine.arguments.dropFirst()))
+            let appOptions = try AppLaunchOptions(arguments: Array(CommandLine.arguments.dropFirst()))
+            let options = appOptions.shared
             if options.showHelp {
                 print(LaunchOptions.usage.replacingOccurrences(of: "vikingbar", with: "VikingBar"))
+                print("App fixture option: --settings-file ABSOLUTE_PATH saves the menu bar setting.")
                 return
             }
             let application = NSApplication.shared
-            let delegate = AppDelegate(options: options)
+            let settingsFile = options.fixture == nil
+                ? URL.applicationSupportDirectory.appending(path: "VikingBar/menu-bar-preferences.json")
+                : appOptions.settingsFile
+            let delegate = AppDelegate(options: options, preferences: MenuBarPreferences(fileURL: settingsFile))
             application.delegate = delegate
             withExtendedLifetime(delegate) { application.run() }
         } catch {

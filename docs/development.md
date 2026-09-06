@@ -34,7 +34,9 @@ make package-app
 open .build/app/VikingBar.app --args --fixture finite
 ```
 
-The app has no Dock icon. Click its **Fixture** menu bar item to inspect the data card. Choose another fixture in the card or use **Quit VikingBar** to exit. This build contains no account login, network client, or Keychain store.
+The app has no Dock icon. Click its helmet menu bar item to inspect the data card. Choose another fixture in the card or use **Quit VikingBar** to exit. Open **Settings** to turn on **Show remaining GB in menu bar**. The label uses decimal GB independently of the card's units. Turning it off leaves only the helmet. Fixture provenance remains visible in the card and available in the tooltip, accessibility label, and CLI. This build contains no account login, network client, or Keychain store.
+
+Explicit fixture launches keep the display preference in memory. To verify persistence, pass the app-only `--settings-file` option with an absolute path inside a task-owned temporary directory. It requires an explicit `--fixture`. Reuse that file for the task-owned relaunch; never pass a real settings file. The automatic smoke command supplies its own isolated file.
 
 ## Capture packaged UI proof
 
@@ -44,6 +46,6 @@ Use the logged-in Mac desktop with Peekaboo 4 and its Screen Recording and Acces
 make smoke-app-fixture
 ```
 
-The command builds a fresh bundle, starts a task-owned process, checks its identity, captures the visible menu bar, opens the real data card, and checks its accessibility text with a targeted native probe. It then selects all five fixtures and captures each card. It preserves JSON receipts and PNG evidence under `.build/proof/`. Cleanup stops only the process it started. Missing permissions, a hidden status item, or missing card content fail the command.
+The command builds a fresh bundle, starts a task-owned process, checks its identity, captures the visible helmet, opens the real data card, and checks its accessibility text with a targeted native probe. It selects fixtures, switches the Settings toggle, and verifies both menu bar modes. Task-owned relaunches verify that on and off choices persist in the isolated settings file. Cropped status images, card and Settings captures, process receipts, `result.json`, and cleanup receipts remain under `.build/proof/`. Cleanup stops only recorded task processes. Missing permissions, a hidden status item, or missing required behavior fail the command.
 
 Read the [verification skill](../.agents/skills/verify-vikingbar/SKILL.md) for feature coverage and targeted follow-up proof. These commands require no credentials and never use real accounts.

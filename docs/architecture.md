@@ -8,7 +8,7 @@ read_when:
 
 # ADR 001: Native menu app with a shared Swift core
 
-Status: implemented for fixture allowance display. API, auth, and persistence remain pending.
+Status: implemented for fixture allowance display and the menu bar display preference. API, auth, and account persistence remain pending.
 
 ## Decision
 
@@ -42,4 +42,8 @@ Contributor guidance starts from [CodexBar AGENTS.md](https://github.com/steipet
 
 The app owns an AppKit status item and hosts its card in a SwiftUI popover. This gives native accessibility tooling an explicit status button to inspect and press. A SwiftUI MenuBarExtra would reduce lifecycle code, but leaves more status-item behavior to the framework.
 
-The core owns immutable allowance snapshots and their menu presentation. The CLI serializes both, while the app renders the same presentation. Formatting amounts independently in each executable would let labels and unlimited semantics drift. Fixture provenance remains visible in the status title and card; no-argument launch has no synthetic balance.
+The core owns immutable allowance snapshots and their menu presentation. The CLI serializes both, while the app renders the same presentation. A separate status presentation derives the helmet state and optional decimal GB label from the selected snapshot. The CLI report keeps its existing status-title semantics.
+
+The app draws one fixed native template helmet. Its inset bar drains from right to left as the remaining fraction decreases. Unlimited and unavailable balances use distinct internal marks. A zero total has no fraction, and stale data keeps its known fill. The tooltip and accessibility label expose allowance, subscription, freshness, and fixture provenance. The card retains its visible fixture marker. No-argument launch has no synthetic balance.
+
+The session owns status updates, so changing a fixture or the display preference updates AppKit independently of the mounted SwiftUI tab. The Settings tab binds to the default-off **Show remaining GB in menu bar** preference. The app stores that preference in a new settings file with no migration from other applications. Fixture launches use memory unless an explicit isolated settings file is supplied for relaunch proof. Tests inject their persistence inputs and never discover real user state.
