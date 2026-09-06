@@ -80,7 +80,8 @@ public struct MenuPresentation: Codable, Equatable, Sendable {
         self.warningText = snapshot.errorMessage ?? (stale ? "Showing an older balance. It may have changed." : nil)
         self.unitExplanation = unit.explanation
         self.statusTitle = "\(isFixture ? "Fixture" : "VikingBar") \(stale ? "Stale " : "")\(balance.statusBalance)"
-        self.accessibilityLabel = "VikingBar \(self.statusTitle), \(self.remainingText), \(self.sourceLabel)"
+        let statusLabel = isFixture ? "VikingBar \(self.statusTitle)" : self.statusTitle
+        self.accessibilityLabel = "\(statusLabel), \(self.remainingText), \(self.sourceLabel)"
     }
 }
 
