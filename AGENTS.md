@@ -8,12 +8,12 @@ Adapted from [steipete/CodexBar](https://github.com/steipete/CodexBar/blob/98b86
 - `Sources/VikingBarCore`: shared API/auth, snapshots, bundle mapping, and injectable host services.
 - `Sources/VikingBarCLI`: CLI diagnostics and fixture/live proof using the shared core.
 - `Tests/VikingBarTests`: XCTest coverage for usage parsing, account state, icon patterns; mirror new logic with focused tests.
-- `Scripts`: local checks, fixture proof, packaging, pinned CI tools, and draft-release helpers. See `docs/development.md` and `docs/RELEASING.md`. No signing setup exists.
+- `Scripts`: local checks, fixture proof, packaging, pinned CI tools, draft-release helpers, `proof-live.py`, and `test-proof-runner.py`. See `docs/development.md`, `docs/RELEASING.md`, and `docs/live-proof.md`. No signing setup exists.
 - `docs`: architecture, release notes, and process. Build/release instructions arrive with their implementation. Root-level zips/appcast are generated artifacts—avoid editing except during releases.
 
 ## Build, Test, Run
 - Use `swift build` (debug) or `swift build -c release`; `swift test` for the full suite.
-- Local gates: `make check`, `swift test`, `make smoke-package`, and `make workflow-check`. `make smoke-app-fixture` supplies separate native UI proof. See `docs/development.md`. Live API proof remains separate.
+- Local gates: `make check`, `swift test`, `make smoke-package`, and `make workflow-check`. `make smoke-app-fixture` supplies separate native UI proof. See `docs/development.md`. `make check-proof` runs synthetic API proof tests; the authorized local `make proof-live CHECK=auth-balance` requires the credential slot and setup in `docs/live-proof.md`.
 - Dev loop and packaging scripts must build a fresh `VikingBar.app`, launch it, and confirm it stays running. Stop only verified task-owned instances; never use broad `pkill` commands as incidental cleanup.
 - `Scripts/ci-build.sh` runs shared CI gates. `docs/RELEASING.md` covers manually dispatched draft releases from exact tags. Signing/notarization and automatic updates are separate follow-up work.
 

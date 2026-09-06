@@ -41,3 +41,7 @@ Start with [VISION.md](VISION.md), [CONTEXT.md](CONTEXT.md), [AGENTS.md](AGENTS.
 ## Attribution
 
 CodexBar is the reference for app structure and contributor guidance. Preserve its MIT notices when copying code. VikingBar's own code license has not yet been selected.
+
+## Local API proof
+
+See [local proof setup](docs/live-proof.md) for `make check-proof` and the credential-gated `make proof-live CHECK=auth-balance`. Ordinary fixture runs require no account access.

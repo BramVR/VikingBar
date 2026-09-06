@@ -39,3 +39,11 @@ smoke-package:
 
 workflow-check:
 	$(ACTIONLINT) -color
+
+.PHONY: check-proof proof-live
+check-proof:
+	./Scripts/test.sh --filter Proof
+	python3 Scripts/test-proof-runner.py
+
+proof-live: build
+	python3 Scripts/proof-live.py "$(CHECK)"
