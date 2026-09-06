@@ -33,3 +33,5 @@ Issue #3 remains open after the initial workflow merge until real main artifacts
 - [SwiftFormat 0.63.0](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.63.0).
 - [SwiftLint 0.65.0](https://github.com/realm/SwiftLint/releases/tag/0.65.0).
 - [actionlint 1.7.12](https://github.com/rhysd/actionlint/releases/tag/v1.7.12).
+
+Temporary deliberate gate proof: [missing target](issue3-deliberate-missing-target.md).
