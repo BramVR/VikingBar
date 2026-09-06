@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add shared macOS CI checks, verified app and CLI development archives, and manually dispatched private draft releases from exact version tags.
 - Exclude inherited dynamic-loader settings from credential and proof subprocesses, and document the wrapper failure receipt.
 - Add a local auth/balance proof command with one targeted 1Password read, explicit token refresh, allowlisted API requests, redacted receipts, and secret-free failure tests.
 - Avoid repeating the app name in the default status item's accessibility label.

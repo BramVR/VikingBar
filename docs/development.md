@@ -16,7 +16,11 @@ Run the contributor gate:
 make check
 ```
 
-This checks formatting, lint, compilation, tests, and documentation links. `Scripts/test.sh` runs `swift test`; on Command Line Tools installations it supplies the bundled Swift Testing framework and runtime search paths. Full Xcode uses plain `swift test`. The lint command also locates the selected toolchain's SourceKit framework. `make format` applies formatting. Override `SWIFTFORMAT` or `SWIFTLINT` with an installed tool path when needed.
+This checks formatting, lint, compilation, tests, documentation links, and CLI fixtures. `Scripts/test.sh` runs `swift test`; on Command Line Tools installations it supplies the bundled Swift Testing framework and runtime search paths. Full Xcode uses plain `swift test`. The lint command also locates the selected toolchain's SourceKit framework. `make format` applies formatting. Override `SWIFTFORMAT` or `SWIFTLINT` with an installed tool path when needed.
+
+For the pinned tools and full CI build, run `Scripts/bootstrap-ci-tools.sh`, then `Scripts/ci-build.sh`. Tools remain under `.build/ci-tools/bin`. See [contribution checks](../CONTRIBUTING.md), [CI behavior](ci.md), and [artifact downloads](RELEASING.md).
+
+Run `make smoke-package` to build and inspect development app and CLI archives without opening the app. Run `make workflow-check` with actionlint 1.7.12 for GitHub Actions syntax, expressions, and embedded shell checks.
 
 Inspect a synthetic allowance through the shared core:
 
