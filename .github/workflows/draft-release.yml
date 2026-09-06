@@ -1,0 +1,110 @@
+name: Draft release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vMAJOR.MINOR.PATCH tag, optionally with a SemVer prerelease
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: draft-release-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Build selected tag
+    runs-on: macos-15
+    timeout-minutes: 30
+    outputs:
+      commit: ${{ steps.tag.outputs.commit }}
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: trusted
+          fetch-depth: 0
+      - name: Resolve existing tag
+        id: tag
+        working-directory: trusted
+        run: |
+          python3 -c 'import runpy,os; runpy.run_path("Scripts/draft-release.py")["validate_tag"](os.environ["RELEASE_TAG"])'
+          commit="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ steps.tag.outputs.commit }}
+          persist-credentials: false
+          path: source
+      - name: Validate version and release notes
+        env:
+          RELEASE_COMMIT: ${{ steps.tag.outputs.commit }}
+        run: python3 trusted/Scripts/draft-release.py prepare --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" --source source --metadata .build/release-metadata
+      - name: Verify hosted toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          xcodebuild -version | grep -Fx 'Xcode 26.2'
+          swift --version | grep -F 'Apple Swift version 6.2.3 '
+      - name: Install pinned tools
+        run: ./trusted/Scripts/bootstrap-ci-tools.sh
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            source/.build/checkouts
+            source/.build/repositories
+            source/.build/arm64-apple-macosx
+          key: swiftpm-macos15-${{ runner.os }}-${{ runner.arch }}-xcode26.2-swift6.2.3-${{ hashFiles('source/Package.swift', 'source/Package.resolved') }}
+      - name: Run shared gates
+        working-directory: source
+        run: ./Scripts/ci-build.sh
+      - name: Upload distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: draft-assets
+          path: source/.build/artifacts/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload gate logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: draft-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: source/.build/ci-logs/
+          if-no-files-found: warn
+          retention-days: 14
+  draft:
+    name: Stage private draft
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          path: trusted
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+          path: source
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: draft-assets
+          path: assets
+      - name: Read tagged release notes with trusted helper
+        run: python3 trusted/Scripts/draft-release.py prepare --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" --source source --metadata metadata
+      - name: Verify assets and stage draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPO: ${{ github.repository }}
+        run: python3 trusted/Scripts/draft-release.py publish --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" --assets assets --metadata metadata --repo "$RELEASE_REPO"

@@ -1,0 +1,55 @@
+---
+summary: "Download development builds and create private draft releases from exact version tags."
+read_when:
+  - Downloading CI artifacts
+  - Preparing or verifying a draft release
+---
+
+# Download builds and stage a draft release
+
+## Download a development build
+
+1. Open a successful `VikingBar checks` run on the repository's **Actions** page.
+2. Download the development artifact for the desired full commit SHA.
+3. Extract the Actions artifact into a new directory.
+4. Run `shasum -a 256 -c SHA256SUMS` inside that directory.
+5. From the matching source checkout, run `python3 Scripts/smoke-package.py /absolute/path/to/artifact-directory`.
+6. Check `manifest.json` for the expected commit and version before using the app or CLI.
+
+For a terminal download, use `gh run download RUN_ID --repo BramVR/VikingBar --dir DESTINATION`. Choose the directory containing `manifest.json` when inspecting an artifact. Downloaded archives include the app and a standalone CLI. Logs are separate diagnostic artifacts.
+
+These are development builds without Developer ID signing or notarization. Signing, public publishing, Homebrew distribution, and automatic updates require separate setup and authorization.
+
+## Prepare a version tag
+
+1. Set `VERSION` to the intended SemVer version, such as `0.1.0-issue3.1` for isolated prerelease proof.
+2. Add one nonempty `## VERSION` section to `CHANGELOG.md` with the exact version string. Keep `Unreleased` separate.
+3. Run `Scripts/ci-build.sh` and review the result.
+4. Commit the version and changelog together.
+5. Create and push the corresponding existing tag, such as `v0.1.0-issue3.1`, with authorization for that release task.
+
+The tag must resolve to the commit containing matching version and changelog files. The manifest preserves the full prerelease version. The macOS bundle short version uses its numeric core. Ordinary merges do not automatically bump the version or create tags.
+
+## Stage the draft
+
+The workflow must already exist on the default branch. Dispatch it with the existing tag:
+
+```sh
+gh workflow run draft-release.yml --repo BramVR/VikingBar -f tag=v0.1.0-issue3.1
+```
+
+The build job resolves the tag to an exact commit, checks out that commit, validates version and changelog agreement, and runs the same local gates as PR checks. A separate job verifies the build artifacts and stages a draft release with the version's changelog and development-build notice.
+
+The workflow never publishes the draft. An existing published release, changed tag identity, or conflicting same-name asset fails the operation. Identical assets remain intact; missing assets may be uploaded. A rebuild that changes archive bytes fails safely instead of replacing earlier assets.
+
+## Verify the draft
+
+1. Require every build and draft job to pass.
+2. Read the draft through `gh release view TAG --repo BramVR/VikingBar --json isDraft,tagName,targetCommitish,body,assets`.
+3. Confirm `isDraft` is true and the notes contain the exact version's changelog and commit SHA.
+4. Download assets into a fresh directory with `gh release download TAG --repo BramVR/VikingBar --dir DESTINATION`.
+5. Verify `SHA256SUMS` and run `Scripts/smoke-package.py` against that directory.
+6. Compare the manifest commit with `git rev-parse 'refs/tags/TAG^{commit}'` in the fetched source checkout.
+7. Repeat the dispatch to test asset collision handling. Preserve the first artifact set if the rebuild differs.
+
+Keep task-owned proof releases as private drafts. Record their tag, commit, workflow run, artifact checksums, and draft identity in private proof. Never place account data or desktop captures in release assets.
