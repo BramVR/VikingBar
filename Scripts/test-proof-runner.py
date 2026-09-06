@@ -68,6 +68,39 @@ class ProofRunnerTests(unittest.TestCase):
                         self.run_proof()
         self.assertEqual(self.calls, [])
 
+    def test_child_environments_exclude_loader_injection_and_isolate_credentials(self):
+        runtime = {"PATH": "/synthetic/bin", "TMPDIR": "/synthetic/tmp",
+                   "LANG": "en_US.UTF-8", "LC_ALL": "C"}
+        injection = {key: "/synthetic/injection" for key in (
+            "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+            "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH",
+            "DYLD_VERSIONED_LIBRARY_PATH", "DYLD_VERSIONED_FRAMEWORK_PATH",
+            "DYLD_ROOT_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT",
+            "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP",
+        )}
+        self.environment.update(runtime)
+        self.environment.update(injection)
+        self.environment["OP_SERVICE_ACCOUNT_TOKEN"] = "synthetic-stale-token"
+        with patch.object(RUNNER.shutil, "which", return_value="/synthetic/bin/op") as which, \
+                patch.object(Path, "is_file", return_value=True):
+            self.assertEqual(RUNNER.run("auth-balance", self.environment, self.execute), self.receipt)
+        which.assert_called_once_with("op", path=runtime["PATH"])
+        self.assertEqual(len(self.calls), 2)
+        for index, (command, options) in enumerate(self.calls):
+            with self.subTest(child="op" if index == 0 else "cli"):
+                expected = dict(runtime)
+                if index == 0:
+                    expected["OP_SERVICE_ACCOUNT_TOKEN"] = "synthetic-service"
+                    self.assertEqual(command[0], "/synthetic/bin/op")
+                    self.assertNotIn("input", options)
+                else:
+                    self.assertEqual(json.loads(options["input"]), self.credentials)
+                self.assertEqual(options["env"], expected)
+                for value in self.credentials.values():
+                    self.assertNotIn(value, json.dumps(command))
+                    self.assertNotIn(value, json.dumps(options["env"]))
+                self.assertNotIn("synthetic-service", json.dumps(command))
+
     def test_missing_dependencies_fail_before_credential_access(self):
         with patch.object(RUNNER.shutil, "which", return_value=None):
             with self.assertRaisesRegex(RUNNER.ProofFailure, "one-password-cli-required"):

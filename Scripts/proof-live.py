@@ -41,7 +41,7 @@ def extract_credentials(item_bytes):
 
 
 def child_environment(environment):
-    allowed = ("PATH", "TMPDIR", "LANG", "LC_ALL", "DYLD_FRAMEWORK_PATH", "DYLD_LIBRARY_PATH")
+    allowed = ("PATH", "TMPDIR", "LANG", "LC_ALL")
     return {key: environment[key] for key in allowed if key in environment}
 
 

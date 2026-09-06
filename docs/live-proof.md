@@ -35,7 +35,7 @@ export VIKINGBAR_CREDENTIAL_REFERENCE=/absolute/private/credential-reference.jso
 make proof-live CHECK=auth-balance
 ```
 
-The approved profile supplies `BRAM_OP_SERVICE_ACCOUNT_TOKEN`. Do not print it. Do not run `op --version`, sign-in probes, or additional item reads as setup. The runner performs one `op item get` with the explicit vault and item, captures the JSON in memory, selects the three fields, and passes them to the built CLI over stdin. The vault token is excluded from the CLI environment. Passwords and OAuth tokens are never written to files or passed as command arguments. Preserve this session for a specifically authorized retry; do not create parallel sessions. End only this task-owned session after proof and evidence capture.
+The approved profile supplies `BRAM_OP_SERVICE_ACCOUNT_TOKEN`. Do not print it. Do not run `op --version`, sign-in probes, or additional item reads as setup. The runner performs one `op item get` with the explicit vault and item, captures the JSON in memory, selects the three fields, and passes them to the built CLI over stdin. Both child processes receive only `PATH`, `TMPDIR`, `LANG`, and `LC_ALL` from the caller. The 1Password child also receives the service-account token; the Swift CLI does not. Loader variables such as `DYLD_LIBRARY_PATH` and `DYLD_FRAMEWORK_PATH` are excluded. Passwords and OAuth tokens are never written to files or passed as command arguments. Preserve this session for a specifically authorized retry; do not create parallel sessions. End only this task-owned session after proof and evidence capture.
 
 ## Requests and auth limits
 
@@ -55,7 +55,7 @@ make check-proof
 
 This runs the Swift proof tests and Python credential-wrapper tests. It does not invoke 1Password or access real accounts. Tests cover request ordering, the refreshed token, allowlists, response validation, failure status, and redaction.
 
-The live runner returns JSON with `schema_version`, `check`, `passed`, `password_grant`, `refresh_grant`, `scope_mismatch`, `subscription_count`, `balance_count`, and `failure`. A successful receipt requires both grants and an equal, positive number of discovered subscriptions and validated balances. No identifiers, bundle amounts, phone numbers, credentials, or raw responses appear in output. Subprocess errors become fixed diagnostics.
+On success, the live runner returns JSON with `schema_version`, `check`, `passed`, `password_grant`, `refresh_grant`, `scope_mismatch`, `subscription_count`, `balance_count`, and `failure`. A successful receipt requires both grants and an equal, positive number of discovered subscriptions and validated balances. No identifiers, bundle amounts, phone numbers, credentials, or raw responses appear in output. On failure, the wrapper exits nonzero and returns a different JSON object, `{"passed": false, "error": "fixed-diagnostic-code"}`. It suppresses the CLI failure receipt and upstream error text. The direct CLI command emits the full receipt schema on both success and failure; its `failure` field contains a fixed code when the proof fails.
 
 Keep receipts in a private directory outside version control, such as `proof-private/`. Record the commit SHA, executable SHA256, command, UTC time, exit status, and receipt. Evidence must survive cleanup. Publish only the minimum non-secret pass/fail summary; do not publish raw account responses or desktop captures. A receipt proves endpoint execution and response validation, not correctness of a future app's allowance display.
 
