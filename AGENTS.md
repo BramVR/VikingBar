@@ -8,12 +8,12 @@ Adapted from [steipete/CodexBar](https://github.com/steipete/CodexBar/blob/98b86
 - `Sources/VikingBarCore`: shared API/auth, snapshots, bundle mapping, and injectable host services.
 - `Sources/VikingBarCLI`: CLI diagnostics and fixture/live proof using the shared core.
 - `Tests/VikingBarTests`: XCTest coverage for usage parsing, account state, icon patterns; mirror new logic with focused tests.
-- `Scripts`: `package-app.sh`, `smoke-app-fixture.py`, `inspect-ui.swift`, `test.sh`, and `check-docs.py`. No release wrapper or signing setup exists yet.
+- `Scripts`: `package-app.sh`, `smoke-app-fixture.py`, `inspect-ui.swift`, `test.sh`, `check-docs.py`, `proof-live.py`, and `test-proof-runner.py`. No release wrapper or signing setup exists yet.
 - `docs`: architecture, release notes, and process. Build/release instructions arrive with their implementation. Root-level zips/appcast are generated artifacts—avoid editing except during releases.
 
 ## Build, Test, Run
 - Use `swift build` (debug) or `swift build -c release`; `swift test` for the full suite.
-- Local gates: `make check`, `swift test`, and `make smoke-app-fixture`. See `docs/development.md`. Live API proof remains separate.
+- Local gates: `make check`, `swift test`, and `make smoke-app-fixture`. See `docs/development.md`. `make check-proof` runs synthetic API proof tests; the authorized local `make proof-live CHECK=auth-balance` requires the credential slot and setup in `docs/live-proof.md`.
 - Dev loop and packaging scripts must build a fresh `VikingBar.app`, launch it, and confirm it stays running. Stop only verified task-owned instances; never use broad `pkill` commands as incidental cleanup.
 - Release flow is not configured. Ticket #3 establishes CI artifacts and manually dispatched draft releases; signing/notarization and automatic updates are separate follow-up work.
 

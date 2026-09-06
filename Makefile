@@ -26,3 +26,11 @@ package-app:
 
 smoke-app-fixture:
 	python3 Scripts/smoke-app-fixture.py
+
+.PHONY: check-proof proof-live
+check-proof:
+	./Scripts/test.sh --filter Proof
+	python3 Scripts/test-proof-runner.py
+
+proof-live: build
+	python3 Scripts/proof-live.py "$(CHECK)"
