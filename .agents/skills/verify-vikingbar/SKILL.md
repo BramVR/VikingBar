@@ -1,11 +1,13 @@
 ---
 name: verify-vikingbar
-description: "Verify VikingBar fixture UI, JSON CLI, and authorized API proof."
+description: "Verify VikingBar UI, CLI, build artifacts, and authorized API proof."
 ---
 
 # Verify VikingBar
 
 Use the logged-in Mac desktop. Read [the feature map](features/README.md) before choosing coverage. The app and explicit fixture CLI use synthetic data. The separate [auth/balance proof](features/auth-balance-proof.md) intentionally accesses the network and requires authorized credentials.
+
+For development archives and existing private drafts, use [Build artifacts and private drafts](features/packaged-artifacts.md). Package checks execute fixture CLIs and do not require native UI driving.
 
 ## Launch
 
@@ -36,6 +38,7 @@ The helper terminates only its recorded child process and waits for exit, includ
 ## Helpers
 
 - `make check` checks formatting, lint, build, tests, and documentation links.
+- `make smoke-package` builds and inspects development archives; follow [artifact trust and download checks](features/packaged-artifacts.md).
 - `make check-proof` runs synthetic API and credential-wrapper tests without 1Password or account access.
 - `make proof-live CHECK=auth-balance` runs authorized live proof; follow [its prerequisites](features/auth-balance-proof.md) first.
 - `make smoke-app-fixture` runs executable `Scripts/smoke-app-fixture.py` end to end.

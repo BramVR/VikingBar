@@ -23,9 +23,11 @@ The app contains `VikingBarApp`, the `vikingbar` CLI, build metadata, and a deve
 
 ## Merge enforcement
 
-Required-check configuration is a post-merge setup step for issue #3. The workflow must exist on `main` and its exact main run must pass before the coordinator enables enforcement. Until that setup is verified, maintainers must inspect the exact PR head and require a successful `VikingBar checks` result. Do not treat a skipped check or local-only run as a pass.
+`main` requires the `VikingBar checks` status check, a branch up to date with its base, and enforcement for administrators. GitHub protection readback confirmed these settings after the first exact main run passed. Do not treat a skipped check or local-only run as a pass.
 
-Issue #3 remains open after the initial workflow merge until real main artifacts and a task-owned private draft release have been downloaded and verified. If the repository plan rejects required checks, record GitHub's exact response here and retain the maintainer gate. No enforcement is claimed yet.
+The [first main run](https://github.com/BramVR/VikingBar/actions/runs/34065097299) built commit `2883452ca37d29a16e693267df76b4ae20d639f8`. Downloaded app and CLI archives passed manifest identity, checksums, and extracted fixture execution. An intentional broken documentation link had already demonstrated a real failing PR gate and a subsequent green recovery.
+
+The isolated proof tag `v0.1.0-issue3.1` identifies commit `ec3035314d8f5e7dbec7750a90f52b942c692c62`. The [first draft run](https://github.com/BramVR/VikingBar/actions/runs/34065186057) created a private draft with the exact changelog and four verified assets. The [repeat dispatch](https://github.com/BramVR/VikingBar/actions/runs/34065294216) retained the same asset IDs and SHA-256 digests, uploading zero replacements. Downloaded draft archives passed the same manifest, checksum, and extracted CLI checks. The proof version remains isolated from `main`; the draft is not a production release.
 
 ## References
 
