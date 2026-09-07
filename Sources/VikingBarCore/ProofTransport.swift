@@ -97,6 +97,10 @@ public final class EphemeralProofTransport: NSObject, ProofHTTPTransport, URLSes
             let (data, response) = try await session.data(for: request)
             guard let response = response as? HTTPURLResponse else { throw ProofFailure.transport }
             return ProofHTTPResponse(statusCode: response.statusCode, data: data)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         } catch {
             throw ProofFailure.transport
         }

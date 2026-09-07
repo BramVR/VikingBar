@@ -1,0 +1,391 @@
+import Foundation
+
+public actor VikingSession {
+    private let api: LiveAPI
+    private let store: any SessionStore
+    private let lease: any SessionLease
+    private let cache: any BalanceCache
+    private var current = LiveSessionState()
+    private var token: LiveToken?
+    private var tokenGeneration: UInt64?
+    private var generation: UInt64 = 0
+    private var flight: InFlight?
+    private var failures = 0
+
+    public init(
+        transport: any ProofHTTPTransport, store: any SessionStore,
+        lease: any SessionLease, cache: any BalanceCache,
+        now: @escaping @Sendable () -> Date = { Date() },
+    ) {
+        self.api = LiveAPI(transport: transport, now: now)
+        self.store = store
+        self.lease = lease
+        self.cache = cache
+    }
+
+    public static func production(
+        transport: any ProofHTTPTransport = EphemeralProofTransport(),
+    ) throws -> VikingSession {
+        let directory = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true,
+        ).appendingPathComponent("VikingBar", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700],
+        )
+        return VikingSession(
+            transport: transport, store: KeychainSessionStore(),
+            lease: FileSessionLease(url: directory.appendingPathComponent("session.lock")),
+            cache: FileBalanceCache(url: directory.appendingPathComponent("balance-v1.json")),
+        )
+    }
+
+    public func state() -> LiveSessionState {
+        self.current
+    }
+
+    public func bootstrap(credentials: ProofCredentials) async throws -> LiveSessionState {
+        guard self.flight == nil else { throw LiveFailure.busy }
+        self.generation &+= 1
+        self.token = nil
+        self.current = LiveSessionState()
+        return try await self.run(kind: .bootstrap) { generation in
+            try await self.connect(credentials: credentials, generation: generation)
+        }
+    }
+
+    public func restore() throws -> LiveSessionState {
+        guard self.flight == nil else { throw LiveFailure.busy }
+        let handle = try self.lease.acquire()
+        defer { handle.release() }
+        do {
+            guard let record = try self.loadRecord() else {
+                self.token = nil
+                self.current = LiveSessionState()
+                return self.current
+            }
+            self.adopt(record)
+            let cached = try? self.cache.load(connectionID: record.connectionID)
+            if let cached, cached.canRestore(connectionID: self.current.connectionID) {
+                self.current = cached
+                self.current.isRefreshing = false
+                if let deadline = cached.freshDeadline(at: self.api.now()) {
+                    self.current.nextRefreshAt = deadline
+                } else {
+                    if cached.failure == nil {
+                        self.current.nextRefreshAt = nil
+                    }
+                    self.current.markStaleSnapshot(failure: cached.failure, at: self.api.now())
+                }
+                self.current.revalidateBundle(at: self.api.now())
+            }
+            guard !record.rotationPending else { throw LiveFailure.reconnectRequired }
+            return self.current
+        } catch {
+            let failure = (error as? LiveFailure ?? .transport)
+            self.markStale(failure: failure)
+            throw failure
+        }
+    }
+
+    public func refresh(
+        subscriptionID: String? = nil, forceTokenRefresh: Bool = false,
+    ) async throws -> LiveSessionState {
+        let kind = OperationKind.refresh(subscriptionID: subscriptionID)
+        if let flight {
+            guard flight.kind == kind else { throw LiveFailure.busy }
+            var completed = try await flight.task.value
+            try Task.checkCancellation()
+            completed.isRefreshing = false
+            return completed
+        }
+        return try await self.run(kind: kind) { generation in
+            try await self.fetch(
+                subscriptionID: subscriptionID, generation: generation, forceTokenRefresh: forceTokenRefresh,
+            )
+        }
+    }
+
+    public func selectSubscription(id: String) async throws -> LiveSessionState {
+        guard self.current.subscriptions.contains(where: { $0.id == id }) else {
+            throw LiveFailure.invalidSelection
+        }
+        self.cancel()
+        let generation = self.generation
+        if let flight {
+            _ = try? await flight.task.value
+        }
+        guard self.generation == generation else { throw CancellationError() }
+        self.flight = nil
+        return try await self.refresh(subscriptionID: id)
+    }
+
+    public func selectBundle(index: Int) throws -> LiveSessionState {
+        guard self.flight == nil else { throw LiveFailure.busy }
+        return try self.withConnectionLease(expected: self.current.connectionID) { _ in
+            try self.current.selectBundle(index: index, at: self.api.now())
+            try? self.cache.save(self.current)
+            return self.current
+        }
+    }
+
+    public func cancel() {
+        self.generation &+= 1
+        self.flight?.task.cancel()
+    }
+}
+
+extension VikingSession {
+    private func run(
+        kind: OperationKind,
+        operation: @escaping @Sendable (UInt64) async throws -> LiveSessionState,
+    ) async throws -> LiveSessionState {
+        let id = UUID()
+        let generation = self.generation
+        self.current.isRefreshing = true
+        let task = Task { try await operation(generation) }
+        self.flight = InFlight(id: id, kind: kind, task: task)
+        defer {
+            if self.flight?.id == id {
+                self.flight = nil
+                self.current.isRefreshing = false
+            }
+        }
+        do {
+            _ = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: { task.cancel() }
+            self.current.isRefreshing = false
+            return self.current
+        } catch {
+            if self.generation == generation {
+                let failure = error is CancellationError ? self.current.failure : (error as? LiveFailure ?? .transport)
+                self.recordFailure(failure)
+            }
+            throw error
+        }
+    }
+
+    private func connect(credentials: ProofCredentials, generation: UInt64) async throws -> LiveSessionState {
+        do { try credentials.validate() } catch { throw LiveFailure.malformedResponse }
+        let handle = try self.lease.acquire()
+        defer { handle.release() }
+        try Task.checkCancellation()
+        let received = try await self.api.token(fields: [
+            "client_id": credentials.clientID, "username": credentials.username, "password": credentials.password,
+            "grant_type": "password", "scope": "read",
+        ])
+        let record = StoredSession(
+            clientID: credentials.clientID, connectionID: ConnectionID(), refreshToken: received.refreshToken,
+            generation: 0, rotationPending: false,
+        )
+        try self.saveRecord(record)
+        try self.checkGeneration(generation)
+        self.current.connectionID = record.connectionID
+        self.current.scopeMismatch = received.scopeMismatch
+        self.current.snapshot = self.current.emptySnapshot
+        self.token = received
+        self.tokenGeneration = record.generation
+        return self.current
+    }
+
+    private func fetch(
+        subscriptionID: String?, generation: UInt64, forceTokenRefresh: Bool,
+    ) async throws -> LiveSessionState {
+        let token = try await self.authorize(force: forceTokenRefresh, generation: generation)
+        let connectionID = self.current.connectionID
+        do {
+            return try await self.fetchBalance(
+                subscriptionID: subscriptionID, token: token, connectionID: connectionID, generation: generation,
+            )
+        } catch LiveFailure.tokenExpired {
+            let renewed = try await self.authorize(
+                force: true, generation: generation, expectedConnectionID: connectionID,
+            )
+            return try await self.fetchBalance(
+                subscriptionID: subscriptionID, token: renewed, connectionID: connectionID, generation: generation,
+            )
+        }
+    }
+
+    private func fetchBalance(
+        subscriptionID: String?, token: LiveToken, connectionID: ConnectionID?, generation: UInt64,
+    ) async throws -> LiveSessionState {
+        let subscriptions = try await self.api.subscriptions(token: token)
+        try self.checkGeneration(generation)
+        guard !subscriptions.isEmpty else { throw LiveFailure.noMobileSubscriptions }
+        let selected: MobileSubscription
+        if let subscriptionID {
+            guard let requested = subscriptions.first(where: { $0.id == subscriptionID }) else {
+                throw LiveFailure.invalidSelection
+            }
+            selected = requested
+        } else {
+            selected = subscriptions.first(where: { $0.id == self.current.selectedSubscriptionID }) ?? subscriptions[0]
+        }
+        try self.withConnectionLease(expected: connectionID) { _ in
+            try self.checkGeneration(generation)
+            let changedSubscription = self.current.selectedSubscriptionID != selected.id
+            self.current.subscriptions = subscriptions
+            self.current.selectedSubscriptionID = selected.id
+            if changedSubscription {
+                self.current.balance = nil
+                self.current.selectedBundleIndex = nil
+                self.current.snapshot = self.current.emptySnapshot
+            }
+        }
+        let balance = try await self.api.balance(subscriptionID: selected.id, token: token)
+        return try self.withConnectionLease(expected: connectionID) { record in
+            try self.checkGeneration(generation)
+            guard !record.rotationPending else { throw LiveFailure.reconnectRequired }
+            self.current.publish(balance, at: self.api.now())
+            self.failures = 0
+            try? self.cache.save(self.current)
+            return self.current
+        }
+    }
+
+    private func authorize(
+        force: Bool, generation: UInt64, expectedConnectionID: ConnectionID? = nil,
+    ) async throws -> LiveToken {
+        let handle = try self.lease.acquire()
+        defer { handle.release() }
+        guard var record = try self.loadRecord() else { throw LiveFailure.notConnected }
+        if let expectedConnectionID, record.connectionID != expectedConnectionID {
+            self.adopt(record)
+            throw LiveFailure.connectionChanged
+        }
+        let sameConnection = self.current.connectionID == record.connectionID
+        self.adopt(record)
+        guard !record.rotationPending,
+              self.current.failure != .reconnectRequired, self.current.failure != .unauthorized
+        else { throw LiveFailure.reconnectRequired }
+        let canReuse = sameConnection && self.tokenGeneration == record.generation && !force
+        if canReuse, let token, self.api.now() < token.expiresAt {
+            return token
+        }
+        try self.checkGeneration(generation)
+        record.rotationPending = true
+        try self.saveRecord(record)
+        let received: LiveToken
+        do {
+            received = try await self.api.token(fields: [
+                "client_id": record.clientID, "refresh_token": record.refreshToken, "grant_type": "refresh_token",
+            ])
+        } catch {
+            self.token = nil
+            self.markStale(failure: .reconnectRequired)
+            if error is CancellationError {
+                throw CancellationError()
+            }
+            throw LiveFailure.reconnectRequired
+        }
+        record.refreshToken = received.refreshToken
+        record.rotationPending = false
+        record.generation &+= 1
+        // A received replacement must survive cancellation before anything observes the new access token.
+        do { try self.saveRecord(record) } catch {
+            self.token = nil
+            throw LiveFailure.reconnectRequired
+        }
+        try self.checkGeneration(generation)
+        self.token = received
+        self.tokenGeneration = record.generation
+        self.current.scopeMismatch = received.scopeMismatch
+        return received
+    }
+}
+
+extension VikingSession {
+    private func withConnectionLease<Value>(
+        expected: ConnectionID?, operation: (StoredSession) throws -> Value,
+    ) throws -> Value {
+        let handle = try self.lease.acquire()
+        defer { handle.release() }
+        guard let record = try self.loadRecord() else {
+            self.token = nil
+            self.current = LiveSessionState()
+            throw LiveFailure.notConnected
+        }
+        guard record.connectionID == expected else {
+            self.adopt(record)
+            throw LiveFailure.connectionChanged
+        }
+        return try operation(record)
+    }
+
+    private func recordFailure(_ failure: LiveFailure?) {
+        guard failure != .connectionChanged else {
+            self.markStale(failure: failure)
+            return
+        }
+        do {
+            try self.withConnectionLease(expected: self.current.connectionID) { _ in
+                self.markStale(failure: failure)
+                try? self.cache.save(self.current)
+            }
+        } catch LiveFailure.connectionChanged {
+            self.markStale(failure: .connectionChanged)
+        } catch {
+            self.markStale(failure: failure)
+        }
+    }
+
+    private func adopt(_ record: StoredSession) {
+        if self.current.connectionID != record.connectionID {
+            self.token = nil
+            self.current = LiveSessionState()
+            self.current.connectionID = record.connectionID
+            self.current.snapshot = self.current.emptySnapshot
+        }
+    }
+
+    private func markStale(failure: LiveFailure?) {
+        self.current.failure = failure
+        if let failure {
+            self.failures = min(self.failures + 1, 7)
+            self.current.nextRefreshAt = [.reconnectRequired, .unauthorized, .notConnected].contains(failure)
+                ? nil : self.api.now().addingTimeInterval(min(1800, 30 * pow(2, Double(self.failures - 1))))
+        }
+        self.current.markStaleSnapshot(failure: failure, at: self.api.now())
+    }
+
+    private func checkGeneration(_ generation: UInt64) throws {
+        try Task.checkCancellation()
+        guard generation == self.generation else { throw CancellationError() }
+    }
+
+    private func loadRecord() throws -> StoredSession? {
+        do {
+            guard let data = try self.store.load() else { return nil }
+            let record = try JSONDecoder().decode(StoredSession.self, from: data)
+            guard record.version == 1, !record.clientID.isEmpty, !record.refreshToken.isEmpty else {
+                throw LiveFailure.reconnectRequired
+            }
+            return record
+        } catch let failure as LiveFailure { throw failure } catch { throw LiveFailure.reconnectRequired }
+    }
+
+    private func saveRecord(_ record: StoredSession) throws {
+        do { try self.store.save(JSONEncoder().encode(record)) } catch { throw LiveFailure.storage }
+    }
+}
+
+private struct InFlight {
+    let id: UUID
+    let kind: OperationKind
+    let task: Task<LiveSessionState, Error>
+}
+
+private enum OperationKind: Equatable {
+    case bootstrap
+    case refresh(subscriptionID: String?)
+}
+
+private struct StoredSession: Codable {
+    var version = 1
+    let clientID: String
+    let connectionID: ConnectionID
+    var refreshToken: String
+    var generation: UInt64
+    var rotationPending: Bool
+}

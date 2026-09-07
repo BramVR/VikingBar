@@ -15,6 +15,7 @@ public enum Freshness: Codable, Equatable, Sendable {
 public enum SnapshotSource: Codable, Equatable, Sendable {
     case fixture(FixtureState)
     case notConnected
+    case live
 }
 
 public struct UsageSnapshot: Codable, Equatable, Sendable {
@@ -47,7 +48,7 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         allowance: .unavailable,
         expiresAt: nil,
         freshness: .unavailable,
-        errorMessage: "Live account access is not available in this build. Select a fixture to preview the app.",
+        errorMessage: "Connect your Mobile Vikings account to load your data balance.",
     )
 }
 

@@ -153,6 +153,32 @@ class ProofRunnerTests(unittest.TestCase):
                 self.assertFalse(json.loads(result.stdout)["passed"])
                 self.assertNotIn(b"synthetic-private", result.stdout + result.stderr)
 
+    def test_new_cli_routes_reject_input_before_live_access(self):
+        executable = Path(__file__).resolve().parent.parent / ".build/debug/vikingbar"
+        cases = [(["connect"], b"private-sentinel"), (["connect"], b"x" * 65537),
+                 (["live", "--private-sentinel"], b""),
+                 (["session"], b'{"command":"restore","password":"private-sentinel"}\n'),
+                 (["session"], b'{"command":"selectSubscription"}\n'),
+                 (["session"], b'{"command":"selectBundle","index":-1}\n'),
+                 (["session"], b"x" * 65537 + b"\n")]
+        for arguments, payload in cases:
+            with self.subTest(arguments=arguments):
+                result = subprocess.run([str(executable), *arguments], input=payload,
+                                        capture_output=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(json.loads(result.stdout)["passed"])
+                self.assertNotIn(b"private-sentinel", result.stdout + result.stderr)
+
+    def test_session_cancel_and_shutdown_need_no_production_state(self):
+        executable = Path(__file__).resolve().parent.parent / ".build/debug/vikingbar"
+        result = subprocess.run([str(executable), "session"],
+                                input=b'{"command":"cancel"}\n{"command":"shutdown"}\n',
+                                capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(all(line["state"].get("connectionID") is None for line in lines))
+
     def test_entrypoint_redacts_unexpected_errors_and_timeouts(self):
         for error in (ValueError("synthetic-private"), subprocess.TimeoutExpired("private", 1),
                       OSError("private")):

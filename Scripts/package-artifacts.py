@@ -47,6 +47,7 @@ def metadata(configuration):
                 sourceDirty=bool(command("git", "status", "--porcelain", "--untracked-files=normal")),
                 minimumMacOS="14.0", configuration=configuration, developmentBuild=True,
                 developerIDSigned=False, notarized=False,
+                connectHelperSHA256=digest(ROOT / "Scripts/connect-account.py"),
                 toolchain=dict(xcode=xcode, swift=command("swift", "--version")))
 
 
@@ -70,6 +71,11 @@ def build_bundle(bundle, info):
         # SwiftPM resolves resources relative to Bundle.main.bundleURL.
         shutil.copytree(resource, bundle / resource.name)
         shutil.copytree(resource, executables / resource.name)
+    helper = resources / "connect-account.py"
+    shutil.copy2(ROOT / "Scripts/connect-account.py", helper)
+    helper.chmod(0o755)
+    if digest(helper) != info["connectHelperSHA256"]:
+        raise ValueError("Connection helper changed during packaging")
     write_json(resources / "build-manifest.json", info)
     (resources / "DEVELOPMENT.txt").write_text(NOTICE)
     plist = dict(CFBundleExecutable="VikingBarApp", CFBundleIdentifier="be.bram.vikingbar",

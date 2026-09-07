@@ -1,0 +1,53 @@
+---
+summary: "Connect a Mobile Vikings account and inspect its live balance."
+read_when:
+  - Connecting or reconnecting a live account
+  - Changing live refresh, credential storage, or SIM selection
+---
+
+# Connect your Mobile Vikings account
+
+Build the development app with `make package-app`, then open `.build/app/VikingBar.app`. Open the helmet in the menu bar and choose **Connect with 1Password**. Select your approved credential reference file if prompted. The reference contains the vault, item ID, and field labels described in [local proof setup](live-proof.md#setup). It contains no credential values.
+
+The connection helper requires Python 3, tmux, the 1Password CLI, and the authorized service-account setup in your shell profile. It opens one named tmux session and reads the configured item once. The app never receives the service-account token. The initial password exchange releases the password before balance retrieval begins.
+
+After connection, choose a SIM and data bundle in the card. Different bundles keep their own amounts, applicability, and expiry. The helmet represents the selected bundle. Extra charges show the selected SIM's out-of-bundle cost in euros; a missing amount stays unavailable. **Refresh now** requests an update. **Open My Viking** opens the provider's account website.
+
+The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
+
+## Inspect the same balance in the CLI
+
+Use the CLI embedded in the development bundle:
+
+```sh
+.build/app/VikingBar.app/Contents/MacOS/vikingbar live
+.build/app/VikingBar.app/Contents/MacOS/vikingbar live --cached
+```
+
+The first command refreshes the stored session and prints the live state, snapshot, and shared menu presentation. The second reads the saved state. Both commands require explicit live access and may read the app's Keychain item. JSON contains private account display values and amounts. Keep that output local.
+
+Use `--subscription ID` or `--bundle INDEX` to select a subscription or one of its provider-ordered bundles. A different subscription starts with its own balance or an unavailable state. It never borrows another SIM's allowance.
+
+An explicit fixture command remains isolated from account access:
+
+```sh
+.build/app/VikingBar.app/Contents/MacOS/vikingbar --fixture finite
+```
+
+## Recover a connection
+
+If the app asks you to reconnect, choose **Connect with 1Password** again. Each successful connection creates a new local connection identity. Cached subscriptions from the previous connection cannot supply the new connection's balance.
+
+The bundled `vikingbar` executable owns the refresh session in macOS Keychain under service `be.bram.vikingbar.oauth` and account `mobile-vikings`. The native app sends commands to that executable over private pipes. It never reads the token directly. Bootstrap and refresh use the same executable identity, and separate CLI processes share a lease around token rotation.
+
+The CLI updates the whole Keychain record during rotation. A rebuilt development executable may require renewed Keychain authorization. VikingBar never grants all applications access to the token.
+
+A pending rotation is recorded before the network exchange. If the process exits before it saves the replacement token, the next launch requires reconnect. The provider's token exchange and local Keychain update cannot form one atomic transaction.
+
+Background refresh uses the stored refresh token. It never retrieves the password from 1Password. Authentication and approved data reads remain subject to the [request allowlist](live-proof.md#requests-and-auth-limits).
+
+## Verify a live build
+
+With the coordinator's credential and Mac UI slots, run `make proof-live CHECK=balance-ui`. Follow [the live proof guide](live-proof.md) and the project verification skill. This gate drives a freshly built native app, compares API values with production output, and verifies recovery after relaunch. A missing credential, inaccessible Keychain item, failed request, or hidden status item fails the gate.
+
+Private account values and screenshots stay in the local proof directory. Publish only the redacted pass/fail receipt and build identity. Synthetic tests and fixture screenshots do not complete this live gate.
