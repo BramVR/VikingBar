@@ -101,19 +101,21 @@ extension VikingBarCLI {
 
     static func connect(arguments: [String]) async {
         do {
-            guard arguments == ["connect"] else { throw ProofFailure.invalidInput }
+            guard arguments == ["connect"] else { throw BootstrapFailure.credentialInput }
             try await self.bootstrapFromInput()
             self.writeJSON(ConnectReceipt())
         } catch {
-            self.writeJSON(CommandFailure(error: "connect-failed"))
+            self.writeJSON(CommandFailure(error: (error as? BootstrapFailure ?? .connectFailed).rawValue))
             exit(1)
         }
     }
 
     private static func bootstrapFromInput() async throws {
-        let credentials = try self.readCredentials()
-        let session = try VikingSession.production()
-        _ = try await session.bootstrap(credentials: credentials)
+        let credentials: ProofCredentials
+        do { credentials = try self.readCredentials() } catch { throw BootstrapFailure.credentialInput }
+        let session: VikingSession
+        do { session = try VikingSession.production() } catch { throw BootstrapFailure.localFilesystem }
+        _ = try await session.bootstrapWithDiagnostics(credentials: credentials)
     }
 
     static func live(arguments: [String]) async {

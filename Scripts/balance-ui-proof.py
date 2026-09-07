@@ -2,6 +2,7 @@
 """Private, fail-closed native balance proof. Run only with live authorization."""
 import datetime
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,9 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
+CONNECT_SPEC = importlib.util.spec_from_file_location("connect_account", ROOT / "Scripts/connect-account.py")
+CONNECT = importlib.util.module_from_spec(CONNECT_SPEC)
+CONNECT_SPEC.loader.exec_module(CONNECT)
 
 
 class UIFailure(Exception):
@@ -92,6 +96,16 @@ def validate_api_receipt(value):
             or type(value["bundle_count"]) is not int or value["bundle_count"] < 1):
         raise UIFailure("api-proof-receipt-invalid")
     return value
+
+
+def validate_connect_receipt(value):
+    code = CONNECT.failure_code(value)
+    if code:
+        raise UIFailure("native-connect-" + code)
+    try:
+        CONNECT.validate_receipt(value)
+    except CONNECT.ConnectFailure:
+        raise UIFailure("native-connect-failed") from None
 
 
 def wait_for(operation, predicate, seconds=90):
@@ -260,8 +274,7 @@ class NativeProof:
         receipt_path = self.directory / "connect-result.json"
         wait_for(lambda: receipt_path.exists(), bool, seconds=170)
         connect_receipt = json.loads(receipt_path.read_text())
-        if connect_receipt != {"schema_version": 1, "check": "connect", "passed": True, "connected": True}:
-            raise UIFailure("native-connect-failed")
+        validate_connect_receipt(connect_receipt)
         ownership = json.loads((self.directory / "connect-result-ownership.json").read_text())
         if (ownership.get("parentPID") != self.process.pid
                 or any(type(ownership.get(key)) is not int or ownership[key] <= 0

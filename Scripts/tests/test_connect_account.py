@@ -74,6 +74,65 @@ class ConnectAccountTests(unittest.TestCase):
         self.assertTrue(ownership["cleanupAttempted"])
         self.assertEqual(ownership["cleanupReturncode"], 0)
 
+    def test_cli_failure_stage_survives_without_private_output(self):
+        def execute(command, **_kwargs):
+            if command[0] == "/synthetic/op":
+                value = {"fields": [{"label": key, "value": "synthetic-" + key}
+                                    for key in ("client_id", "username", "password")]}
+                return subprocess.CompletedProcess(command, 0, json.dumps(value).encode(), b"")
+            return subprocess.CompletedProcess(command, 1, b'{"passed":false,"error":"token-network"}',
+                                               b"private-provider-sentinel")
+        with patch.object(CONNECT.shutil, "which", return_value="/synthetic/op"):
+            with self.assertRaisesRegex(CONNECT.ConnectFailure, "^token-network$"):
+                CONNECT.inside(self.cli, self.reference, self.environment, execute)
+
+    def test_supervisor_preserves_allowlisted_inner_failure(self):
+        def execute(command, **_kwargs):
+            if "new-session" in command:
+                import shlex
+                child = shlex.split(command[-1].split("; exec ", 1)[1])
+                CONNECT.write_receipt(child[child.index("--result") + 1],
+                                      {"passed": False, "error": "credential-read-failed"})
+            return subprocess.CompletedProcess(command, 0, b"", b"")
+        with patch.object(CONNECT.shutil, "which", return_value="/synthetic/tmux"):
+            with self.assertRaisesRegex(CONNECT.ConnectFailure, "^credential-read-failed$"):
+                CONNECT.supervise(self.cli, self.reference, self.environment, execute)
+
+    def test_cleanup_failure_does_not_replace_the_inner_failure(self):
+        def execute(command, **_kwargs):
+            if "kill-session" in command:
+                raise subprocess.TimeoutExpired(command, 10, stderr=b"private-cleanup-sentinel")
+            import shlex
+            child = shlex.split(command[-1].split("; exec ", 1)[1])
+            CONNECT.write_receipt(child[child.index("--result") + 1],
+                                  {"passed": False, "error": "token-rejected"})
+            return subprocess.CompletedProcess(command, 0, b"", b"")
+        with patch.object(CONNECT.shutil, "which", return_value="/synthetic/tmux"):
+            with self.assertRaisesRegex(CONNECT.ConnectFailure, "^token-rejected$"):
+                CONNECT.supervise(self.cli, self.reference, self.environment, execute)
+
+    def test_failure_receipts_reject_raw_text_extra_fields_and_boolean_coercion(self):
+        for value in ({"passed": False, "error": "private-sentinel"},
+                      {"passed": False, "error": "token-network", "raw": "private-sentinel"},
+                      {"passed": 0, "error": "token-network"},
+                      {"passed": False, "error": ["token-network"]}):
+            self.assertIsNone(CONNECT.failure_code(value))
+        self.assertIsNone(CONNECT.failure_code({"passed": False, "error": "credential-read-failed"},
+                                              CONNECT.CLI_FAILURE_CODES))
+
+    def test_credential_timeout_and_missing_fields_are_distinct(self):
+        for result, code in ((subprocess.TimeoutExpired("op", 60, stderr=b"private-sentinel"),
+                              "credential-read-timeout"),
+                             (subprocess.CompletedProcess("op", 0, b'{"fields":[]}', b"private-sentinel"),
+                              "invalid-credential-fields")):
+            def execute(*_args, **_kwargs):
+                if isinstance(result, Exception):
+                    raise result
+                return result
+            with patch.object(CONNECT.shutil, "which", return_value="/synthetic/op"):
+                with self.assertRaisesRegex(CONNECT.ConnectFailure, "^" + code + "$"):
+                    CONNECT.inside(self.cli, self.reference, self.environment, execute)
+
     def test_timeout_cleans_own_session(self):
         calls = []
         def execute(command, **kwargs):

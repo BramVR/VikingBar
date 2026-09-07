@@ -74,6 +74,16 @@ class BalanceUIProofTests(unittest.TestCase):
             UI.private_write(target, self.report)
             self.assertEqual(target.stat().st_mode & 0o777, 0o600)
 
+    def test_native_connect_reports_only_allowlisted_failure_stage(self):
+        for code in UI.CONNECT.FAILURE_CODES:
+            with self.assertRaisesRegex(UI.UIFailure, "^native-connect-" + code + "$"):
+                UI.validate_connect_receipt({"passed": False, "error": code})
+        for receipt in ({"passed": False, "error": "private-provider-sentinel"},
+                        {"passed": False, "error": "token-network", "raw": "private-provider-sentinel"},
+                        {"schema_version": True, "check": "connect", "passed": True, "connected": True}):
+            with self.assertRaisesRegex(UI.UIFailure, "^native-connect-failed$"):
+                UI.validate_connect_receipt(receipt)
+
     def test_runtime_worker_requires_exact_bundled_cli_and_parent(self):
         with tempfile.TemporaryDirectory() as directory:
             proof = UI.NativeProof.__new__(UI.NativeProof)

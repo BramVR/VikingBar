@@ -20,6 +20,25 @@ class ConnectFailure(Exception):
     """Fixed public diagnostic."""
 
 
+CLI_FAILURE_CODES = frozenset({
+    "credential-input", "local-filesystem", "session-busy", "token-network", "token-rejected",
+    "token-response", "token-rate-limited", "token-server", "keychain-write", "connect-cancelled", "connect-failed",
+})
+FAILURE_CODES = CLI_FAILURE_CODES | {
+    "invalid-credential-reference", "credential-context-required", "dependency-required",
+    "credential-read-failed", "credential-read-timeout", "invalid-credential-fields",
+    "connect-command-timeout", "invalid-connect-receipt", "tmux-start-failed", "tmux-start-timeout",
+    "tmux-ownership-invalid", "tmux-cleanup-failed", "connect-timeout", "connect-helper-failed", "receipt-write-failed",
+}
+
+
+def failure_code(value, allowed=FAILURE_CODES):
+    if (isinstance(value, dict) and set(value) == {"passed", "error"} and value["passed"] is False
+            and isinstance(value["error"], str) and value["error"] in allowed):
+        return value["error"]
+    return None
+
+
 def child_environment(environment):
     return {key: environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL") if key in environment}
 
@@ -75,8 +94,13 @@ def inside(cli, reference, environment, execute=subprocess.run):
         raise ConnectFailure("dependency-required")
     op_environment = child_environment(environment)
     op_environment["OP_SERVICE_ACCOUNT_TOKEN"] = environment["BRAM_OP_SERVICE_ACCOUNT_TOKEN"]
-    item = execute([op, "item", "get", selector["item_id"], "--vault", selector["vault"], "--format", "json"],
-                   env=op_environment, capture_output=True, timeout=60, check=False)
+    try:
+        item = execute([op, "item", "get", selector["item_id"], "--vault", selector["vault"], "--format", "json"],
+                       env=op_environment, capture_output=True, timeout=60, check=False)
+    except subprocess.TimeoutExpired:
+        raise ConnectFailure("credential-read-timeout") from None
+    except OSError:
+        raise ConnectFailure("credential-read-failed") from None
     del op_environment
     if item.returncode:
         raise ConnectFailure("credential-read-failed")
@@ -84,15 +108,21 @@ def inside(cli, reference, environment, execute=subprocess.run):
     del item
     payload = json.dumps(credentials).encode()
     del credentials
-    result = execute([str(cli), "connect"], input=payload, env=child_environment(environment),
-                     capture_output=True, timeout=90, check=False)
-    del payload
-    if result.returncode:
-        raise ConnectFailure("connect-failed")
     try:
-        return validate_receipt(json.loads(result.stdout))
+        result = execute([str(cli), "connect"], input=payload, env=child_environment(environment),
+                         capture_output=True, timeout=90, check=False)
+    except subprocess.TimeoutExpired:
+        raise ConnectFailure("connect-command-timeout") from None
+    except OSError:
+        raise ConnectFailure("connect-failed") from None
+    del payload
+    try:
+        value = json.loads(result.stdout) if len(result.stdout) <= 4096 else None
     except (ValueError, TypeError):
         raise ConnectFailure("invalid-connect-receipt") from None
+    if result.returncode:
+        raise ConnectFailure(failure_code(value, CLI_FAILURE_CODES) or "connect-failed")
+    return validate_receipt(value)
 
 
 def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sleep, clock=time.monotonic,
@@ -117,12 +147,18 @@ def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sl
         # A private tmux server cannot inherit an existing server's credential environment.
         prefix = [tmux, "-L", session, "-f", "/dev/null"]
         created = False
+        completed = False
         try:
             created = True
-            result = execute([*prefix, "new-session", "-d", "-P", "-F", "#{pid} #{pane_pid} #{session_name}",
-                              "-s", session,
-                              "/bin/zsh", "-f", "-c", command], env=clean, capture_output=True,
-                             timeout=10, check=False)
+            try:
+                result = execute([*prefix, "new-session", "-d", "-P", "-F", "#{pid} #{pane_pid} #{session_name}",
+                                  "-s", session,
+                                  "/bin/zsh", "-f", "-c", command], env=clean, capture_output=True,
+                                 timeout=10, check=False)
+            except subprocess.TimeoutExpired:
+                raise ConnectFailure("tmux-start-timeout") from None
+            except OSError:
+                raise ConnectFailure("tmux-start-failed") from None
             if result.returncode:
                 raise ConnectFailure("tmux-start-failed")
             if ownership is not None:
@@ -134,22 +170,32 @@ def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sl
             while clock() < deadline:
                 if result_path.exists():
                     try:
-                        return validate_receipt(json.loads(result_path.read_text()))
+                        value = json.loads(result_path.read_text())
                     except ValueError:
                         sleep(0.2)
                         continue
-                    except (TypeError, ConnectFailure):
-                        raise ConnectFailure("connect-failed") from None
+                    code = failure_code(value)
+                    if code:
+                        raise ConnectFailure(code)
+                    receipt = validate_receipt(value)
+                    completed = True
+                    return receipt
                 sleep(0.2)
             raise ConnectFailure("connect-timeout")
         finally:
             if created:
                 if ownership is not None:
                     ownership["cleanupAttempted"] = True
-                cleanup = execute([*prefix, "kill-session", "-t", "=" + session], env=clean,
-                                  capture_output=True, timeout=10, check=False)
-                if ownership is not None:
-                    ownership["cleanupReturncode"] = cleanup.returncode
+                try:
+                    cleanup = execute([*prefix, "kill-session", "-t", "=" + session], env=clean,
+                                      capture_output=True, timeout=10, check=False)
+                    if ownership is not None:
+                        ownership["cleanupReturncode"] = cleanup.returncode
+                except (OSError, subprocess.TimeoutExpired):
+                    if ownership is not None:
+                        ownership["cleanupError"] = "tmux-cleanup-failed"
+                    if completed:
+                        raise ConnectFailure("tmux-cleanup-failed") from None
 
 
 def main(arguments=None, environment=None):
@@ -171,7 +217,10 @@ def main(arguments=None, environment=None):
         receipt = (inside(args.cli, args.reference, environment) if args.inside_tmux
                    else supervise(args.cli, args.reference, environment, ownership=ownership))
     except ConnectFailure as error:
-        receipt = {"passed": False, "error": str(error)}
+        code = str(error)
+        receipt = {"passed": False, "error": code if code in FAILURE_CODES else "connect-helper-failed"}
+    except OSError:
+        receipt = {"passed": False, "error": "local-filesystem"}
     except Exception:
         receipt = {"passed": False, "error": "connect-helper-failed"}
     finally:

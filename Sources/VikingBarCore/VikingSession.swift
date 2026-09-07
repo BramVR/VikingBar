@@ -23,37 +23,25 @@ public actor VikingSession {
         self.cache = cache
     }
 
-    public static func production(
-        transport: any ProofHTTPTransport = EphemeralProofTransport(),
-    ) throws -> VikingSession {
-        let directory = try FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true,
-        ).appendingPathComponent("VikingBar", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700],
-        )
-        guard try directory.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else {
-            throw LiveFailure.storage
-        }
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-        return VikingSession(
-            transport: transport, store: KeychainSessionStore(),
-            lease: FileSessionLease(url: directory.appendingPathComponent("session.lock")),
-            cache: FileBalanceCache(url: directory.appendingPathComponent("balance-v1.json")),
-        )
-    }
-
     public func state() -> LiveSessionState {
         self.current
     }
 
-    public func bootstrap(credentials: ProofCredentials) async throws -> LiveSessionState {
-        guard self.flight == nil else { throw LiveFailure.busy }
-        self.generation &+= 1
-        self.token = nil
-        self.current = LiveSessionState()
-        return try await self.run(kind: .bootstrap) { generation in
-            try await self.connect(credentials: credentials, generation: generation)
+    public func bootstrapWithDiagnostics(credentials: ProofCredentials) async throws -> LiveSessionState {
+        do {
+            guard self.flight == nil else { throw BootstrapFailure.sessionBusy }
+            self.generation &+= 1
+            self.token = nil
+            self.current = LiveSessionState()
+            return try await self.run(kind: .bootstrap) { generation in
+                try await self.connect(credentials: credentials, generation: generation)
+            }
+        } catch is CancellationError {
+            throw BootstrapFailure.connectCancelled
+        } catch let failure as BootstrapFailure {
+            throw failure
+        } catch {
+            throw BootstrapFailure.connectFailed
         }
     }
 
@@ -162,7 +150,8 @@ extension VikingSession {
             return self.current
         } catch {
             if self.generation == generation {
-                let failure = error is CancellationError ? self.current.failure : (error as? LiveFailure ?? .transport)
+                let failure = error is CancellationError ? self.current.failure
+                    : ((error as? BootstrapFailure)?.liveFailure ?? error as? LiveFailure ?? .transport)
                 self.recordFailure(failure)
             }
             throw error
@@ -170,19 +159,27 @@ extension VikingSession {
     }
 
     private func connect(credentials: ProofCredentials, generation: UInt64) async throws -> LiveSessionState {
-        do { try credentials.validate() } catch { throw LiveFailure.malformedResponse }
-        let handle = try self.lease.acquire()
+        do { try credentials.validate() } catch { throw BootstrapFailure.credentialInput }
+        let handle: any SessionLeaseHandle
+        do { handle = try self.lease.acquire() } catch {
+            throw (error as? LiveFailure) == .busy ? BootstrapFailure.sessionBusy : .localFilesystem
+        }
         defer { handle.release() }
         try Task.checkCancellation()
-        let received = try await self.api.token(fields: [
-            "client_id": credentials.clientID, "username": credentials.username, "password": credentials.password,
-            "grant_type": "password", "scope": "read",
-        ])
+        let received: LiveToken
+        do {
+            received = try await self.api.token(fields: [
+                "client_id": credentials.clientID, "username": credentials.username, "password": credentials.password,
+                "grant_type": "password", "scope": "read",
+            ])
+        } catch is CancellationError { throw CancellationError() } catch {
+            throw BootstrapFailure.tokenFailure(error)
+        }
         let record = StoredSession(
             clientID: credentials.clientID, connectionID: ConnectionID(), refreshToken: received.refreshToken,
             generation: 0, rotationPending: false,
         )
-        try self.saveRecord(record)
+        do { try self.saveRecord(record) } catch { throw BootstrapFailure.keychainWrite }
         try self.checkGeneration(generation)
         self.current.connectionID = record.connectionID
         self.current.scopeMismatch = received.scopeMismatch

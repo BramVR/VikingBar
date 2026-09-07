@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve allowlisted connection failure stages through the CLI and native proof without exposing credentials or provider error text.
+
 - Add native live account connection through one approved 1Password read, CLI-owned Keychain refresh sessions, separate SIM and bundle selection, extra charges in euros, and refresh with stale-data recovery; required native live proof remains pending.
 
 - Show remaining allowance inside a native Viking helmet, with an optional decimal GB label controlled by a saved Settings toggle and isolated fixture proof.
