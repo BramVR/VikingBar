@@ -6,7 +6,7 @@ Finite, unlimited, exhausted, stale, error, and **Not connected**.
 
 ## How to get to it
 
-Open the helmet's **Data** tab and choose **Fixture state**. **Not connected** shows setup information without synthetic balances. Launching without `--fixture` starts in that same state.
+In an explicit fixture launch, open the helmet's **Data** tab and choose **Fixture state**. **Not connected** shows setup information without synthetic balances. Launching without `--fixture` restores a stored live session and can access Keychain and the provider; it has no fixture picker.
 
 ## Native proof
 
@@ -26,4 +26,4 @@ For **Not connected**, require **No account connected**, **Unavailable**, and **
 
 ## Gotchas
 
-Fixture selection changes in-memory synthetic data only. It does not contact the provider. The display preference has separate [isolated persistence rules](helmet-and-display-setting.md). Not connected is not a live account mode.
+Fixture selection changes in-memory synthetic data only. It does not contact the provider. The display preference has separate [isolated persistence rules](helmet-and-display-setting.md). Choosing **Not connected** in the fixture picker preserves fixture isolation.
