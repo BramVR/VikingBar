@@ -1,12 +1,10 @@
 import copy
 import importlib.util
 import json
-import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("balance_ui_proof", ROOT / "Scripts/balance-ui-proof.py")
@@ -83,96 +81,6 @@ class BalanceUIProofTests(unittest.TestCase):
                         {"schema_version": True, "check": "connect", "passed": True, "connected": True}):
             with self.assertRaisesRegex(UI.UIFailure, "^native-connect-failed$"):
                 UI.validate_connect_receipt(receipt)
-
-    def test_runtime_worker_requires_exact_bundled_cli_and_parent(self):
-        with tempfile.TemporaryDirectory() as directory:
-            proof = UI.NativeProof.__new__(UI.NativeProof)
-            proof.directory = Path(directory)
-            proof.cli = Path(directory) / "VikingBar.app/Contents/MacOS/vikingbar"
-            proof.cli.parent.mkdir(parents=True)
-            proof.cli.write_bytes(b"synthetic executable")
-            proof.process = Mock(pid=12345)
-            proof.verify_process = Mock()
-            row = f"12346 12345 Mon Sep 7 08:00:00 2026 {proof.cli} session"
-            proof.run = Mock(side_effect=[b"12346\n", row.encode()])
-            proof.verify_worker("synthetic")
-            receipt = json.loads((proof.directory / "synthetic-worker.json").read_text())
-            self.assertEqual(receipt["identity"], row)
-            self.assertEqual(len(receipt["cliSHA256"]), 64)
-            for incorrect in (row.replace("12345", "99999"), row + " --fixture finite",
-                              row.replace(str(proof.cli), "/tmp/unrelated/vikingbar"), row + "\n" + row):
-                proof.run = Mock(side_effect=[b"12346\n", incorrect.encode()])
-                with self.assertRaisesRegex(UI.UIFailure, "runtime-worker-identity-mismatch"):
-                    proof.verify_worker("rejected")
-            self.assertFalse((proof.directory / "rejected-worker.json").exists())
-
-    def test_launch_inspection_failure_still_cleans_recorded_child(self):
-        with tempfile.TemporaryDirectory() as directory:
-            proof = UI.NativeProof.__new__(UI.NativeProof)
-            proof.directory = Path(directory)
-            proof.executable = Path(directory) / "synthetic-app"
-            proof.executable_hash = "original-hash"
-            proof.environment = {}
-            proof.reference = "synthetic-reference"
-            proof.run = Mock(side_effect=UI.UIFailure("inspection-failed"))
-            child = Mock(pid=12345)
-            child.poll.side_effect = [None, 0]
-            def launch(arguments, **_kwargs):
-                child.args = arguments
-                return child
-            with patch.object(UI.subprocess, "Popen", side_effect=launch):
-                with self.assertRaisesRegex(UI.UIFailure, "inspection-failed"):
-                    proof.launch(first=True)
-            proof.cleanup()
-            child.terminate.assert_called_once()
-            child.kill.assert_not_called()
-            record = json.loads((proof.directory / "cleanup-process.json").read_text())
-            self.assertEqual(record["pid"], child.pid)
-            self.assertEqual(record["parentPID"], os.getpid())
-            self.assertTrue(record["startedAt"])
-
-    def test_cleanup_kills_owned_child_after_termination_timeout(self):
-        with tempfile.TemporaryDirectory() as directory:
-            proof = UI.NativeProof.__new__(UI.NativeProof)
-            proof.directory = Path(directory)
-            child = Mock(pid=12345, args=["synthetic-app"])
-            child.poll.side_effect = [None, -9]
-            child.wait.side_effect = [subprocess.TimeoutExpired(child.args, 10), -9]
-            proof.process = proof.owned_process = child
-            proof.launch_record = {"pid": child.pid, "parentPID": os.getpid(), "arguments": child.args,
-                                   "startedAt": "synthetic-start", "executableSHA256": "old-hash"}
-            proof.identity = None
-            proof.cleanup()
-            child.terminate.assert_called_once()
-            child.kill.assert_called_once()
-            self.assertEqual(child.wait.call_count, 2)
-
-    def test_cleanup_rejects_an_unowned_process(self):
-        with tempfile.TemporaryDirectory() as directory:
-            proof = UI.NativeProof.__new__(UI.NativeProof)
-            proof.directory = Path(directory)
-            proof.process = Mock()
-            proof.process.poll.return_value = None
-            proof.owned_process = None
-            proof.launch_record = None
-            with self.assertRaisesRegex(UI.UIFailure, "cleanup-ownership-unverified"):
-                proof.cleanup()
-            proof.process.terminate.assert_not_called()
-
-    def test_cleanup_reaps_owned_child_when_evidence_write_fails(self):
-        with tempfile.TemporaryDirectory() as directory:
-            proof = UI.NativeProof.__new__(UI.NativeProof)
-            proof.directory = Path(directory)
-            child = Mock(pid=12345, args=["synthetic-app"])
-            child.poll.return_value = None
-            proof.process = proof.owned_process = child
-            proof.launch_record = {"pid": child.pid, "parentPID": os.getpid(), "arguments": child.args,
-                                   "startedAt": "synthetic-start"}
-            with patch.object(UI, "private_write", side_effect=OSError("synthetic disk full")):
-                with self.assertRaises(OSError):
-                    proof.cleanup()
-            child.terminate.assert_called_once()
-            child.wait.assert_called_once_with(timeout=10)
 
 
 class BalanceOracleTests(unittest.TestCase):

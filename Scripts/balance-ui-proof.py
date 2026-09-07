@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -119,6 +120,21 @@ def wait_for(operation, predicate, seconds=90):
         time.sleep(0.25)
 
 
+def process_identity(pid):
+    result = subprocess.run(["ps", "-p", str(pid), "-o", "pid=,ppid=,lstart=,command="],
+                            capture_output=True, timeout=5, check=False,
+                            env={"PATH": os.defpath, "LC_ALL": "C"})
+    if result.returncode == 1 and not result.stdout.strip():
+        return None
+    row = result.stdout.decode().strip()
+    parts = row.split(None, 7)
+    if (result.returncode or len(parts) != 8 or parts[0] != str(pid)
+            or not parts[1].isdigit() or len(row.splitlines()) != 1):
+        raise UIFailure("cleanup-process-inspection-failed")
+    return {"pid": pid, "parentPID": int(parts[1]), "startTime": " ".join(parts[2:7]),
+            "command": parts[7], "identity": row}
+
+
 class NativeProof:
     def __init__(self, environment):
         self.environment = environment
@@ -135,7 +151,8 @@ class NativeProof:
         self.executable = self.bundle / "Contents/MacOS/VikingBarApp"
         self.cli = self.bundle / "Contents/MacOS/vikingbar"
         self.process = None
-        self.owned_process = None
+        self.launches = []
+        self.workers = []
         self.launch_record = None
         self.identity = None
         self.screens = []
@@ -179,8 +196,9 @@ class NativeProof:
     def verify_process(self):
         if self.process is None or self.process.poll() is not None:
             raise UIFailure("app-exited")
-        identity = self.run(["ps", "-p", str(self.process.pid), "-o", "pid=,ppid=,lstart=,command="])
-        if identity != self.identity or str(self.executable).encode() not in identity:
+        identity = process_identity(self.process.pid)
+        if (identity is None or identity["identity"].split() != self.identity.split()
+                or str(self.executable) not in identity["command"]):
             raise UIFailure("process-identity-changed")
         if hashlib.sha256(self.executable.read_bytes()).hexdigest() != self.executable_hash:
             raise UIFailure("running-artifact-changed")
@@ -193,18 +211,23 @@ class NativeProof:
                  if key in self.environment}
         self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.owned_process = self.process
         label = label or ("initial" if first else "resumed")
         self.launch_record = {
             "pid": self.process.pid, "parentPID": os.getpid(), "arguments": arguments,
             "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "executableSHA256": self.executable_hash}
-        process_path = self.directory / (label + "-process.json")
-        private_write(process_path, self.launch_record)
-        self.identity = self.run(["ps", "-p", str(self.process.pid), "-o", "pid=,ppid=,lstart=,command="])
-        self.launch_record.update(identity=self.identity.decode(),
+            "executableSHA256": self.executable_hash, "workerOwnershipEstablished": False}
+        self.launches.append((self.process, self.launch_record))
+        identity = process_identity(self.process.pid)
+        if identity is None:
+            raise UIFailure("app-exited")
+        self.identity = identity["identity"]
+        self.launch_record.update(identity=self.identity, cli=str(self.cli),
                                   cliSHA256=hashlib.sha256(self.cli.read_bytes()).hexdigest())
-        private_write(process_path, self.launch_record)
+        workers = self.capture_worker(self.process, self.launch_record, seconds=3)
+        if len(workers) != 1:
+            raise UIFailure("runtime-worker-identity-mismatch")
+        self.launch_record["workerOwnershipEstablished"] = True
+        private_write(self.directory / (label + "-process.json"), self.launch_record)
         tree = wait_for(self.inspect, lambda value: visible_status(value, self.screens), seconds=20)
         if tree.get("activationPolicy") != 1:
             raise UIFailure("accessory-policy-required")
@@ -236,19 +259,41 @@ class NativeProof:
                    "--path", str(self.directory / (label + "-card.png"))], label + "-image.json")
         return report
 
+    def capture_worker(self, process, launch, seconds=0):
+        deadline = time.monotonic() + seconds
+        while process.poll() is None:
+            current = process_identity(process.pid)
+            if current is None or current["identity"].split() != launch.get("identity", "").split():
+                raise UIFailure("process-identity-changed")
+            children = subprocess.run(["pgrep", "-P", str(process.pid)], capture_output=True,
+                                      timeout=5, check=False)
+            if children.returncode not in (0, 1) or (children.returncode == 1 and children.stdout.strip()):
+                raise UIFailure("runtime-worker-inspection-failed")
+            pids = children.stdout.decode().split()
+            if any(not pid.isdigit() for pid in pids):
+                raise UIFailure("runtime-worker-inspection-failed")
+            matches = []
+            for pid in pids:
+                worker = process_identity(int(pid))
+                if (worker is not None and worker["parentPID"] == process.pid
+                        and worker["command"] == launch["cli"] + " session"):
+                    worker["cliSHA256"] = launch["cliSHA256"]
+                    if not any(saved["pid"] == worker["pid"] and saved["startTime"] == worker["startTime"]
+                               for saved in self.workers):
+                        self.workers.append(worker)
+                        private_write(self.directory / "workers.json", self.workers)
+                    matches.append(worker)
+            if matches or time.monotonic() >= deadline:
+                return matches
+            time.sleep(0.05)
+        return []
+
     def verify_worker(self, label):
         self.verify_process()
-        children = self.run(["pgrep", "-P", str(self.process.pid)]).decode().split()
-        if not children or any(not child.isdigit() for child in children):
-            raise UIFailure("runtime-worker-missing")
-        rows = self.run(["ps", "-p", ",".join(children), "-o", "pid=,ppid=,lstart=,command="]).decode().splitlines()
-        matches = [row for row in rows if len(row.split(None, 7)) == 8
-                   and row.split(None, 7)[1] == str(self.process.pid)
-                   and row.split(None, 7)[7] == str(self.cli) + " session"]
+        matches = self.capture_worker(self.process, self.launch_record)
         if len(matches) != 1:
             raise UIFailure("runtime-worker-identity-mismatch")
-        private_write(self.directory / (label + "-worker.json"), {
-            "identity": matches[0], "cliSHA256": hashlib.sha256(self.cli.read_bytes()).hexdigest()})
+        private_write(self.directory / (label + "-worker.json"), matches[0])
 
     def quit(self):
         self.press("vikingbar.quit")
@@ -271,9 +316,11 @@ class NativeProof:
         if not any(item.get("AXIdentifier") == "vikingbar.connect" for item in tree["elements"]):
             raise UIFailure("native-connect-missing")
         self.press("vikingbar.connect")
+        self.capture_worker(self.process, self.launch_record)
         receipt_path = self.directory / "connect-result.json"
         wait_for(lambda: receipt_path.exists(), bool, seconds=170)
         connect_receipt = json.loads(receipt_path.read_text())
+        self.capture_worker(self.process, self.launch_record)
         validate_connect_receipt(connect_receipt)
         ownership = json.loads((self.directory / "connect-result-ownership.json").read_text())
         if (ownership.get("parentPID") != self.process.pid
@@ -330,25 +377,94 @@ class NativeProof:
         private_write(self.directory / "result.json", receipt)
         return receipt
 
-    def cleanup(self):
-        if self.process is not None and self.process.poll() is None:
-            if (self.process is not self.owned_process or not self.launch_record
-                    or self.launch_record["pid"] != self.process.pid
-                    or self.launch_record["parentPID"] != os.getpid()
-                    or self.launch_record["arguments"] != self.process.args):
-                raise UIFailure("cleanup-ownership-unverified")
-            # The unreaped Popen child remains ours even if artifact validation failed.
+    def worker_present(self, worker):
+        current = process_identity(worker["pid"])
+        if current is None or current["startTime"] != worker["startTime"]:
+            return False
+        if (current["command"] != worker["command"]
+                or current["parentPID"] not in (worker["parentPID"], 1)):
+            raise UIFailure("cleanup-worker-identity-changed")
+        return True
+
+    def stop_worker(self, worker):
+        for action in (signal.SIGTERM, signal.SIGKILL):
+            if not self.worker_present(worker):
+                return
             try:
-                private_write(self.directory / "cleanup-process.json", self.launch_record)
-            finally:
-                self.process.terminate()
-                try:
-                    self.process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    self.process.kill()
-                    self.process.wait(timeout=10)
-        private_write(self.directory / "cleanup.json", {"exited": self.process is None
-                                                       or self.process.poll() is not None})
+                os.kill(worker["pid"], action)
+            except ProcessLookupError:
+                pass
+            deadline = time.monotonic() + 3
+            while self.worker_present(worker):
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.05)
+            else:
+                return
+        raise UIFailure("cleanup-worker-still-running")
+
+    def cleanup(self):
+        failures = []
+        for process, launch in self.launches:
+            if launch.get("workerOwnershipEstablished") is not True:
+                failures.append(UIFailure("cleanup-worker-ownership-unverified"))
+            if process.poll() is not None:
+                continue
+            if (launch["pid"] != process.pid or launch["parentPID"] != os.getpid()
+                    or launch["arguments"] != process.args):
+                failures.append(UIFailure("cleanup-ownership-unverified"))
+                continue
+            try:
+                if launch.get("identity"):
+                    self.capture_worker(process, launch)
+            except Exception as error:
+                failures.append(error)
+            try:
+                private_write(self.directory / "cleanup-process.json", launch)
+            except Exception as error:
+                failures.append(error)
+            try:
+                current = process_identity(process.pid)
+                if current is not None and current["identity"].split() == launch.get("identity", "").split():
+                    tree = self.run([str(ROOT / ".build/inspect-ui"), str(process.pid)], timeout=2)
+                    if any(item.get("AXIdentifier") == "vikingbar.quit"
+                           for item in json.loads(tree).get("elements", [])):
+                        self.run([str(ROOT / ".build/inspect-ui"), str(process.pid), "press", "vikingbar.quit"],
+                                 timeout=2)
+                        process.wait(timeout=3)
+            except Exception:
+                pass
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=10)
+            except Exception as error:
+                failures.append(error)
+        for worker in self.workers:
+            try:
+                self.stop_worker(worker)
+            except Exception as error:
+                failures.append(error)
+        exited = all(process.poll() is not None for process, _launch in self.launches)
+        for worker in self.workers:
+            try:
+                exited = not self.worker_present(worker) and exited
+            except Exception as error:
+                exited = False
+                failures.append(error)
+        receipt = {"exited": exited and not failures, "workers": self.workers,
+                   "apps": [launch for _process, launch in self.launches]}
+        if failures:
+            receipt["error"] = str(failures[0]) if isinstance(failures[0], UIFailure) else "cleanup-failed"
+        private_write(self.directory / "cleanup.json", receipt)
+        if failures:
+            raise failures[0]
+        if not exited:
+            raise UIFailure("cleanup-process-still-running")
 
 
 def run(environment):
