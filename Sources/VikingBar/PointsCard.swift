@@ -36,6 +36,7 @@ struct PointsCard: View {
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                 }
+                .frame(maxHeight: 180)
                 .accessibilityIdentifier("vikingbar.points.transactionsScroll")
             }
             .accessibilityIdentifier("vikingbar.points.transactionsToggle")
