@@ -7,6 +7,7 @@ struct LiveReport: Encodable, Sendable {
     let snapshot: UsageSnapshot
     let menu: MenuPresentation
     let balanceDetails: LiveBalancePresentation
+    let points: PointsPresentation
     let error: String?
 
     init(state: LiveSessionState, error: String? = nil) {
@@ -15,6 +16,7 @@ struct LiveReport: Encodable, Sendable {
         self.snapshot = state.snapshot
         self.menu = MenuPresentation(snapshot: state.snapshot)
         self.balanceDetails = LiveBalancePresentation(state: state)
+        self.points = PointsPresentation(points: state.points(at: Date()))
     }
 }
 
@@ -70,12 +72,14 @@ extension VikingBarCLI {
       vikingbar connect
       vikingbar proof auth-balance
       vikingbar proof balance-api
+      vikingbar proof points-api
 
     Live commands use the explicitly connected account and may access Keychain.
     Bundle indices are zero-based positions in the reported provider bundle array.
     connect reads credential JSON from stdin. Use the approved connection helper.
     proof auth-balance reads credential JSON from stdin and never persists tokens.
     proof balance-api refreshes the stored session and reports redacted comparisons.
+    proof points-api refreshes customer points and reports redacted comparisons.
     vikingbar session is the app's private JSON-lines command interface.
     """
 
@@ -131,6 +135,9 @@ extension VikingBarCLI {
                     _ = try await active.selectBundle(index: bundle)
                 }
             }
+            if !options.cached {
+                _ = try? await active.refreshPoints()
+            }
             let state = await active.state()
             self.writeJSON(LiveReport(state: state))
             if state.connectionID == nil || state.failure != nil {
@@ -143,6 +150,22 @@ extension VikingBarCLI {
             } else {
                 self.writeJSON(CommandFailure(error: "live-failed"))
             }
+            exit(1)
+        }
+    }
+
+    static func pointsProof() async {
+        do {
+            let transport = PointsOracleTransport(base: EphemeralProofTransport())
+            let session = try VikingSession.production(transport: transport)
+            _ = try await session.restore()
+            _ = try await session.refreshPoints(forceTokenRefresh: true)
+            let state = await session.state()
+            let receipt = try await transport.receipt(state: state)
+            self.writeJSON(receipt)
+        } catch {
+            let diagnostic = (error as? LiveFailure) == .busy ? "session-busy" : "points-api-failed"
+            self.writeJSON(CommandFailure(error: diagnostic))
             exit(1)
         }
     }

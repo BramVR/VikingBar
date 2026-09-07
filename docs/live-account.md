@@ -17,6 +17,14 @@ After connection, choose a SIM and data bundle in the card. Different bundles ke
 
 The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
 
+## Viking Points
+
+The Points tab shows the customer's Viking Points once for the account. Available points are spendable. Pending and blocked points remain separate. Switching SIMs does not change the owner of the points or duplicate the customer balance.
+
+Expand recent transactions to inspect each amount and provider state. The list contains up to three pages of 20 transactions. A truncated list is labeled and cannot establish the available balance. The provider's balance endpoint supplies that figure directly.
+
+Usage refresh publishes before points refresh. Points balance and transaction history each retain their last successful data and report failures separately. A points failure does not clear a usable data allowance. **Refresh now** updates both usage and points through the existing account session.
+
 ## Inspect the same balance in the CLI
 
 Use the CLI embedded in the development bundle:

@@ -4,6 +4,7 @@ import datetime
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import signal
 from pathlib import Path
@@ -28,21 +29,67 @@ def private_write(path, value):
         json.dump(value, stream, sort_keys=True)
 
 
+def frame(element):
+    try:
+        (x, y), (width, height) = element["frame"]
+        values = (x, y, width, height)
+        if (all(type(value) in (int, float) and math.isfinite(value) for value in values)
+                and width > 0 and height > 0 and math.isfinite(x + width) and math.isfinite(y + height)):
+            return values
+    except (KeyError, TypeError, ValueError, OverflowError):
+        pass
+    raise UIFailure("native-frame-invalid")
+
+
+def contained(element, boundary):
+    try:
+        x, y, width, height = frame(element)
+        bx, by, bw, bh = frame(boundary)
+        return x >= bx and y >= by and x + width <= bx + bw and y + height <= by + bh
+    except UIFailure:
+        return False
+
+
+def display_frames(screens):
+    displays = []
+    for screen in screens:
+        try:
+            bounds = screen["bounds"]
+            display = {"frame": [[bounds["x"], bounds["y"]], [bounds["width"], bounds["height"]]]}
+            frame(display)
+            displays.append(display)
+        except (KeyError, TypeError, UIFailure):
+            pass
+    return displays
+
+
 def visible_status(tree, screens):
+    displays = display_frames(screens)
+    return any(element.get("AXIdentifier") == "vikingbar.status"
+               and any(contained(element, display) for display in displays)
+               for element in tree.get("elements", []))
+
+
+def popover_window(tree, screens):
+    displays = display_frames(screens)
     for element in tree.get("elements", []):
-        if element.get("AXIdentifier") != "vikingbar.status":
+        if element.get("AXRole") != "AXPopover":
             continue
         try:
-            (x, y), (width, height) = element["frame"]
-            if width > 0 and height > 0 and any(
-                    x >= screen["bounds"]["x"] and y >= screen["bounds"]["y"]
-                    and x + width <= screen["bounds"]["x"] + screen["bounds"]["width"]
-                    and y + height <= screen["bounds"]["y"] + screen["bounds"]["height"]
-                    for screen in screens):
-                return True
-        except (KeyError, TypeError, ValueError):
-            pass
-    return False
+            ax_frame = frame(element)
+        except UIFailure:
+            continue
+        for window in tree.get("windows", []):
+            try:
+                bounds = window["kCGWindowBounds"]
+                cg_element = {"frame": [[bounds["X"], bounds["Y"]], [bounds["Width"], bounds["Height"]]]}
+                cg_frame = frame(cg_element)
+            except (KeyError, TypeError, UIFailure):
+                continue
+            if (all(abs(ax - cg) < 1 for ax, cg in zip(ax_frame, cg_frame))
+                    and any(contained(element, display) and contained(cg_element, display) for display in displays)):
+                return element, window
+    raise UIFailure("native-popover-not-visible")
 
 
 def successful_timestamp(report):
@@ -65,18 +112,23 @@ def compare_menu(tree, report, screens):
     successful_timestamp(report)
     if not visible_status(tree, screens):
         raise UIFailure("status-not-visible")
+    boundary, _ = popover_window(tree, screens)
     menu = report["menu"]
     elements = tree.get("elements", [])
+    card_elements = [element for element in elements if contained(element, boundary)]
+    status_elements = [element for element in elements
+                       if visible_status({"elements": [element]}, screens)]
     expected = dict(menu)
     expected["accessibilityLabel"] = f'{menu["accessibilityLabel"]}, {menu["title"]}, {menu["freshnessText"]}'
     for identifier, field in (("vikingbar.remaining", "remainingText"),
                               ("vikingbar.freshness", "freshnessText"),
                               ("vikingbar.status", "accessibilityLabel")):
-        matches = [element for element in elements if element.get("AXIdentifier") == identifier]
+        candidates = status_elements if identifier == "vikingbar.status" else card_elements
+        matches = [element for element in candidates if element.get("AXIdentifier") == identifier]
         if not any(expected[field] in [element.get(key) for key in ("AXTitle", "AXValue", "AXDescription")]
                    for element in matches):
             raise UIFailure("native-menu-mismatch")
-    visible_text = {element.get(key) for element in elements
+    visible_text = {element.get(key) for element in card_elements
                     for key in ("AXTitle", "AXValue", "AXDescription") if isinstance(element.get(key), str)}
     for field in ("title", "balanceTitle", "usedText", "totalText", "expiryText", "sourceLabel"):
         if menu[field] not in visible_text:
@@ -136,15 +188,17 @@ def process_identity(pid):
 
 
 class NativeProof:
-    def __init__(self, environment):
+    def __init__(self, environment, *, stored_session=False):
         self.environment = environment
         self.peekaboo = environment.get("PEEKABOO_BIN")
         if not self.peekaboo or not Path(self.peekaboo).is_file():
             raise UIFailure("configured-peekaboo-required")
-        reference = environment.get("VIKINGBAR_CREDENTIAL_REFERENCE", "")
-        if not Path(reference).is_file():
-            raise UIFailure("credential-reference-required")
-        self.reference = str(Path(reference).resolve())
+        self.reference = None
+        if not stored_session:
+            reference = environment.get("VIKINGBAR_CREDENTIAL_REFERENCE", "")
+            if not Path(reference).is_file():
+                raise UIFailure("credential-reference-required")
+            self.reference = str(Path(reference).resolve())
         self.directory = ROOT / ".build/proof" / uuid.uuid4().hex
         self.directory.mkdir(parents=True, mode=0o700)
         self.bundle = ROOT / ".build/app/VikingBar.app"
@@ -251,10 +305,7 @@ class NativeProof:
                 return None
         report, tree = wait_for(observe, lambda value: value is not None)
         self.verify_worker(label)
-        window = next((window for window in tree.get("windows", [])
-                       if window.get("kCGWindowBounds", {}).get("Height", 0) > 100), None)
-        if not window:
-            raise UIFailure("card-window-missing")
+        _, window = popover_window(tree, self.screens)
         self.peek(["see", "--window-id", str(window["kCGWindowNumber"]), "--no-elements", "--no-remote",
                    "--path", str(self.directory / (label + "-card.png"))], label + "-image.json")
         return report

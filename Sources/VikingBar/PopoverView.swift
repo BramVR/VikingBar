@@ -15,6 +15,8 @@ struct PopoverView: View {
                 }
             }
             .tabItem { Text("Data") }
+            PointsCard(session: self.session)
+                .tabItem { Text("Points") }
             VStack(alignment: .leading, spacing: 12) {
                 if self.session.fixture != nil {
                     Text(self.session.menu.sourceLabel)

@@ -59,3 +59,11 @@ Each successful connection receives a new connection ID. Cached subscription sta
 A process lease serializes token rotation across CLI processes. The owner records a pending rotation before the refresh request and replaces the whole Keychain record afterward. An interrupted rotation requires reconnect. The server exchange and local write cannot be atomic. Relaunch refresh uses the stored token without another 1Password read. Unsigned rebuilds can require renewed Keychain authorization; the release rebuild proof must verify that boundary.
 
 Fixture isolation is fixed at launch. Selecting **Not connected** in a fixture picker does not create a live worker or read Keychain. Fixture settings remain in memory unless `--settings-file` supplies an isolated path. Live startup uses the app's settings file and exposes no fixture picker.
+
+## Customer points
+
+`LiveSessionState.points` belongs to the current connection, outside the selected subscription. `CustomerPoints` stores balance and history independently, each with freshness and a fixed failure code. Amounts use `Decimal`. Transaction states preserve the provider's raw value, including unknown future states.
+
+A separate `VikingSession.refreshPoints()` operation reuses the serialized auth owner and connection checks. The app publishes usage before requesting points through its existing private CLI worker. Reconnection discards the previous customer's points. Changing SIMs preserves customer scope.
+
+The two loyalty GETs are explicit allowlist cases. Transaction pagination constructs numbered requests locally, with a maximum of three pages of 20 records. It never follows provider-supplied URLs. The shared `PointsPresentation` formats the app and CLI output. An independent CLI proof decoder compares source API values with production models before native proof compares the visible UI.

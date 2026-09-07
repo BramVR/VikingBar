@@ -27,7 +27,8 @@ class ConnectDiagnosticsTests(unittest.TestCase):
         result = subprocess.run([
             "swiftc", "-parse-as-library", "-I", str(ROOT / ".build/debug/Modules"),
             str(ROOT / "Sources/VikingBarCLI/LiveCommands.swift"),
-            str(ROOT / "Sources/VikingBarCLI/BalanceOracle.swift"), str(source), *map(str, objects),
+            str(ROOT / "Sources/VikingBarCLI/BalanceOracle.swift"),
+            str(ROOT / "Sources/VikingBarCLI/PointsOracle.swift"), str(source), *map(str, objects),
             "-o", str(cls.executable),
         ], capture_output=True, timeout=60)
         if result.returncode:
@@ -93,6 +94,7 @@ actor VikingSession {
         LiveSessionState()
     }
     func selectBundle(index: Int) throws -> LiveSessionState { LiveSessionState() }
+    func refreshPoints(forceTokenRefresh: Bool = false) async throws -> LiveSessionState { LiveSessionState() }
     func state() -> LiveSessionState { LiveSessionState() }
     static func privateError() -> NSError {
         NSError(domain: "DO_NOT_EXPORT", code: 9191, userInfo: [NSLocalizedDescriptionKey: "DO_NOT_EXPORT"])

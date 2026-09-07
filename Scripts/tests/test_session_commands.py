@@ -19,7 +19,7 @@ class SessionCommandTests(unittest.TestCase):
         build = ROOT / ".build/debug"
         sources = [ROOT / "Scripts/tests/session-command-driver.swift"]
         sources.extend(ROOT / "Sources/VikingBarCLI" / name for name in (
-            "SessionCommands.swift", "LiveCommands.swift", "BalanceOracle.swift"))
+            "SessionCommands.swift", "LiveCommands.swift", "BalanceOracle.swift", "PointsOracle.swift"))
         objects = list((build / "VikingBarCore.build").glob("*.swift.o"))
         if not objects:
             raise AssertionError("Run swift build before session tests")
