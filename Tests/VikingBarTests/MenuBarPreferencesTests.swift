@@ -127,3 +127,44 @@ private final class RecordingPreferenceIO: MenuBarPreferenceIO {
         }
     }
 }
+
+extension MenuBarPreferencesTests {
+    @Test func `old settings preserve existing value and default new keys`() {
+        let fileIO = RecordingPreferenceIO()
+        fileIO.data = Data("{\"showRemainingGB\":true}".utf8)
+        let preferences = MenuBarPreferences(fileURL: URL(fileURLWithPath: "/synthetic/settings"), fileIO: fileIO)
+        #expect(preferences.showRemainingGB)
+        #expect(preferences.dataDisplayMode == .remaining)
+        #expect(preferences.refreshInterval == .fiveMinutes)
+        #expect(preferences.errorMessage == nil)
+    }
+
+    @Test func `new settings persist together and write failure keeps session choice`() {
+        let fileIO = RecordingPreferenceIO()
+        let url = URL(fileURLWithPath: "/synthetic/settings")
+        let preferences = MenuBarPreferences(fileURL: url, fileIO: fileIO)
+        preferences.setDataDisplayMode(.used)
+        preferences.setRefreshInterval(.oneHour)
+        preferences.setShowRemainingGB(true)
+        let restored = MenuBarPreferences(fileURL: url, fileIO: fileIO)
+        #expect(restored.dataDisplayMode == .used)
+        #expect(restored.refreshInterval == .oneHour)
+        #expect(restored.showRemainingGB)
+        fileIO.failure = true
+        preferences.setRefreshInterval(.fifteenMinutes)
+        #expect(preferences.refreshInterval == .fifteenMinutes)
+        #expect(preferences.errorMessage?.contains("could not be saved") == true)
+        fileIO.failure = false
+        #expect(MenuBarPreferences(fileURL: url, fileIO: fileIO).refreshInterval == .oneHour)
+    }
+
+    @Test func `corrupt new key restores all defaults with visible error`() {
+        let fileIO = RecordingPreferenceIO()
+        fileIO.data = Data("{\"showRemainingGB\":true,\"refreshInterval\":12}".utf8)
+        let preferences = MenuBarPreferences(fileURL: URL(fileURLWithPath: "/synthetic/settings"), fileIO: fileIO)
+        #expect(!preferences.showRemainingGB)
+        #expect(preferences.refreshInterval == .fiveMinutes)
+        #expect(preferences.dataDisplayMode == .remaining)
+        #expect(preferences.errorMessage != nil)
+    }
+}

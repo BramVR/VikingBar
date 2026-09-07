@@ -3,15 +3,17 @@ import VikingBarCore
 
 struct SessionCommand: Decodable, Sendable {
     enum Name: String, Decodable, Sendable {
-        case restore, refresh, selectSubscription, selectBundle, cancel, shutdown
+        case restore, refresh, selectSubscription, selectBundle, configure, cancel, shutdown
     }
 
     let command: Name
     let id: String?
     let index: Int?
+    let refreshInterval: RefreshInterval?
 
     func execute(on session: VikingSession) async throws {
         switch self.command {
+        case .configure: _ = await session.configure(refreshInterval: self.refreshInterval!)
         case .restore: _ = try await session.restore()
         case .refresh: _ = try await session.refresh()
         case .selectSubscription: _ = try await session.selectSubscription(id: self.id!)
@@ -27,6 +29,9 @@ struct SessionCommand: Decodable, Sendable {
         }
         let keys: Set<String>
         switch value.command {
+        case .configure:
+            keys = ["command", "refreshInterval"]
+            guard value.refreshInterval != nil else { throw ProofFailure.invalidInput }
         case .selectSubscription:
             keys = ["command", "id"]
             guard let id = value.id else { throw ProofFailure.invalidInput }

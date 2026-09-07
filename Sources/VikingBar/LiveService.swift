@@ -5,12 +5,16 @@ enum SessionRequest: Encodable, Sendable {
     case restore, refresh, cancel, shutdown
     case selectSubscription(String)
     case selectBundle(Int)
+    case configure(RefreshInterval)
 
-    private enum CodingKeys: String, CodingKey { case command, id, index }
+    private enum CodingKeys: String, CodingKey { case command, id, index, refreshInterval }
 
     func encode(to encoder: any Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case let .configure(interval):
+            try values.encode("configure", forKey: .command)
+            try values.encode(interval, forKey: .refreshInterval)
         case .restore: try values.encode("restore", forKey: .command)
         case .refresh: try values.encode("refresh", forKey: .command)
         case .cancel: try values.encode("cancel", forKey: .command)

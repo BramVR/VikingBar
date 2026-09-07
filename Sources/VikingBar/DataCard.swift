@@ -9,6 +9,7 @@ struct DataCard: View {
 
     var body: some View {
         let menu = self.session.menu
+        let card = self.session.card
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Label("VikingBar", systemImage: "antenna.radiowaves.left.and.right")
@@ -28,17 +29,18 @@ struct DataCard: View {
             }
             VStack(alignment: .leading, spacing: 5) {
                 Text(menu.title).font(.subheadline).foregroundStyle(.secondary)
-                Text(menu.balanceTitle).font(.caption).foregroundStyle(.secondary)
-                Text(menu.remainingText)
+                Text(card.title).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("vikingbar.balanceTitle")
+                Text(card.value)
                     .font(.system(size: 34, weight: .semibold, design: .rounded))
                     .accessibilityIdentifier("vikingbar.remaining")
-                if let percentage = menu.percentageRemaining {
+                if let percentage = card.percentage {
                     ProgressView(value: percentage, total: 100)
-                        .tint(percentage == 0 ? .orange : .accentColor)
-                        .accessibilityLabel("Data remaining")
-                        .accessibilityValue(menu.percentageText ?? "")
+                        .tint(menu.percentageRemaining == 0 ? .orange : .accentColor)
+                        .accessibilityLabel(card.title)
+                        .accessibilityValue(card.percentageText ?? "")
                 }
-                if let percentageText = menu.usedPercentageText {
+                if let percentageText = card.supportingPercentageText {
                     Text(percentageText).font(.subheadline.weight(.medium))
                 }
                 HStack {

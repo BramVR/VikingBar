@@ -88,7 +88,7 @@ public struct MenuPresentation: Codable, Equatable, Sendable {
     }
 }
 
-private struct BalancePresentation {
+struct BalancePresentation {
     let balanceTitle: String
     let remainingText: String
     let usedText: String
@@ -98,13 +98,15 @@ private struct BalancePresentation {
     let percentageRemaining: Double?
     let percentageText: String?
     let statusBalance: String
+    let usedValueText: String
 
     init(allowance: Allowance, unit: DataUnit) {
         switch allowance {
         case let .finite(total, used, remaining):
             self.balanceTitle = remaining == 0 ? "Data exhausted" : "Data remaining"
             self.remainingText = unit.format(bytes: remaining)
-            self.usedText = "\(unit.format(bytes: used)) used"
+            self.usedValueText = unit.format(bytes: used)
+            self.usedText = "\(self.usedValueText) used"
             self.totalText = "\(unit.format(bytes: total)) total"
             let percentage = total == 0 ? nil : min(100, Double(remaining) * 100 / Double(total))
             self.percentageUsed = total == 0 ? nil : Double(used) * 100 / Double(total)
@@ -115,7 +117,8 @@ private struct BalancePresentation {
         case let .unlimited(used):
             self.balanceTitle = "Data remaining"
             self.remainingText = "Unlimited"
-            self.usedText = "\(unit.format(bytes: used)) used"
+            self.usedValueText = unit.format(bytes: used)
+            self.usedText = "\(self.usedValueText) used"
             self.totalText = "Unlimited allowance"
             self.percentageUsed = nil
             self.usedPercentageText = nil
@@ -125,6 +128,7 @@ private struct BalancePresentation {
         case .unavailable:
             self.balanceTitle = "Data balance"
             self.remainingText = "Unavailable"
+            self.usedValueText = "Unavailable"
             self.usedText = "Usage unavailable"
             self.totalText = "Allowance unavailable"
             self.percentageUsed = nil

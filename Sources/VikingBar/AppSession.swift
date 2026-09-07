@@ -5,7 +5,7 @@ import VikingBarCore
 @MainActor
 @Observable
 final class AppSession {
-    enum Activity { case idle, restoring, refreshing, selecting, connecting, stopped }
+    enum Activity { case idle, restoring, refreshing, selecting, configuring, connecting, stopped }
 
     let isFixtureLaunch: Bool
     var fixture: FixtureState? {
@@ -24,6 +24,27 @@ final class AppSession {
         }
     }
 
+    var dataDisplayMode: DataDisplayMode {
+        didSet {
+            self.preferences.setDataDisplayMode(self.dataDisplayMode)
+            self.settingsError = self.preferences.errorMessage
+            self.onPresentationChange?()
+        }
+    }
+
+    var refreshInterval: RefreshInterval {
+        didSet {
+            self.preferences.setRefreshInterval(self.refreshInterval)
+            self.settingsError = self.preferences.errorMessage
+            self.configureIfIdle()
+        }
+    }
+
+    private(set) var loginItemStatus: LoginItemStatus = .unavailable
+    private(set) var loginItemError: String?
+    private(set) var changingLoginItem = false
+    @ObservationIgnored private let loginItems: any LoginItemManaging
+    @ObservationIgnored private var appliedInterval: RefreshInterval = .fiveMinutes
     private(set) var settingsError: String?
     private(set) var liveState = LiveSessionState()
     private(set) var activity: Activity = .idle
@@ -50,11 +71,11 @@ final class AppSession {
     @ObservationIgnored private var snapshotRevision = 0
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var hasStarted = false
-
     init(
         options: LaunchOptions,
         preferences: MenuBarPreferences,
         referenceDate: Date = Date(),
+        loginItems: any LoginItemManaging = DisabledLoginItemManager(),
         clientFactory: @escaping () throws -> any SessionClient = { throw LiveBridgeFailure.unavailable },
         connectorFactory: @escaping () throws -> any AccountConnecting = { throw LiveBridgeFailure.connectFailed },
         now: @escaping () -> Date = Date.init,
@@ -69,11 +90,44 @@ final class AppSession {
         self.referenceDate = referenceDate
         self.preferences = preferences
         self.showRemainingGB = preferences.showRemainingGB
+        self.dataDisplayMode = preferences.dataDisplayMode
+        self.refreshInterval = preferences.refreshInterval
+        self.loginItems = loginItems
+        self.loginItemStatus = loginItems.status
         self.settingsError = preferences.errorMessage
         self.clientFactory = clientFactory
         self.connectorFactory = connectorFactory
         self.now = now
         self.sleepUntil = sleepUntil
+    }
+}
+
+extension AppSession {
+    var launchAtLogin: Bool {
+        self.loginItemStatus == .enabled || self.loginItemStatus == .requiresApproval
+    }
+
+    func checkLoginItem() {
+        self.loginItemStatus = self.loginItems.status
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) async {
+        guard !self.changingLoginItem else { return }
+        self.changingLoginItem = true
+        defer {
+            self.changingLoginItem = false
+            self.checkLoginItem()
+        }
+        do {
+            try await self.loginItems.setEnabled(enabled)
+            self.loginItemError = nil
+        } catch {
+            self.loginItemError = "Could not change launch at login. Check System Settings and try again."
+        }
+    }
+
+    func openLoginItems() {
+        self.loginItems.openSettings()
     }
 
     var snapshot: UsageSnapshot {
@@ -93,21 +147,6 @@ final class AppSession {
             expiresAt: previous.expiresAt,
             freshness: freshness, errorMessage: self.bridgeError ?? previous.errorMessage,
         )
-    }
-
-    var menu: MenuPresentation {
-        MenuPresentation(snapshot: self.snapshot, unit: self.unit, timeZone: self.timeZone)
-    }
-
-    var status: StatusPresentation {
-        StatusPresentation(
-            snapshot: self.snapshot, showRemainingGB: self.showRemainingGB,
-            unit: self.unit, timeZone: self.timeZone,
-        )
-    }
-
-    var balanceDetails: LiveBalancePresentation {
-        LiveBalancePresentation(state: self.liveState)
     }
 
     var activeBundleIndices: [Int] {
@@ -134,7 +173,9 @@ final class AppSession {
         self.liveState.connectionID != nil
             && ![.notConnected, .reconnectRequired, .unauthorized].contains(self.liveState.failure)
     }
+}
 
+extension AppSession {
     func start() {
         guard !self.isFixtureLaunch, !self.hasStarted, self.activity != .stopped else { return }
         self.hasStarted = true
@@ -231,6 +272,9 @@ final class AppSession {
         do {
             let client = try self.clientFactory()
             self.client = client
+            self.appliedInterval = .fiveMinutes
+            try await self.applyInterval(client: client, intent: intent)
+            guard self.isCurrent(intent) else { return }
             let restored = try await client.request(.restore)
             guard self.isCurrent(intent) else { return }
             self.publish(restored)
@@ -253,9 +297,41 @@ final class AppSession {
             let state = try await client.request(request)
             guard self.isCurrent(intent) else { return }
             self.publish(state)
+            try await self.applyInterval(client: client, intent: intent)
+            guard self.isCurrent(intent) else { return }
             self.finish()
         } catch {
             await self.failWorker(intent: intent)
+        }
+    }
+
+    func didWake() {
+        guard !self.isFixtureLaunch, self.activity == .idle, self.isConnected,
+              let deadline = self.liveState.nextRefreshAt, deadline <= self.now() else { return }
+        self.refresh()
+    }
+
+    private func configureIfIdle() {
+        guard !self.isFixtureLaunch, self.activity == .idle, self.client != nil,
+              self.appliedInterval != self.refreshInterval else { return }
+        let intent = self.begin(.configuring)
+        self.operation = Task {
+            do {
+                guard let client = self.client else { return }
+                try await self.applyInterval(client: client, intent: intent)
+                guard self.isCurrent(intent) else { return }
+                self.finish()
+            } catch { await self.failWorker(intent: intent) }
+        }
+    }
+
+    private func applyInterval(client: any SessionClient, intent: Int) async throws {
+        while self.isCurrent(intent), self.appliedInterval != self.refreshInterval {
+            let desired = self.refreshInterval
+            let state = try await client.request(.configure(desired))
+            guard self.isCurrent(intent) else { return }
+            self.appliedInterval = desired
+            self.publish(state)
         }
     }
 
@@ -303,6 +379,12 @@ extension AppSession {
         self.activity = .idle
         self.operation = nil
         self.onPresentationChange?()
+        if self.appliedInterval != self.refreshInterval {
+            self.configureIfIdle()
+            if self.activity != .idle {
+                return
+            }
+        }
         guard self.isConnected, let deadline = self.liveState.nextRefreshAt else { return }
         let intent = self.generation
         self.scheduledRefresh = Task { [weak self, sleepUntil] in
