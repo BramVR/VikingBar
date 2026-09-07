@@ -10,7 +10,11 @@ public struct LiveBalancePresentation: Codable, Equatable, Sendable {
         let bundle = state.selectedBundleIndex.flatMap { index in
             state.balance.flatMap { $0.bundles.indices.contains(index) ? $0.bundles[index] : nil }
         }
-        self.bundleTitle = bundle?.title ?? "No active data bundle"
+        self.bundleTitle = if let bundle, let index = state.selectedBundleIndex {
+            Self.title(for: bundle, index: index)
+        } else {
+            "No active data bundle"
+        }
         self.bundleDescription = bundle?.description ?? ""
         self.applicabilityText = [bundle?.category, state.balance?.regionality]
             .compactMap(\.self)
@@ -27,5 +31,10 @@ public struct LiveBalancePresentation: Codable, Equatable, Sendable {
             return
         }
         self.extraChargesText = "Extra charges: \(formatted)"
+    }
+
+    public static func title(for bundle: BalanceBundle, index: Int) -> String {
+        let title = bundle.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? "Data bundle \(index + 1)" : title
     }
 }

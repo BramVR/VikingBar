@@ -116,7 +116,9 @@ struct DataCard: View {
                     set: { self.session.selectBundle($0) },
                 )) {
                     ForEach(self.session.activeBundleIndices, id: \.self) { index in
-                        Text(self.session.liveState.balance?.bundles[index].title ?? "Data").tag(index)
+                        if let bundle = self.session.liveState.balance?.bundles[index] {
+                            Text(LiveBalancePresentation.title(for: bundle, index: index)).tag(index)
+                        }
                     }
                 }
                 .accessibilityIdentifier("vikingbar.bundlePicker")
