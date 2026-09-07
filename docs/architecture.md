@@ -8,7 +8,7 @@ read_when:
 
 # ADR 001: Native menu app with a shared Swift core
 
-Status: native live sessions, account persistence, fixture display, and menu bar preferences are implemented. Required native live proof remains pending. The CLI also retains the separate local auth/balance proof.
+Status: native live sessions, account persistence, fixture display, and menu bar preferences are implemented. See [recorded native proof and limits](live-proof.md#recorded-coverage). The CLI also retains the separate local auth/balance proof.
 
 ## Decision
 

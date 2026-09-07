@@ -6,7 +6,7 @@ Native macOS menu bar app for Mobile Vikings usage, allowances, Viking Points, a
 
 The native app opens a live account session by default. Connect through the approved 1Password helper to show a selected SIM's data bundle, expiry, and extra charges. See [account setup](docs/live-account.md). Explicit fixture launches remain isolated from account access.
 
-Native live verification for issue #4 is pending. Completion requires API comparisons, native refresh, and stored-token recovery after both relaunch and a release rebuild.
+Native live proof covers API comparisons, refresh, stored-token recovery after relaunch and a release rebuild, and readable bundle selection. See [recorded coverage and limits](docs/live-proof.md#recorded-coverage).
 
 The menu bar helmet shows the remaining allowance through its inset bar. Open **Settings** in the data card to enable **Show remaining GB in menu bar**. The saved choice defaults to off. The optional label uses decimal GB even when the card uses GiB.
 

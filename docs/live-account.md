@@ -9,11 +9,11 @@ read_when:
 
 Build the development app with `make package-app`, then open `.build/app/VikingBar.app`. Open the helmet in the menu bar and choose **Connect with 1Password**. Select your approved credential reference file if prompted. The reference contains the vault, item ID, and field labels described in [local proof setup](live-proof.md#setup). It contains no credential values.
 
-The packaged connection helper uses `/usr/bin/python3` and requires tmux, the 1Password CLI, and the authorized service-account setup in `~/.profile`. It sources that profile inside one private named tmux session and reads the configured item once. The app never receives the service-account token. The initial password exchange releases the password before balance retrieval begins.
+The packaged connection helper uses `/usr/bin/python3` and requires tmux, the 1Password CLI, and the authorized service-account setup in `~/.profile`. It sources that profile inside one private named tmux session and reads the configured item once. The helper supplies the OS username as `USER` only to tmux so the profile can select its service-account credential. The 1Password and CLI child environments remain restricted. The app never receives the service-account token. The initial password exchange releases the password before balance retrieval begins.
 
 Opening the app without `--fixture` restores the stored session and refreshes it when connected. Each background refresh uses the stored token.
 
-After connection, choose a SIM and data bundle in the card. Different bundles keep their own amounts, applicability, and expiry. The helmet represents the selected bundle. Extra charges show the selected SIM's out-of-bundle cost in euros; a missing amount stays unavailable. **Refresh now** requests an update. **Open My Viking** opens the provider's account website.
+After connection, choose a SIM and data bundle in the card. Different bundles keep their own amounts, applicability, and expiry. Blank or whitespace-only titles display as `Data bundle N`, where N is the bundle's one-based position in the provider array. The picker and card use the same title, and raw provider values remain unchanged. The helmet represents the selected bundle. Extra charges show the selected SIM's out-of-bundle cost in euros; a missing amount stays unavailable. **Refresh now** requests an update. **Open My Viking** opens the provider's account website.
 
 The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
 
@@ -48,10 +48,10 @@ The CLI updates the whole Keychain record during rotation. A rebuilt development
 
 A pending rotation is recorded before the network exchange. If the process exits before it saves the replacement token, the next launch requires reconnect. The provider's token exchange and local Keychain update cannot form one atomic transaction.
 
-Background refresh uses the stored refresh token. It never retrieves the password from 1Password. Authentication and approved data reads remain subject to the [request allowlist](live-proof.md#requests-and-auth-limits).
+Credential-read retries require explicit authorization. A successful connection, refresh, and relaunch sequence uses one credential read. Background refresh uses the stored refresh token. It never retrieves the password from 1Password. Authentication and approved data reads remain subject to the [request allowlist](live-proof.md#requests-and-auth-limits).
 
 ## Verify a live build
 
-With the coordinator's credential and Mac UI slots, run `make proof-live CHECK=balance-ui`. Follow [the live proof guide](live-proof.md) and the project verification skill. The required gate drives a freshly built native app, compares API values with production output, presses native Refresh, and verifies recovery after relaunch. It must also rebuild in release configuration and relaunch with the stored token, without another 1Password read. Native live coverage remains pending until every stage has a receipt. A missing credential, inaccessible Keychain item, failed request, or hidden status item fails the gate.
+With the coordinator's credential and Mac UI slots, run `make proof-live CHECK=balance-ui`. Follow [the live proof guide](live-proof.md) and the project verification skill. The required gate drives a freshly built native app, compares API values with production output, presses native Refresh, and verifies recovery after relaunch. It must also rebuild in release configuration and relaunch with the stored token, without another 1Password read. See [recorded coverage and limits](live-proof.md#recorded-coverage). A missing credential, inaccessible Keychain item, failed request, or hidden status item fails the gate.
 
 Private account values and screenshots stay in the local proof directory. Publish only the redacted pass/fail receipt and build identity. Synthetic tests and fixture screenshots do not complete this live gate.

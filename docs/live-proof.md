@@ -65,7 +65,7 @@ Add a named check and its explicit request policy in the Swift core. Add synthet
 
 ## Native balance proof
 
-`make proof-live CHECK=balance-ui` routes to `Scripts/balance-ui-proof.py`. This path requires explicit live-account authorization, the exclusive credential slot, and the exclusive Mac UI slot. Set `VIKINGBAR_CREDENTIAL_REFERENCE` to the approved reference file. The packaged connection helper creates its own private named tmux session and sources the approved profile there. Do not add a separate credential read before this command.
+`make proof-live CHECK=balance-ui` routes to `Scripts/balance-ui-proof.py`. This path requires explicit live-account authorization, the exclusive credential slot, and the exclusive Mac UI slot. Set `VIKINGBAR_CREDENTIAL_REFERENCE` to the approved reference file. The packaged connection helper creates its own private named tmux session and sources the approved profile there. It derives `USER` from the OS account for that tmux environment so the profile can select its service-account credential. The `op` and CLI child environments are unchanged. Do not add a separate credential read before this command.
 
 The private `connect-result-ownership.json` receipt records the helper, tmux server and pane PIDs, unique session name, artifact hashes, and cleanup attempt. App and runtime-worker identities are recorded separately in the same proof directory.
 
@@ -73,7 +73,7 @@ Connection failures preserve a fixed stage through the CLI and helper. Credentia
 
 A connection-command timeout does not identify the operation that was waiting. Earlier generic `connect-failed` receipts establish only an unsuccessful inner result; they cannot establish whether credentials were read, a token was issued, or storage was attempted. Preserve those receipts and do not infer a cause or repeat the password read. A separate stored-session inspection requires explicit authorization; `live --cached` can read Keychain and private cached account data even though it makes no API request.
 
-Required issue #4 sequence, with native live coverage currently PENDING:
+Required issue #4 sequence:
 
 1. Build and launch a fresh native bundle. Record its path, PID, parent, start time, and executable hashes.
 2. Press **Connect with 1Password** once. Require the packaged helper's redacted connection receipt from exactly one approved item read.
@@ -88,3 +88,13 @@ Required issue #4 sequence, with native live coverage currently PENDING:
 `vikingbar live` refreshes and prints private state, snapshots, and presentation values. `live --cached` reads saved state. The app's private `vikingbar session` JSON-lines interface accepts restore, refresh, subscription selection, bundle selection, cancel, and shutdown commands. Treat these as explicit account-access paths, not fixture diagnostics. Never place their output in hosted CI or public proof.
 
 The auth-balance gate and its receipt schema remain unchanged. It proves the credential exchange and endpoint validation separately. A successful auth-balance receipt cannot replace native balance proof.
+
+## Recorded coverage
+
+The core `balance-ui` gate passed on the source committed as `6955b39`. The coordinator retained the private receipts. The run proved native connection, raw API comparison with forced token rotation, a newer update after native Refresh, and the same connection after relaunch. A release rebuild changed the CLI executable hash and still refreshed with the stored token. The successful sequence used one credential read. The coordinator verified that all task-owned apps, workers, helper processes, and tmux processes had exited.
+
+Live selection coverage was limited to one SIM and one data bundle. The API comparison included the returned bundle array, but that does not establish live multi-SIM or multiple-data-bundle selection coverage.
+
+The later blank-title fallback uses `LiveBalancePresentation.title(for:index:)` for the card and picker. It displays `Data bundle N` using the provider index plus one and preserves raw provider values. A subsequent proof passed on the source committed as `c3e1259`, using the stored session with no additional credential reads. It opened the native picker, selected the existing data bundle, and verified readable matching titles in the picker and card. The run also passed independent API comparison with forced token rotation and a newer update after native Refresh, while preserving the connection identity. The coordinator inspected the actual card capture and verified native Quit exited 0 with the app and worker gone.
+
+The release-rebuild proof belongs to the earlier core gate. The later picker proof covers the updated debug build. Receipts and captures remain private; only redacted results and build identity may be published. Live multi-SIM and multiple-data-bundle selection remain unverified.

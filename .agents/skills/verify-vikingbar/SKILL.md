@@ -15,7 +15,7 @@ Run `make smoke-app-fixture` from the repo root with the exclusive Mac UI slot. 
 
 For interactive coverage, run `make package-app` and `swiftc Scripts/inspect-ui.swift -o .build/inspect-ui`, then launch `.build/app/VikingBar.app/Contents/MacOS/VikingBarApp --fixture finite` in a task-owned terminal session. Record PID, parent, start time, full executable path, and SHA256 before driving. Explicit fixture launches use memory for the display preference. For relaunch proof, add `--settings-file` with an absolute path inside a new task-owned directory and reuse that file. This app-only option requires `--fixture`. Never read or migrate real settings for fixture proof. Selecting **Not connected** inside that fixture launch must remain isolated and must not start a live worker.
 
-For authorized native live coverage, use `make proof-live CHECK=balance-ui` with the credential and Mac UI slots. Follow [Live balance](features/live-balance.md). Require one native bootstrap, API comparisons, native Refresh, relaunch, and release rebuild with stored-token relaunch. No second 1Password read. Native live coverage is PENDING until actual receipts prove every stage.
+For authorized native live coverage, use `make proof-live CHECK=balance-ui` with the credential and Mac UI slots. Follow [Live balance](features/live-balance.md). Require one native bootstrap, API comparisons, native Refresh, relaunch, and release rebuild with stored-token relaunch. No second 1Password read in a successful sequence. Credential-read retries need explicit authorization. The core sequence and subsequent stored-session picker proof passed. Read the feature evidence for build boundaries and selection limits.
 
 ## Doctor
 
