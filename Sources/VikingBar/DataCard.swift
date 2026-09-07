@@ -4,7 +4,6 @@ import VikingBarCore
 
 struct DataCard: View {
     @Bindable var session: FixtureSession
-    let onChange: () -> Void
 
     var body: some View {
         let menu = self.session.menu
@@ -85,7 +84,5 @@ struct DataCard: View {
         }
         .padding(20)
         .frame(width: 360, height: 520, alignment: .top)
-        .onChange(of: self.session.fixture) { self.onChange() }
-        .onChange(of: self.session.unit) { self.onChange() }
     }
 }

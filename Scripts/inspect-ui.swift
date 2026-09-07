@@ -22,7 +22,7 @@ func elements(_ element: AXUIElement, depth: Int = 0) -> [AXUIElement] {
 
 func record(_ element: AXUIElement) -> [String: Any] {
     var result: [String: Any] = [:]
-    for key in ["AXRole", "AXTitle", "AXDescription", "AXValue", "AXIdentifier"] {
+    for key in ["AXRole", "AXTitle", "AXDescription", "AXHelp", "AXValue", "AXIdentifier"] {
         if let value = attribute(element, key) { result[key] = String(describing: value) }
     }
     var point = CGPoint.zero
@@ -38,16 +38,30 @@ func record(_ element: AXUIElement) -> [String: Any] {
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
-guard arguments.count >= 1, let pid = Int32(arguments[0]), AXIsProcessTrusted(),
-      let app = NSRunningApplication(processIdentifier: pid), app.bundleIdentifier == "be.bram.vikingbar"
+guard arguments.count >= 1, let pid = Int32(arguments[0]), AXIsProcessTrusted()
 else { fatalError("Require a VikingBar PID and Accessibility permission.") }
+var runningApp = NSRunningApplication(processIdentifier: pid)
+let registrationDeadline = ProcessInfo.processInfo.systemUptime + 3
+// Launch Services can publish the bundle identity after the process starts.
+while runningApp?.bundleIdentifier == nil, ProcessInfo.processInfo.systemUptime < registrationDeadline {
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+    runningApp = NSRunningApplication(processIdentifier: pid)
+}
+guard let app = runningApp, app.bundleIdentifier == "be.bram.vikingbar"
+else { fatalError("Require a registered VikingBar application.") }
 let tree = elements(AXUIElementCreateApplication(pid))
 if arguments.count == 3, arguments[1] == "press" {
-    guard let target = tree.first(where: {
+    let menuItem = tree.first(where: {
+        (attribute($0, "AXRole") as? String) == "AXMenuItem"
+            && (attribute($0, "AXTitle") as? String) == arguments[2]
+    })
+    guard let target = menuItem ?? tree.first(where: {
         (attribute($0, "AXIdentifier") as? String) == arguments[2]
             || (attribute($0, "AXTitle") as? String) == arguments[2]
             || ((attribute($0, "AXRole") as? String) == "AXPopUpButton"
                 && (attribute($0, "AXValue") as? String) == arguments[2])
+            || ((attribute($0, "AXRole") as? String) == "AXRadioButton"
+                && (attribute($0, "AXDescription") as? String) == arguments[2])
     }) else { fatalError("Requested accessibility element is absent.") }
     let isQuit = (attribute(target, "AXIdentifier") as? String) == "vikingbar.quit"
     guard !app.isTerminated else { fatalError("Target application already terminated.") }

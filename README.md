@@ -6,6 +6,8 @@ Native macOS menu bar app for Mobile Vikings usage, allowances, Viking Points, a
 
 The fixture app and CLI show synthetic mobile data balances without account access. Account login and live data integration remain separate build tickets.
 
+The menu bar helmet shows the remaining allowance through its inset bar. Open **Settings** in the data card to enable **Show remaining GB in menu bar**. The saved choice defaults to off. The optional label uses decimal GB even when the card uses GiB.
+
 ## Planned behavior
 
 - Data usage meter, remaining allowance, bundle expiry, and extra charges.
