@@ -5,6 +5,7 @@ import datetime
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -54,44 +55,115 @@ def history_timestamp(report):
         raise UIFailure("history-live-report-invalid") from None
 
 
-def in_bounds(frame, bounds):
+def rectangle(frame):
     try:
         (x, y), (width, height) = frame
-        return (width > 0 and height > 0 and x >= bounds["x"] and y >= bounds["y"]
-                and x + width <= bounds["x"] + bounds["width"]
-                and y + height <= bounds["y"] + bounds["height"])
-    except (KeyError, TypeError, ValueError):
+        values = (x, y, width, height)
+        if (all(type(value) in (int, float) and math.isfinite(value) for value in values)
+                and width > 0 and height > 0 and math.isfinite(x + width) and math.isfinite(y + height)):
+            return values
+    except (TypeError, ValueError, OverflowError):
+        pass
+    raise UIFailure("native-history-frame-invalid")
+
+
+def in_bounds(frame, boundary):
+    try:
+        x, y, width, height = rectangle(frame)
+        bx, by, bw, bh = rectangle(boundary)
+        return x >= bx and y >= by and x + width <= bx + bw and y + height <= by + bh
+    except UIFailure:
         return False
+
+
+def window_frame(window):
+    try:
+        bounds = window["kCGWindowBounds"]
+        result = [[bounds["X"], bounds["Y"]], [bounds["Width"], bounds["Height"]]]
+        rectangle(result)
+        if type(window["kCGWindowNumber"]) is int and window["kCGWindowNumber"] > 0:
+            return result
+    except (KeyError, TypeError):
+        pass
+    raise UIFailure("native-history-window-invalid")
+
+
+def same_frame(left, right):
+    return all(abs(a - b) < 1 for a, b in zip(rectangle(left), rectangle(right)))
+
+
+def history_window(tree, screens):
+    popovers = [element for element in tree.get("elements", []) if element.get("AXRole") == "AXPopover"]
+    if len(popovers) != 1:
+        raise UIFailure("native-history-popover-ambiguous")
+    frame = popovers[0].get("frame")
+    rectangle(frame)
+    displays = []
+    for screen in screens:
+        try:
+            bounds = screen["bounds"]
+            display = [[bounds["x"], bounds["y"]], [bounds["width"], bounds["height"]]]
+            rectangle(display)
+            displays.append(display)
+        except (KeyError, TypeError, UIFailure):
+            continue
+    matches = []
+    for window in tree.get("windows", []):
+        try:
+            candidate = window_frame(window)
+            if same_frame(frame, candidate) and any(
+                    in_bounds(frame, display) and in_bounds(candidate, display) for display in displays):
+                matches.append(window)
+        except UIFailure:
+            continue
+    if len(matches) != 1:
+        raise UIFailure("native-history-popover-not-visible")
+    return frame, matches[0]
+
+
+def validate_capture(data, window, path):
+    try:
+        files, observations = data["files"], data["observations"]
+        identifier = window["kCGWindowNumber"]
+        if (len(files) == 1 and len(observations) == 1
+                and type(files[0]["window_id"]) is int and files[0]["window_id"] == identifier
+                and files[0]["path"] == str(path)
+                and type(observations[0]["target"]["window_id"]) is int
+                and observations[0]["target"]["window_id"] == identifier
+                and same_frame(observations[0]["target"]["bounds"], window_frame(window))):
+            return
+    except (KeyError, TypeError, UIFailure):
+        pass
+    raise UIFailure("native-history-capture-mismatch")
 
 
 def compare_history(tree, report, screens):
     history_timestamp(report)
     UI.compare_menu(tree, report, screens)
+    boundary, window = history_window(tree, screens)
+    capture_boundary = window_frame(window)
     presentation = report["historyPresentation"]
     elements = tree.get("elements", [])
     for identifier, field in (("vikingbar.historyForecast", "forecastText"),
                               ("vikingbar.historyTotal", "totalText"),
                               ("vikingbar.historyStatus", "statusText"),
                               ("vikingbar.historyScope", "scopeText")):
-        if not any(element.get("AXIdentifier") == identifier and presentation[field] in
-                   [element.get(key) for key in ("AXTitle", "AXValue", "AXDescription")]
-                   for element in elements):
+        matches = [element for element in elements if element.get("AXIdentifier") == identifier]
+        if (len(matches) != 1 or not in_bounds(matches[0].get("frame"), boundary)
+                or not in_bounds(matches[0].get("frame"), capture_boundary)
+                or presentation[field] not in
+                [matches[0].get(key) for key in ("AXTitle", "AXValue", "AXDescription")]):
             raise UIFailure("native-history-text-mismatch")
     charts = [element for element in elements if element.get("AXIdentifier") == "vikingbar.historyChart"]
-    if len(charts) != 1 or not any(in_bounds(charts[0].get("frame"), screen["bounds"]) for screen in screens):
+    if (len(charts) != 1 or not in_bounds(charts[0].get("frame"), boundary)
+            or not in_bounds(charts[0].get("frame"), capture_boundary)):
         raise UIFailure("native-history-chart-not-visible")
     chart = charts[0]
     values = [chart.get(key, "") for key in ("AXTitle", "AXValue", "AXDescription")]
     expected = "; ".join(day["label"] + ": " + day["valueText"] for day in presentation["days"])
     if expected not in values:
         raise UIFailure("native-history-chart-values-mismatch")
-    windows = [window for window in tree.get("windows", []) if window.get("kCGWindowBounds", {}).get("Height", 0) > 100]
-    for window in windows:
-        bounds = window["kCGWindowBounds"]
-        rect = {"x": bounds["X"], "y": bounds["Y"], "width": bounds["Width"], "height": bounds["Height"]}
-        if in_bounds(chart.get("frame"), rect):
-            return window
-    raise UIFailure("native-history-chart-outside-card")
+    return window
 
 
 class HistoryProof(UI.NativeProof):
@@ -113,8 +185,14 @@ class HistoryProof(UI.NativeProof):
                 return None
         report, window = UI.wait_for(observe, lambda value: value is not None, seconds=90)
         self.verify_worker(label)
-        self.peek(["see", "--window-id", str(window["kCGWindowNumber"]), "--no-elements", "--no-remote",
-                   "--path", str(self.directory / (label + "-chart.png"))], label + "-image.json")
+        path = self.directory / (label + "-chart.png")
+        capture = self.peek(["see", "--window-id", str(window["kCGWindowNumber"]), "--no-elements", "--no-remote",
+                             "--path", str(path)], label + "-image.json")
+        validate_capture(capture, window, path)
+        settled = compare_history(self.inspect(label + "-after-capture.json"), report, self.screens)
+        if (settled["kCGWindowNumber"] != window["kCGWindowNumber"]
+                or not same_frame(window_frame(settled), window_frame(window))):
+            raise UIFailure("native-history-capture-mismatch")
         return report
 
     def perform(self):
