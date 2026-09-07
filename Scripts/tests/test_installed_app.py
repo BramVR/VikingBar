@@ -149,7 +149,7 @@ class InstallerTests(unittest.TestCase):
         old = self.install()
         write = INSTALL.private_write
         def fail(path, value):
-            if path == INSTALL.receipt_path(self.target):
+            if path.name == "install.json":
                 path.write_bytes(b"partial")
                 raise OSError("synthetic disk failure")
             write(path, value)
@@ -157,7 +157,95 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.install(replace=True)
         self.assertEqual(INSTALL.validate_install(self.target, self.boundaries["verify"]), old)
-        self.assertEqual(next(self.root.glob(".vikingbar-install-*/failed-install.json")).read_bytes(), b"partial")
+        self.assertEqual(next(self.root.glob(".vikingbar-install-*/install.json")).read_bytes(), b"partial")
+
+    def test_raced_receipt_is_preserved_during_fresh_and_update_publication(self):
+        rename = INSTALL.rename_exclusive
+        for update in (False, True):
+            for boundary in ("VikingBar.app", "install.json"):
+                with self.subTest(update=update, boundary=boundary):
+                    self.target = self.root / str(update) / boundary / "VikingBar.app"
+                    old = self.install() if update else None
+                    receipt = INSTALL.receipt_path(self.target)
+                    payload = b"external raced receipt"
+                    def race(source, destination):
+                        if source.name == boundary:
+                            receipt.write_bytes(payload)
+                        rename(source, destination)
+                    with patch.object(INSTALL, "rename_exclusive", side_effect=race):
+                        with self.assertRaisesRegex(INSTALL.InstallFailure, "target-created-during-build"):
+                            self.install(replace=update)
+                    self.assertEqual(receipt.read_bytes(), payload)
+                    self.assertEqual(self.target.exists(), update)
+                    self.assertEqual(list(self.target.parent.glob(".vikingbar-install-*/failed-install.json")), [])
+                    if update:
+                        saved = next(self.target.parent.glob(".vikingbar-install-*/previous-install.json"))
+                        self.assertEqual(json.loads(saved.read_text()), old)
+
+    def test_rollback_preserves_external_receipt_after_artifact_failure(self):
+        old = self.install()
+        receipt = INSTALL.receipt_path(self.target)
+        def verify(path):
+            if path == self.target and list(self.root.glob(".vikingbar-install-*/previous.app")):
+                receipt.write_bytes(b"external during rollback")
+                raise INSTALL.InstallFailure("synthetic-verification-failure")
+            return SEAL
+        with self.assertRaisesRegex(INSTALL.InstallFailure, "synthetic-verification-failure"):
+            self.install(replace=True, verify=verify)
+        self.assertEqual(receipt.read_bytes(), b"external during rollback")
+        saved = next(self.root.glob(".vikingbar-install-*/previous-install.json"))
+        self.assertEqual(json.loads(saved.read_text()), old)
+        self.assertTrue(self.target.exists())
+
+    def test_changed_original_receipt_is_never_moved_by_update_or_rollback(self):
+        self.install()
+        receipt = INSTALL.receipt_path(self.target)
+        def race(_candidate):
+            receipt.write_bytes(b"changed external receipt")
+        with self.assertRaisesRegex(INSTALL.InstallFailure, "install-receipt-changed-during-build"):
+            self.install(replace=True, before_publish=race)
+        self.assertEqual(receipt.read_bytes(), b"changed external receipt")
+        self.assertEqual(list(self.root.glob(".vikingbar-install-*/previous-install.json")), [])
+        self.assertTrue(self.target.exists())
+
+    def test_receipt_swapped_at_backup_is_detected_and_restored_without_overwrite(self):
+        rename = INSTALL.rename_exclusive
+        for conflict in (False, True):
+            with self.subTest(conflict=conflict):
+                self.target = self.root / str(conflict) / "VikingBar.app"
+                self.install()
+                receipt = INSTALL.receipt_path(self.target)
+                def race(source, destination):
+                    if destination.name == "previous-install.json":
+                        receipt.write_bytes(b"external at backup")
+                    rename(source, destination)
+                    if destination.name == "previous-install.json" and conflict:
+                        receipt.write_bytes(b"external at rollback")
+                with patch.object(INSTALL, "rename_exclusive", side_effect=race):
+                    with self.assertRaisesRegex(INSTALL.InstallFailure, "install-receipt-changed-during-backup"):
+                        self.install(replace=True)
+                self.assertEqual(receipt.read_bytes(), b"external at rollback" if conflict else b"external at backup")
+                backups = list(self.target.parent.glob(".vikingbar-install-*/previous-install.json"))
+                self.assertEqual(len(backups), int(conflict))
+                if conflict:
+                    self.assertEqual(backups[0].read_bytes(), b"external at backup")
+                self.assertTrue(self.target.exists())
+
+    def test_dangling_receipt_swapped_at_backup_is_restored(self):
+        self.install()
+        receipt = INSTALL.receipt_path(self.target)
+        rename = INSTALL.rename_exclusive
+        def race(source, destination):
+            if destination.name == "previous-install.json":
+                receipt.rename(self.root / "test-owned-original-receipt.json")
+                receipt.symlink_to(self.root / "missing-external-target")
+            rename(source, destination)
+        with patch.object(INSTALL, "rename_exclusive", side_effect=race):
+            with self.assertRaisesRegex(INSTALL.InstallFailure, "symlink-or-invalid-receipt-refused"):
+                self.install(replace=True)
+        self.assertTrue(receipt.is_symlink())
+        self.assertEqual(receipt.readlink(), self.root / "missing-external-target")
+        self.assertTrue(self.target.exists())
 
     def test_invalid_receipt_or_changed_binary_rejected(self):
         original = self.install()

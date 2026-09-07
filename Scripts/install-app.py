@@ -187,6 +187,13 @@ def receipt_path(target):
     return target.parent / ("." + target.name + ".install.json")
 
 
+def receipt_identity(path):
+    metadata = path.lstat()
+    if path.is_symlink() or not path.is_file():
+        raise InstallFailure("symlink-or-invalid-receipt-refused")
+    return (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, digest(path))
+
+
 def validate_install(target, verify=signature):
     target = target_path(str(target))
     try:
@@ -222,10 +229,14 @@ def install(value, replace=False, builder=build, verify=signature, check_running
                 raise InstallFailure("existing-target-requires-explicit-replace")
             bundle_metadata(target)
         previous_receipt = receipt_path(target)
+        original_receipt = None
         if previous_receipt.exists() or previous_receipt.is_symlink():
             if previous_receipt.is_symlink() or not target.exists():
                 raise InstallFailure("existing-install-receipt-refused")
+            original_receipt = receipt_identity(previous_receipt)
             validate_install(target, verify)
+            if receipt_identity(previous_receipt) != original_receipt:
+                raise InstallFailure("install-receipt-changed-during-validation")
         check_running(target)
         stage = Path(tempfile.mkdtemp(prefix=".vikingbar-install-", dir=target.parent))
         candidate, backup = stage / "VikingBar.app", stage / "previous.app"
@@ -252,17 +263,21 @@ def install(value, replace=False, builder=build, verify=signature, check_running
                 bundle_metadata(target)
                 target.rename(backup)
                 record["backup"] = str(backup)
-                if previous_receipt.exists() or previous_receipt.is_symlink():
-                    if previous_receipt.is_symlink():
-                        raise InstallFailure("symlink-receipt-refused")
-                    previous_receipt.rename(stage / "previous-install.json")
+                if original_receipt is not None:
+                    if receipt_identity(previous_receipt) != original_receipt:
+                        raise InstallFailure("install-receipt-changed-during-build")
+                    rename_exclusive(previous_receipt, stage / "previous-install.json")
+                    if receipt_identity(stage / "previous-install.json") != original_receipt:
+                        raise InstallFailure("install-receipt-changed-during-backup")
             rename_exclusive(candidate, target)
             installed = True
             if artifact(target, verify) != record["artifact"]:
                 raise InstallFailure("installed-artifact-changed")
             record["passed"] = True
             private_write(stage / "result.json", record)
-            private_write(previous_receipt, record)
+            private_write(stage / "install.json", record)
+            # Publish last: failures before this point never own the public receipt path.
+            rename_exclusive(stage / "install.json", previous_receipt)
             return record
         except BaseException:
             if installed:
@@ -270,10 +285,9 @@ def install(value, replace=False, builder=build, verify=signature, check_running
                 target.rename(stage / "failed.app")
             if backup.exists():
                 rename_exclusive(backup, target)
-            if previous_receipt.exists() and installed:
-                previous_receipt.rename(stage / "failed-install.json")
-            if (stage / "previous-install.json").exists():
-                (stage / "previous-install.json").rename(previous_receipt)
+            if (stage / "previous-install.json").exists() or (stage / "previous-install.json").is_symlink():
+                if not previous_receipt.exists() and not previous_receipt.is_symlink():
+                    rename_exclusive(stage / "previous-install.json", previous_receipt)
             record["passed"] = False
             private_write(stage / "rollback.json", record)
             raise

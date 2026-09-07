@@ -4,6 +4,7 @@
 
 - Add local installation with ad-hoc bundle sealing, saved used/remaining card display and refresh interval, wake refresh, and launch-at-login controls with actual macOS status and restoration-aware installed proof.
 - Allow fresh local installation when unrelated process origins are unavailable; preserve conservative update refusal and prevent overwriting a destination created during the build.
+- Publish install receipts exclusively and preserve external receipt files during rollback.
 
 - Show `Data bundle N` when a provider bundle title is blank, using its one-based position in the provider array without changing raw values.
 - Supply the OS username only to the private bootstrap tmux environment so the approved profile can select its service-account credential; keep the 1Password and CLI child environments unchanged.

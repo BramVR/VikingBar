@@ -44,6 +44,8 @@ An update reports `existing-target-process-origin-unresolved` if macOS cannot id
 
 The adjacent `.VikingBar.app.install.json` records the installed manifest and executable hashes. Retain it with the bundle for installed proof. Backups and installation receipts remain private in the selected destination directory.
 
+Receipt publication is exclusive. If another file appears at the receipt path during installation, the installer fails and preserves that file. An update restores the previous app and keeps its previous receipt in the private backup directory when the public receipt path is occupied; resolve that conflict before retrying.
+
 ## Choose the display and refresh interval
 
 Open **Settings** and choose **Remaining** or **Used** for the data card. Unlimited allowances show their known used amount without a fabricated percentage. The helmet continues to represent remaining allowance. **Show remaining GB in menu bar** independently controls the optional decimal GB label.
