@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add local installation with ad-hoc bundle sealing, saved used/remaining card display and refresh interval, wake refresh, and launch-at-login controls with actual macOS status and restoration-aware installed proof.
+
 - Show `Data bundle N` when a provider bundle title is blank, using its one-based position in the provider array without changing raw values.
 - Supply the OS username only to the private bootstrap tmux environment so the approved profile can select its service-account credential; keep the 1Password and CLI child environments unchanged.
 

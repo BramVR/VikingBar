@@ -50,6 +50,12 @@ The session owns status updates, so changing a fixture or the display preference
 
 ## Live session ownership
 
+The existing preference file also stores typed data-card display and refresh interval values. Missing keys use the original remaining display and five-minute cadence. `DataCardPresentation` applies the selected card mode without changing the raw allowance or the helmet's remaining-fraction meaning.
+
+`AppSession` sends the latest interval to the worker between account operations. `VikingSession` uses one interval calculation for restored, published, and selected bundle deadlines. Failure retry deadlines remain authoritative. Startup still refreshes a successful restored connection. Wake uses the existing scheduler and does not interrupt token rotation.
+
+The app's injectable login-item manager owns ServiceManagement calls. Preferences never contain a launch-enabled Boolean. The control displays actual registration status and separate operation errors. Ordinary fixtures use a disabled manager; the installed smoke opts into production registration explicitly and restores its absent baseline.
+
 `AppSession` restores live state, schedules refresh, and publishes presentation changes. `SessionProcessClient` sends JSON-lines commands to the bundled `vikingbar session` process over private pipes. The CLI owns `VikingSession`, the token store, and the account cache. The app never reads the token directly.
 
 `AccountConnector` starts the packaged `connect-account.py` helper. The helper creates one private named tmux session, sources the approved profile there, and reads one approved 1Password item. It passes the three credential fields to the same bundled CLI's `connect` command through stdin. Only the 1Password child receives the service-account token. Passwords are released before balance retrieval.

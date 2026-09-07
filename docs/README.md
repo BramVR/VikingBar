@@ -17,3 +17,4 @@ read_when:
 - [Draft releases](RELEASING.md): artifact downloads, version tags, and private draft verification.
 - [Local API proof](live-proof.md): targeted credential setup, request limits, and auth/balance gates.
 - [Live account setup](live-account.md): connection, SIM and bundle selection, refresh, and recovery.
+- [Local installation](local-install.md): installation, updates, preferences, launch at login, logout, uninstall, and installed proof.

@@ -17,6 +17,8 @@ After connection, choose a SIM and data bundle in the card. Different bundles ke
 
 The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
 
+The selected SIM persists with the connection's cached balance. Card display and refresh interval are separate local preferences. Follow [local settings and removal](local-install.md) for launch at login, local updates, logout, and uninstall.
+
 ## Inspect the same balance in the CLI
 
 Use the CLI embedded in the development bundle:

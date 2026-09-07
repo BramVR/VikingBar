@@ -10,11 +10,12 @@ Native live proof covers API comparisons, refresh, stored-token recovery after r
 
 The menu bar helmet shows the remaining allowance through its inset bar. Open **Settings** in the data card to enable **Show remaining GB in menu bar**. The saved choice defaults to off. The optional label uses decimal GB even when the card uses GiB.
 
+Install a local build with `make install-app`. Settings also save the card's used/remaining display and refresh interval. Launch-at-login controls report the actual macOS registration state. See [local installation, updates, and removal](docs/local-install.md). Installed native proof is tracked separately in the [verification map](.agents/skills/verify-vikingbar/features/installed-app.md).
+
 ## Planned behavior
 
 - Daily usage chart and an explicitly labeled cycle forecast.
 - Viking Points and latest bill details.
-- Launch at login.
 
 ## Build plan
 

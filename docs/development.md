@@ -10,6 +10,8 @@ read_when:
 
 Use macOS 14 or later, Swift 6.2 or later, SwiftFormat, SwiftLint, and Python 3. The initial build targets Apple Silicon. SwiftFormat 0.63.0 and SwiftLint 0.65.0 are the verified formatter versions. No Swift package dependencies are required.
 
+For a stable local app destination, saved card and refresh settings, and launch at login, follow [local installation](local-install.md). The installed-app gates require their own reviewed target and runtime slots.
+
 Run the contributor gate:
 
 ```sh

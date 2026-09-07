@@ -7,3 +7,4 @@
 - [Live balance](live-balance.md). Verify native connection, separate SIMs and bundles, Refresh, API comparisons, and stored-token relaunch after a release rebuild. Core live gate and stored-session picker proof passed. Live selection coverage is limited to one SIM and one data bundle.
 - [Auth/balance proof](auth-balance-proof.md). Prove password login, refresh, subscription discovery, and balances with authorized credentials.
 - [Build artifacts and private drafts](packaged-artifacts.md). Inspect development archives, exact build identity, extracted fixture CLIs, and authorized draft delivery.
+- [Installed app and login preferences](installed-app.md). Verify the production installed artifact, persisted card mode and interval, login registration and restoration, and stored-session live balance. Native coverage is pending.
