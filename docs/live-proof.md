@@ -39,7 +39,7 @@ The approved profile supplies `BRAM_OP_SERVICE_ACCOUNT_TOKEN`. Do not print it. 
 
 ## Requests and auth limits
 
-The transport allows only `https://uwa.mobilevikings.be` with `POST /mv/oauth2/token/`, `GET /mv/subscriptions`, and `GET /mv/subscriptions/{id}/balance`. Subscription IDs must contain only ASCII letters, digits, hyphens, or underscores. It rejects redirects. Requests use an ephemeral session without cookies or persistent caching. Authentication uses form-encoded password and refresh grants and honors `expires_in`.
+The transport allows only `https://uwa.mobilevikings.be` with `POST /mv/oauth2/token/`, `GET /mv/subscriptions`, `GET /mv/subscriptions/{id}/balance`, and bounded `GET /mv/subscriptions/{id}/usage-summary`. History requests require exactly `traffic_type=data`, `direction=outgoing`, `from_date`, and `until_date`, with no more than 25 hours per interval. Subscription IDs must contain only ASCII letters, digits, hyphens, or underscores. It rejects redirects. Requests use an ephemeral session without cookies or persistent caching. Authentication uses form-encoded password and refresh grants and honors `expires_in`.
 
 The initial grant requests `scope=read`. Support described the public client as read-only, but the prior probe received `read write` on both token responses. The receipt records a boolean scope mismatch, without copying arbitrary provider text. The client request allowlist is the enforcement boundary. Never test server write permissions through an account mutation.
 
@@ -60,6 +60,8 @@ On success, the live runner returns JSON with `schema_version`, `check`, `passed
 Keep receipts in a private directory outside version control, such as `proof-private/`. Record the commit SHA, executable SHA256, command, UTC time, exit status, and receipt. Evidence must survive cleanup. Publish only the minimum non-secret pass/fail summary; do not publish raw account responses or desktop captures. A receipt proves endpoint execution and response validation, not correctness of the native app's allowance display.
 
 ## Extend a check
+
+`make proof-live CHECK=history` verifies daily summaries, forecast arithmetic, and the native chart through the stored session. It makes no credential bootstrap request. Read the [history gate and current coverage](history.md#verification-status) before running it. Both account-access and Mac UI slots are required.
 
 Add a named check and its explicit request policy in the Swift core. Add synthetic success, malformed-response, and forbidden-request tests before running it live. Extend the Python receipt validation if the new check needs different non-secret assertions. Run through the same credential bootstrap; never turn arbitrary URLs or HTTP methods into user-configurable proof inputs. History, points, and bills need their own endpoint assertions and real proof.
 

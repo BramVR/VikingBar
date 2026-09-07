@@ -1,15 +1,15 @@
 import Foundation
 
 public actor VikingSession {
-    private let api: LiveAPI
-    private let store: any SessionStore
-    private let lease: any SessionLease
-    private let cache: any BalanceCache
-    private var current = LiveSessionState()
-    private var token: LiveToken?
-    private var tokenGeneration: UInt64?
+    let api: LiveAPI
+    let store: any SessionStore
+    let lease: any SessionLease
+    let cache: any BalanceCache
+    var current = LiveSessionState()
+    var token: LiveToken?
+    var tokenGeneration: UInt64?
     private var generation: UInt64 = 0
-    private var flight: InFlight?
+    var flight: InFlight?
     private var failures = 0
 
     public init(
@@ -60,6 +60,9 @@ public actor VikingSession {
             if let cached, cached.canRestore(connectionID: self.current.connectionID) {
                 self.current = cached
                 self.current.isRefreshing = false
+                if self.current.history?.context != self.current.historyContext {
+                    self.current.history = nil
+                }
                 if let deadline = cached.freshDeadline(at: self.api.now()) {
                     self.current.nextRefreshAt = deadline
                 } else {
@@ -127,13 +130,15 @@ public actor VikingSession {
 }
 
 extension VikingSession {
-    private func run(
+    func run(
         kind: OperationKind,
         operation: @escaping @Sendable (UInt64) async throws -> LiveSessionState,
     ) async throws -> LiveSessionState {
         let id = UUID()
         let generation = self.generation
-        self.current.isRefreshing = true
+        if kind != .history {
+            self.current.isRefreshing = true
+        }
         let task = Task { try await operation(generation) }
         self.flight = InFlight(id: id, kind: kind, task: task)
         defer {
@@ -149,7 +154,7 @@ extension VikingSession {
             self.current.isRefreshing = false
             return self.current
         } catch {
-            if self.generation == generation {
+            if kind != .history, self.generation == generation {
                 let failure = error is CancellationError ? self.current.failure
                     : ((error as? BootstrapFailure)?.liveFailure ?? error as? LiveFailure ?? .transport)
                 self.recordFailure(failure)
@@ -231,6 +236,8 @@ extension VikingSession {
             if changedSubscription {
                 self.current.balance = nil
                 self.current.selectedBundleIndex = nil
+                self.current.history = nil
+                self.current.historyRevision = nil
                 self.current.snapshot = self.current.emptySnapshot
             }
         }
@@ -350,12 +357,12 @@ extension VikingSession {
         self.current.markStaleSnapshot(failure: failure, at: self.api.now())
     }
 
-    private func checkGeneration(_ generation: UInt64) throws {
+    func checkGeneration(_ generation: UInt64) throws {
         try Task.checkCancellation()
         guard generation == self.generation else { throw CancellationError() }
     }
 
-    private func loadRecord() throws -> StoredSession? {
+    func loadRecord() throws -> StoredSession? {
         do {
             guard let data = try self.store.load() else { return nil }
             let record = try JSONDecoder().decode(StoredSession.self, from: data)
@@ -371,18 +378,19 @@ extension VikingSession {
     }
 }
 
-private struct InFlight {
+struct InFlight {
     let id: UUID
     let kind: OperationKind
     let task: Task<LiveSessionState, Error>
 }
 
-private enum OperationKind: Equatable {
+enum OperationKind: Equatable {
     case bootstrap
+    case history
     case refresh(subscriptionID: String?)
 }
 
-private struct StoredSession: Codable {
+struct StoredSession: Codable {
     var version = 1
     let clientID: String
     let connectionID: ConnectionID

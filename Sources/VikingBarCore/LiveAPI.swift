@@ -42,10 +42,43 @@ struct LiveAPI: Sendable {
         try await Self.decodeBalance(self.get(.balance(subscriptionID: subscriptionID), token: token))
     }
 
-    private func get(_ endpoint: ProofEndpoint, token: LiveToken) async throws -> Data {
+    func usageSummary(
+        subscriptionID: String, interval: HistoryInterval, token: LiveToken, timeout: TimeInterval = 10,
+    ) async throws -> UInt64? {
+        let data = try await self.get(
+            .usageSummary(subscriptionID: subscriptionID, from: interval.start, until: interval.end),
+            token: token, timeout: timeout,
+        )
+        return try Self.decodeUsageSummary(data)
+    }
+
+    static func decodeUsageSummary(_ data: Data) throws -> UInt64? {
+        do {
+            let rows = try JSONDecoder().decode([UsageSummaryResponse].self, from: data)
+            guard !rows.isEmpty else { return nil }
+            var regions = Set<String>()
+            var bytes: UInt64 = 0
+            for row in rows {
+                guard row.trafficType == "data", !row.incoming,
+                      ["national", "international", "roaming", "unknown"].contains(row.regionality),
+                      regions.insert(row.regionality).inserted,
+                      row.totalDuration >= 0, !row.totalDuration.isNaN, !row.totalPrice.isNaN
+                else { throw LiveFailure.malformedResponse }
+                let sum = bytes.addingReportingOverflow(row.totalQuantity)
+                guard !sum.overflow else { throw LiveFailure.malformedResponse }
+                bytes = sum.partialValue
+            }
+            return bytes
+        } catch { throw LiveFailure.malformedResponse }
+    }
+
+    private func get(_ endpoint: ProofEndpoint, token: LiveToken, timeout: TimeInterval? = nil) async throws -> Data {
         try Task.checkCancellation()
         guard self.now() < token.expiresAt else { throw LiveFailure.tokenExpired }
         var request = try endpoint.request()
+        if let timeout {
+            request.timeoutInterval = timeout
+        }
         request.setValue("Bearer \(token.accessToken)", forHTTPHeaderField: "Authorization")
         return try await self.send(request)
     }
@@ -172,4 +205,23 @@ private struct BundleResponse: Decodable {
 private struct BundleDescriptions: Decodable {
     let title: String
     let description: String
+}
+
+private struct UsageSummaryResponse: Decodable {
+    let trafficType: String
+    let regionality: String
+    let incoming: Bool
+    let numberOfRecords: UInt64
+    let totalDuration: Decimal
+    let totalQuantity: UInt64
+    let totalPrice: Decimal
+
+    enum CodingKeys: String, CodingKey {
+        case regionality, incoming
+        case trafficType = "traffic_type"
+        case numberOfRecords = "number_of_records"
+        case totalDuration = "total_duration"
+        case totalQuantity = "total_quantity"
+        case totalPrice = "total_price"
+    }
 }

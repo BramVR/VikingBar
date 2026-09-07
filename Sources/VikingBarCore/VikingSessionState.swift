@@ -41,6 +41,7 @@ extension LiveSessionState {
         guard let balance = self.balance, balance.bundles.indices.contains(index),
               balance.bundles[index].isActive(at: now) else { throw LiveFailure.invalidSelection }
         self.selectedBundleIndex = index
+        self.reviseHistory()
         let updated: Date = switch self.snapshot.freshness {
         case let .current(date), let .stale(date): date
         case .unavailable: now
@@ -69,6 +70,7 @@ extension LiveSessionState {
             return matches.count == 1 ? matches.first : nil
         }
         self.selectedBundleIndex = matching ?? balance.bundles.firstIndex(where: { $0.isActive(at: now) })
+        self.reviseHistory()
         self.failure = nil
         self.nextRefreshAt = min(now.addingTimeInterval(300), self.selectedBundle?.validUntil ?? .distantFuture)
         self.project(updated: now, now: now)

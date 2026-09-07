@@ -24,17 +24,20 @@ public protocol ProofHTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> ProofHTTPResponse
 }
 
-/// The only allowed operations for the authentication and balance gate.
+/// The allowed authentication and read-only account operations.
 public enum ProofEndpoint: Sendable {
     case token
     case subscriptions
     case balance(subscriptionID: String)
+    case usageSummary(subscriptionID: String, from: Date, until: Date)
 
     public func request() throws -> URLRequest {
         let path: String
         switch self {
         case .token: path = "/oauth2/token/"
         case .subscriptions: path = "/subscriptions"
+        case let .usageSummary(subscriptionID, from, until):
+            return try Self.summaryRequest(subscriptionID: subscriptionID, from: from, until: until)
         case let .balance(subscriptionID):
             guard Self.validIdentifier(subscriptionID) else { throw ProofFailure.requestDenied }
             path = "/subscriptions/\(subscriptionID)/balance"
@@ -57,20 +60,63 @@ public enum ProofEndpoint: Sendable {
               let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               parts.scheme == "https", parts.host == "uwa.mobilevikings.be",
               parts.port == nil, parts.user == nil, parts.password == nil,
-              parts.query == nil, parts.fragment == nil
+              parts.fragment == nil
         else { throw ProofFailure.requestDenied }
         let path = parts.percentEncodedPath
-        if request.httpMethod == "POST", path == "/mv/oauth2/token/" {
+        if request.httpMethod == "POST", parts.query == nil, path == "/mv/oauth2/token/" {
             return
         }
-        if request.httpMethod == "GET", path == "/mv/subscriptions" {
+        if request.httpMethod == "GET", parts.query == nil, path == "/mv/subscriptions" {
             return
         }
         let segments = path.split(separator: "/", omittingEmptySubsequences: false)
         guard request.httpMethod == "GET", segments.count == 5,
               segments[0].isEmpty, segments[1] == "mv", segments[2] == "subscriptions",
-              Self.validIdentifier(String(segments[3])), segments[4] == "balance"
+              Self.validIdentifier(String(segments[3]))
         else { throw ProofFailure.requestDenied }
+        if segments[4] == "balance", parts.query == nil {
+            return
+        }
+        guard segments[4] == "usage-summary", request.httpBody == nil,
+              let query = parts.queryItems, query.count == 4,
+              Set(query.map(\.name)) == ["traffic_type", "direction", "from_date", "until_date"],
+              query.first(where: { $0.name == "traffic_type" })?.value == "data",
+              query.first(where: { $0.name == "direction" })?.value == "outgoing",
+              let fromText = query.first(where: { $0.name == "from_date" })?.value,
+              let untilText = query.first(where: { $0.name == "until_date" })?.value,
+              let from = Self.summaryDate(fromText), let until = Self.summaryDate(untilText),
+              from < until, until.timeIntervalSince(from) <= 90000
+        else { throw ProofFailure.requestDenied }
+    }
+
+    private static func summaryRequest(subscriptionID: String, from: Date, until: Date) throws -> URLRequest {
+        guard self.validIdentifier(subscriptionID), from < until,
+              until.timeIntervalSince(from) <= 90000 else { throw ProofFailure.requestDenied }
+        var parts =
+            URLComponents(string: "https://uwa.mobilevikings.be/mv/subscriptions/\(subscriptionID)/usage-summary")!
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        parts.queryItems = [
+            URLQueryItem(name: "traffic_type", value: "data"),
+            URLQueryItem(name: "direction", value: "outgoing"),
+            URLQueryItem(name: "from_date", value: formatter.string(from: from)),
+            URLQueryItem(name: "until_date", value: formatter.string(from: until)),
+        ]
+        var request = URLRequest(url: parts.url!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        try Self.validate(request)
+        return request
+    }
+
+    private static func summaryDate(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard text.hasSuffix("Z"), let date = formatter.date(from: text),
+              formatter.string(from: date) == text else { return nil }
+        return date
     }
 
     private static func validIdentifier(_ identifier: String) -> Bool {
@@ -90,7 +136,8 @@ public final class EphemeralProofTransport: NSObject, ProofHTTPTransport, URLSes
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 60
+        configuration.timeoutIntervalForResource = request.url?.path.hasSuffix("/usage-summary") == true
+            ? request.timeoutInterval : 60
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         do {

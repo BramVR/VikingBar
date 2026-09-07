@@ -3,7 +3,7 @@ import VikingBarCore
 
 struct SessionCommand: Decodable, Sendable {
     enum Name: String, Decodable, Sendable {
-        case restore, refresh, selectSubscription, selectBundle, cancel, shutdown
+        case restore, refresh, refreshHistory, selectSubscription, selectBundle, cancel, shutdown
     }
 
     let command: Name
@@ -14,6 +14,7 @@ struct SessionCommand: Decodable, Sendable {
         switch self.command {
         case .restore: _ = try await session.restore()
         case .refresh: _ = try await session.refresh()
+        case .refreshHistory: _ = try await session.refreshHistory()
         case .selectSubscription: _ = try await session.selectSubscription(id: self.id!)
         case .selectBundle: _ = try await session.selectBundle(index: self.index!)
         case .cancel, .shutdown: await session.cancel()
@@ -34,7 +35,7 @@ struct SessionCommand: Decodable, Sendable {
         case .selectBundle:
             keys = ["command", "index"]
             guard let index = value.index, index >= 0 else { throw ProofFailure.invalidInput }
-        case .restore, .refresh, .cancel, .shutdown:
+        case .restore, .refresh, .refreshHistory, .cancel, .shutdown:
             keys = ["command"]
         }
         guard Set(object.keys) == keys else { throw ProofFailure.invalidInput }

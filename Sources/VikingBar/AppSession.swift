@@ -27,12 +27,10 @@ final class AppSession {
     private(set) var settingsError: String?
     private(set) var liveState = LiveSessionState()
     private(set) var activity: Activity = .idle
+    private(set) var isHistoryLoading = false
+    private(set) var historyError: String?
     private var bridgeFailure: LiveBridgeFailure?
     private var allowanceExpired = false
-
-    var bridgeError: String? {
-        self.bridgeFailure?.message
-    }
 
     let timeZone: TimeZone
     let referenceDate: Date
@@ -45,6 +43,7 @@ final class AppSession {
     @ObservationIgnored private var client: (any SessionClient)?
     @ObservationIgnored private var connector: (any AccountConnecting)?
     @ObservationIgnored private var operation: Task<Void, Never>?
+    @ObservationIgnored private var historyOperation: Task<Void, Never>?
     @ObservationIgnored private var scheduledRefresh: Task<Void, Never>?
     @ObservationIgnored private var scheduledExpiry: Task<Void, Never>?
     @ObservationIgnored private var snapshotRevision = 0
@@ -104,10 +103,6 @@ final class AppSession {
             snapshot: self.snapshot, showRemainingGB: self.showRemainingGB,
             unit: self.unit, timeZone: self.timeZone,
         )
-    }
-
-    var balanceDetails: LiveBalancePresentation {
-        LiveBalancePresentation(state: self.liveState)
     }
 
     var activeBundleIndices: [Int] {
@@ -181,6 +176,8 @@ final class AppSession {
         self.onPresentationChange?()
         self.operation = Task {
             await previous?.shutdown()
+            await self.historyOperation?.value
+            self.historyOperation = nil
             guard self.isCurrent(intent) else { return }
             do {
                 let connector = try self.connectorFactory()
@@ -210,12 +207,16 @@ final class AppSession {
         await connector?.cancel()
         await client?.shutdown()
         await operation?.value
+        await self.historyOperation?.value
+        self.historyOperation = nil
         self.operation = nil
     }
 
     private func begin(_ activity: Activity) -> Int {
         self.generation += 1
         self.operation?.cancel()
+        self.historyOperation?.cancel()
+        self.isHistoryLoading = false
         self.scheduledRefresh?.cancel()
         self.scheduledRefresh = nil
         self.activity = activity
@@ -250,10 +251,13 @@ final class AppSession {
         guard self.isCurrent(intent) else { return }
         do {
             guard let client = self.client else { throw LiveBridgeFailure.unavailable }
+            await self.drainHistory(client: client)
+            guard self.isCurrent(intent) else { return }
             let state = try await client.request(request)
             guard self.isCurrent(intent) else { return }
             self.publish(state)
             self.finish()
+            self.startHistory(intent: intent)
         } catch {
             await self.failWorker(intent: intent)
         }
@@ -279,6 +283,48 @@ final class AppSession {
 }
 
 extension AppSession {
+    var bridgeError: String? {
+        self.bridgeFailure?.message
+    }
+
+    var balanceDetails: LiveBalancePresentation {
+        LiveBalancePresentation(state: self.liveState)
+    }
+
+    var historyPresentation: HistoryPresentation {
+        HistoryPresentation(history: self.liveState.matchingHistory, unit: self.unit, now: self.now())
+    }
+
+    private func drainHistory(client: any SessionClient) async {
+        guard let pending = self.historyOperation else { return }
+        pending.cancel()
+        _ = try? await client.request(.cancel)
+        await pending.value
+        self.historyOperation = nil
+    }
+
+    private func startHistory(intent: Int) {
+        guard self.isCurrent(intent), self.liveState.historyContext != nil,
+              self.liveState.failure == nil, let client = self.client else { return }
+        self.isHistoryLoading = true
+        self.historyError = nil
+        self.historyOperation = Task {
+            do {
+                try Task.checkCancellation()
+                let state = try await client.request(.refreshHistory)
+                guard self.isCurrent(intent) else { return }
+                self.liveState.mergeHistory(from: state)
+            } catch {
+                guard self.isCurrent(intent) else { return }
+                self.historyError = "History unavailable. Refresh to try again."
+            }
+            guard self.isCurrent(intent) else { return }
+            self.isHistoryLoading = false
+            self.historyOperation = nil
+            self.onPresentationChange?()
+        }
+    }
+
     private func cancelExpiry() {
         self.snapshotRevision += 1
         self.scheduledExpiry?.cancel()

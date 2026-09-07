@@ -10,9 +10,10 @@ Native live proof covers API comparisons, refresh, stored-token recovery after r
 
 The menu bar helmet shows the remaining allowance through its inset bar. Open **Settings** in the data card to enable **Show remaining GB in menu bar**. The saved choice defaults to off. The optional label uses decimal GB even when the card uses GiB.
 
+Expand **Daily SIM data and estimate** for daily aggregate usage and a labeled cycle estimate. Missing and stale days remain distinct from zero. See [history rules and pending live proof](docs/history.md).
+
 ## Planned behavior
 
-- Daily usage chart and an explicitly labeled cycle forecast.
 - Viking Points and latest bill details.
 - Launch at login.
 

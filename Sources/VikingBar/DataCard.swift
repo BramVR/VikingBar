@@ -9,7 +9,7 @@ struct DataCard: View {
 
     var body: some View {
         let menu = self.session.menu
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: self.session.isFixtureLaunch ? 16 : 10) {
             HStack {
                 Label("VikingBar", systemImage: "antenna.radiowaves.left.and.right")
                     .font(.headline)
@@ -60,6 +60,13 @@ struct DataCard: View {
                     .font(.callout)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if !self.session.isFixtureLaunch, self.session.liveState.historyContext != nil {
+                HistoryCard(
+                    presentation: self.session.historyPresentation,
+                    isLoading: self.session.isHistoryLoading, error: self.session.historyError,
+                    reportedUsedText: menu.usedText,
+                )
             }
             Divider()
             VStack(alignment: .leading, spacing: 8) {

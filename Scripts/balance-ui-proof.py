@@ -136,15 +136,15 @@ def process_identity(pid):
 
 
 class NativeProof:
-    def __init__(self, environment):
+    def __init__(self, environment, *, require_reference=True):
         self.environment = environment
         self.peekaboo = environment.get("PEEKABOO_BIN")
         if not self.peekaboo or not Path(self.peekaboo).is_file():
             raise UIFailure("configured-peekaboo-required")
         reference = environment.get("VIKINGBAR_CREDENTIAL_REFERENCE", "")
-        if not Path(reference).is_file():
+        if require_reference and not Path(reference).is_file():
             raise UIFailure("credential-reference-required")
-        self.reference = str(Path(reference).resolve())
+        self.reference = str(Path(reference).resolve()) if reference else None
         self.directory = ROOT / ".build/proof" / uuid.uuid4().hex
         self.directory.mkdir(parents=True, mode=0o700)
         self.bundle = ROOT / ".build/app/VikingBar.app"
@@ -164,8 +164,9 @@ class NativeProof:
         if result.returncode:
             try:
                 failure = json.loads(result.stdout)
-                if failure == {"passed": False, "error": "session-busy"}:
-                    raise UIFailure("session-busy")
+                for code in ("session-busy", "history-evidence-insufficient", "history-api-failed"):
+                    if failure == {"passed": False, "error": code}:
+                        raise UIFailure(code)
             except ValueError:
                 pass
             raise UIFailure("proof-command-failed")
@@ -206,6 +207,8 @@ class NativeProof:
     def launch(self, first, label=None):
         arguments = [str(self.executable), "--proof-directory", str(self.directory)]
         if first:
+            if self.reference is None:
+                raise UIFailure("credential-reference-required")
             arguments += ["--credential-reference", self.reference]
         clean = {key: self.environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL")
                  if key in self.environment}

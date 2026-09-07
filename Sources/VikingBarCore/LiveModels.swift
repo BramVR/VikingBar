@@ -94,6 +94,8 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var selectedSubscriptionID: String?
     public internal(set) var balance: LiveBalance?
     public internal(set) var selectedBundleIndex: Int?
+    public internal(set) var historyRevision: UUID?
+    public internal(set) var history: UsageHistory?
     public internal(set) var snapshot: UsageSnapshot = .notConnected
     public internal(set) var failure: LiveFailure?
     public internal(set) var nextRefreshAt: Date?

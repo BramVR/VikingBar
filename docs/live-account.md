@@ -17,6 +17,8 @@ After connection, choose a SIM and data bundle in the card. Different bundles ke
 
 The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
 
+Expand **Daily SIM data and estimate** to inspect daily usage for the selected bundle period. History loads after balance and has separate failures. The estimate covers SIM traffic, which can differ from the selected bundle's balance. See [daily usage and estimate rules](history.md).
+
 ## Inspect the same balance in the CLI
 
 Use the CLI embedded in the development bundle:

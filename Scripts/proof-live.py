@@ -47,8 +47,9 @@ def child_environment(environment):
 
 
 def run(check, environment, execute=subprocess.run):
-    if check == "balance-ui":
-        spec = importlib.util.spec_from_file_location("balance_ui_proof", Path(__file__).with_name("balance-ui-proof.py"))
+    if check in ("balance-ui", "history"):
+        filename = "balance-ui-proof.py" if check == "balance-ui" else "history-proof.py"
+        spec = importlib.util.spec_from_file_location("native_proof", Path(__file__).with_name(filename))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         try:

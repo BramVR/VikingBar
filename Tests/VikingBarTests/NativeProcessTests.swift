@@ -4,7 +4,8 @@ import Testing
 @testable import VikingBarCore
 
 struct NativeProcessTests {
-    @Test func `native pipe client drains canceled reply before its acknowledgement`() async throws {
+    @Test(arguments: [false, true])
+    func `native pipe client drains canceled reply before its acknowledgement`(history: Bool) async throws {
         let fixture = try NativeProcessFixture(script: """
         import json, pathlib, sys
         state = json.loads('\(Self.stateJSON())')
@@ -15,7 +16,7 @@ struct NativeProcessTests {
         for line in sys.stdin:
             request = json.loads(line)
             command = request['command']
-            if command == 'refresh':
+            if command in ('refresh', 'refreshHistory'):
                 pending = True
                 pathlib.Path(__file__ + '.started').touch()
                 continue
@@ -29,8 +30,9 @@ struct NativeProcessTests {
         """)
         defer { fixture.cleanup() }
         let client = SessionProcessClient(executableURL: fixture.executable)
-        let refreshing = Task { try await client.request(.refresh) }
+        let refreshing = Task { try await client.request(history ? .refreshHistory : .refresh) }
         try await fixture.waitUntilStarted()
+        refreshing.cancel()
         let cancellation = try await client.request(.cancel)
         #expect(try await refreshing.value.selectedBundleIndex == 1)
         #expect(cancellation.selectedBundleIndex == 2)
@@ -38,6 +40,38 @@ struct NativeProcessTests {
         await client.shutdown()
         await client.shutdown()
         await #expect(throws: LiveBridgeFailure.self) { try await client.request(.restore) }
+    }
+
+    @Test func `native pipe preserves millisecond bundle cycle boundaries and reads legacy dates`() async throws {
+        let jsonBundle = LiveModelsTests.bundle().replacingOccurrences(
+            of: "2026-01-01T00:00:00Z", with: "2026-01-01T00:00:00.123Z",
+        )
+        let decoded = try LiveAPI.decodeBalance(Data("{\"bundles\":[\(jsonBundle)]}".utf8))
+        let precise = decoded.bundles[0]
+        var state = LiveSessionState()
+        state.connectionID = ConnectionID()
+        state.selectedSubscriptionID = "sim-a"
+        state.publish(LiveBalance(bundles: [precise], regionality: nil, outOfBundleCost: nil), at: LiveModelsTests.now)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = SessionDateCoding.encodingStrategy
+        let json = try #require(String(data: encoder.encode(state), encoding: .utf8))
+        #expect(json.contains("2026-01-01T00:00:00.123Z"))
+        let fixture = try NativeProcessFixture(script: """
+        import json, sys
+        state = json.loads('\(json)')
+        for line in sys.stdin:
+            print(json.dumps({'schemaVersion': 1, 'state': state}), flush=True)
+            if json.loads(line)['command'] == 'shutdown': break
+        """)
+        defer { fixture.cleanup() }
+        let client = SessionProcessClient(executableURL: fixture.executable)
+        let reply = try await client.request(.restore)
+        #expect(reply.historyContext?.bundle.cycleStart == precise.validFrom)
+        await client.shutdown()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = SessionDateCoding.decodingStrategy
+        let legacy = try decoder.decode(Date.self, from: Data("\"2026-01-01T00:00:00Z\"".utf8))
+        #expect(legacy == UsageHistoryTests.date("2026-01-01T00:00:00Z"))
     }
 
     @Test func `invalid oversized unsupported and truncated worker replies fail closed`() async throws {
