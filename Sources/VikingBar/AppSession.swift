@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import VikingBarCore
@@ -29,6 +30,12 @@ final class AppSession {
     private(set) var activity: Activity = .idle
     private var bridgeFailure: LiveBridgeFailure?
     private var allowanceExpired = false
+    private(set) var isLoadingInvoices = false
+    private(set) var invoiceError: String?
+    @ObservationIgnored private var invoiceOperation: Task<Void, Never>?
+    @ObservationIgnored private var invoiceRevision = 0
+    @ObservationIgnored private var invoiceCancellation: Task<Void, Never>?
+    @ObservationIgnored private let openDocument: (URL) -> Bool
 
     var bridgeError: String? {
         self.bridgeFailure?.message
@@ -58,6 +65,7 @@ final class AppSession {
         clientFactory: @escaping () throws -> any SessionClient = { throw LiveBridgeFailure.unavailable },
         connectorFactory: @escaping () throws -> any AccountConnecting = { throw LiveBridgeFailure.connectFailed },
         now: @escaping () -> Date = Date.init,
+        openDocument: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
         sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
             try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
         },
@@ -73,6 +81,7 @@ final class AppSession {
         self.clientFactory = clientFactory
         self.connectorFactory = connectorFactory
         self.now = now
+        self.openDocument = openDocument
         self.sleepUntil = sleepUntil
     }
 
@@ -104,23 +113,6 @@ final class AppSession {
             snapshot: self.snapshot, showRemainingGB: self.showRemainingGB,
             unit: self.unit, timeZone: self.timeZone,
         )
-    }
-
-    var balanceDetails: LiveBalancePresentation {
-        LiveBalancePresentation(state: self.liveState)
-    }
-
-    var activeBundleIndices: [Int] {
-        guard let balance = self.liveState.balance else { return [] }
-        return balance.bundles.indices.filter { balance.bundles[$0].isActive(at: self.now()) }
-    }
-
-    var canRefresh: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && (self.isConnected || self.canRestartWorker)
-    }
-
-    var canSelectAccountData: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && self.isConnected && self.client != nil
     }
 
     private var canRestartWorker: Bool {
@@ -214,6 +206,14 @@ final class AppSession {
     }
 
     private func begin(_ activity: Activity) -> Int {
+        self.invoiceRevision += 1
+        self.invoiceOperation?.cancel()
+        self.invoiceOperation = nil
+        if self.isLoadingInvoices, let client = self.client {
+            self.invoiceCancellation = Task { _ = try? await client.request(.cancel) }
+        }
+        self.isLoadingInvoices = false
+        self.invoiceError = nil
         self.generation += 1
         self.operation?.cancel()
         self.scheduledRefresh?.cancel()
@@ -247,6 +247,8 @@ final class AppSession {
     }
 
     private func perform(_ request: SessionRequest, intent: Int) async {
+        await self.invoiceCancellation?.value
+        self.invoiceCancellation = nil
         guard self.isCurrent(intent) else { return }
         do {
             guard let client = self.client else { throw LiveBridgeFailure.unavailable }
@@ -310,5 +312,81 @@ extension AppSession {
             guard let self, self.isCurrent(intent) else { return }
             self.refresh()
         }
+    }
+}
+
+extension AppSession {
+    var invoiceDetails: InvoicePresentation {
+        InvoicePresentation(
+            snapshot: self.liveState.invoices,
+            selectedSubscriptionID: self.liveState.selectedSubscriptionID,
+            timeZone: self.timeZone,
+        )
+    }
+
+    func loadInvoices() {
+        self.invoiceRequest(.refreshInvoices, requestedID: nil)
+    }
+
+    func openInvoice(_ id: String) {
+        guard self.liveState.invoices?.invoices.contains(where: { $0.id == id }) == true else { return }
+        self.invoiceRequest(.downloadInvoice(id), requestedID: id)
+    }
+
+    private func invoiceRequest(_ request: SessionRequest, requestedID: String?) {
+        guard self.canSelectAccountData, !self.isLoadingInvoices, let client else { return }
+        self.invoiceRevision += 1
+        let revision = self.invoiceRevision
+        let connection = self.liveState.connectionID
+        self.isLoadingInvoices = true
+        self.invoiceError = nil
+        self.invoiceOperation = Task {
+            defer {
+                if revision == self.invoiceRevision {
+                    self.isLoadingInvoices = false
+                    self.invoiceOperation = nil
+                }
+            }
+            do {
+                let state = try await client.request(request)
+                guard !Task.isCancelled, revision == self.invoiceRevision,
+                      connection == state.connectionID, connection == self.liveState.connectionID,
+                      self.activity != .stopped else { return }
+                if let requestedID {
+                    guard let document = state.invoiceDocument, document.invoiceID == requestedID,
+                          document.fileURL.isFileURL, self.openDocument(document.fileURL)
+                    else { self.invoiceError = "Could not open invoice PDF. Try again."; return }
+                } else {
+                    self.liveState = state
+                    if state.invoiceFailure == .tokenExpired {
+                        self.invoiceError = "Refresh data before loading bills again."
+                    }
+                }
+            } catch {
+                guard revision == self.invoiceRevision, !Task.isCancelled else { return }
+                self.invoiceError = "Could not load bills. Try again."
+            }
+        }
+    }
+}
+
+extension AppSession {
+    var balanceDetails: LiveBalancePresentation {
+        LiveBalancePresentation(state: self.liveState)
+    }
+
+    var activeBundleIndices: [Int] {
+        guard let balance = self.liveState.balance else { return [] }
+        return balance.bundles.indices.filter { balance.bundles[$0].isActive(at: self.now()) }
+    }
+}
+
+extension AppSession {
+    var canRefresh: Bool {
+        !self.isFixtureLaunch && self.activity == .idle && (self.isConnected || self.canRestartWorker)
+    }
+
+    var canSelectAccountData: Bool {
+        !self.isFixtureLaunch && self.activity == .idle && self.isConnected && self.client != nil
     }
 }

@@ -92,6 +92,8 @@ actor VikingSession {
     func refresh(subscriptionID: String? = nil, forceTokenRefresh: Bool = false) async throws -> LiveSessionState {
         LiveSessionState()
     }
+    func refreshInvoices() async throws -> LiveSessionState { LiveSessionState() }
+    func downloadInvoice(id: String) async throws -> LiveSessionState { LiveSessionState() }
     func selectBundle(index: Int) throws -> LiveSessionState { LiveSessionState() }
     func state() -> LiveSessionState { LiveSessionState() }
     static func privateError() -> NSError {

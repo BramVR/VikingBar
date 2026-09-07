@@ -39,7 +39,7 @@ The approved profile supplies `BRAM_OP_SERVICE_ACCOUNT_TOKEN`. Do not print it. 
 
 ## Requests and auth limits
 
-The transport allows only `https://uwa.mobilevikings.be` with `POST /mv/oauth2/token/`, `GET /mv/subscriptions`, and `GET /mv/subscriptions/{id}/balance`. Subscription IDs must contain only ASCII letters, digits, hyphens, or underscores. It rejects redirects. Requests use an ephemeral session without cookies or persistent caching. Authentication uses form-encoded password and refresh grants and honors `expires_in`.
+The transport allows only `https://uwa.mobilevikings.be` with `POST /mv/oauth2/token/`, `GET /mv/subscriptions`, `GET /mv/subscriptions/{id}/balance`, the bounded account invoice list, and explicit invoice PDF reads. Invoice listing accepts only `GET /mv/invoices?page=N&per_page=20`, with N from 1 through 5. PDF requests use `GET /mv/invoices/{id}/pdf`. Identifiers must contain only ASCII letters, digits, hyphens, or underscores. The client rejects redirects and never follows provider pagination URLs. Requests use an ephemeral session without cookies or persistent caching. Authentication uses form-encoded password and refresh grants and honors `expires_in`.
 
 The initial grant requests `scope=read`. Support described the public client as read-only, but the prior probe received `read write` on both token responses. The receipt records a boolean scope mismatch, without copying arbitrary provider text. The client request allowlist is the enforcement boundary. Never test server write permissions through an account mutation.
 
@@ -64,6 +64,8 @@ Keep receipts in a private directory outside version control, such as `proof-pri
 Add a named check and its explicit request policy in the Swift core. Add synthetic success, malformed-response, and forbidden-request tests before running it live. Extend the Python receipt validation if the new check needs different non-secret assertions. Run through the same credential bootstrap; never turn arbitrary URLs or HTTP methods into user-configurable proof inputs. History, points, and bills need their own endpoint assertions and real proof.
 
 ## Native balance proof
+
+For the invoice-specific gate, see [invoice proof](#invoice-proof). It uses the stored session and does not bootstrap credentials or launch the native app.
 
 `make proof-live CHECK=balance-ui` routes to `Scripts/balance-ui-proof.py`. This path requires explicit live-account authorization, the exclusive credential slot, and the exclusive Mac UI slot. Set `VIKINGBAR_CREDENTIAL_REFERENCE` to the approved reference file. The packaged connection helper creates its own private named tmux session and sources the approved profile there. It derives `USER` from the OS account for that tmux environment so the profile can select its service-account credential. The `op` and CLI child environments are unchanged. Do not add a separate credential read before this command.
 
@@ -93,6 +95,8 @@ The auth-balance gate and its receipt schema remain unchanged. It proves the cre
 
 ## Recorded coverage
 
+Invoice coverage is separate from the recorded balance runs below. Its live gate remains pending.
+
 The core `balance-ui` gate passed on the source committed as `6955b39`. The coordinator retained the private receipts. The run proved native connection, raw API comparison with forced token rotation, a newer update after native Refresh, and the same connection after relaunch. A release rebuild changed the CLI executable hash and still refreshed with the stored token. The successful sequence used one credential read. The coordinator verified that all task-owned apps, workers, helper processes, and tmux processes had exited.
 
 Live selection coverage was limited to one SIM and one data bundle. The API comparison included the returned bundle array, but that does not establish live multi-SIM or multiple-data-bundle selection coverage.
@@ -100,3 +104,19 @@ Live selection coverage was limited to one SIM and one data bundle. The API comp
 The later blank-title fallback uses `LiveBalancePresentation.title(for:index:)` for the card and picker. It displays `Data bundle N` using the provider index plus one and preserves raw provider values. A subsequent proof passed on the source committed as `c3e1259`, using the stored session with no additional credential reads. It opened the native picker, selected the existing data bundle, and verified readable matching titles in the picker and card. The run also passed independent API comparison with forced token rotation and a newer update after native Refresh, while preserving the connection identity. The coordinator inspected the actual card capture and verified native Quit exited 0 with the app and worker gone.
 
 The release-rebuild proof belongs to the earlier core gate. The later picker proof covers the updated debug build. Receipts and captures remain private; only redacted results and build identity may be published. Live multi-SIM and multiple-data-bundle selection remain unverified.
+
+## Invoice proof
+
+With an existing connected account and the coordinator's credential slot, run:
+
+```sh
+make proof-live CHECK=invoices
+```
+
+The wrapper invokes `.build/debug/vikingbar proof invoices` with a restricted environment. It performs no 1Password read. The CLI restores and refreshes the stored session, reads bounded invoice metadata, and compares it independently with the production invoice model and presentation. This command accesses Keychain and the account API. A new executable build can require Keychain authorization.
+
+If the account has an invoice, the command explicitly downloads the latest document through `VikingSession.downloadInvoice`. The oracle compares the resulting private file with the authenticated PDF response. The command does not open a PDF viewer. A real empty account passes only after a successful, complete empty response; unavailable invoices and skipped requests fail. See [download limits and retention](invoices.md#pdf-handling).
+
+The strict receipt contains only `schema_version`, `check`, `passed`, `invoice_count`, `empty`, `truncated`, `metadata_matches`, `presentation_matches`, and `pdf_downloaded`. Empty and PDF-download flags must agree with the invoice count. Truncated results require the full 100-document bound. Unknown fields, failed comparisons, and nonzero CLI exits fail the wrapper. No invoice IDs, amounts, document paths, bearer tokens, or provider diagnostics appear in its output.
+
+Retain the receipt, source SHA, executable hash, UTC time, and exit status privately. Native Bills-tab and PDF-button coverage are separate and require the Mac UI slot. Opening a personal PDF requires an explicit request. Follow the [invoice feature map](../.agents/skills/verify-vikingbar/features/invoices.md).

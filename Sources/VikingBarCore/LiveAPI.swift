@@ -42,7 +42,7 @@ struct LiveAPI: Sendable {
         try await Self.decodeBalance(self.get(.balance(subscriptionID: subscriptionID), token: token))
     }
 
-    private func get(_ endpoint: ProofEndpoint, token: LiveToken) async throws -> Data {
+    func get(_ endpoint: ProofEndpoint, token: LiveToken) async throws -> Data {
         try Task.checkCancellation()
         guard self.now() < token.expiresAt else { throw LiveFailure.tokenExpired }
         var request = try endpoint.request()
@@ -50,7 +50,7 @@ struct LiveAPI: Sendable {
         return try await self.send(request)
     }
 
-    private func send(_ request: URLRequest, tokenExchange: Bool = false) async throws -> Data {
+    func send(_ request: URLRequest, tokenExchange: Bool = false) async throws -> Data {
         do { try ProofEndpoint.validate(request) } catch { throw LiveFailure.requestDenied }
         let response: ProofHTTPResponse
         do { response = try await self.transport.send(request) } catch is CancellationError {

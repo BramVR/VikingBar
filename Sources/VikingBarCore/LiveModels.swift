@@ -93,6 +93,9 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var subscriptions: [MobileSubscription] = []
     public internal(set) var selectedSubscriptionID: String?
     public internal(set) var balance: LiveBalance?
+    public internal(set) var invoices: InvoiceSnapshot?
+    public internal(set) var invoiceFailure: LiveFailure?
+    public internal(set) var invoiceDocument: InvoiceDocument?
     public internal(set) var selectedBundleIndex: Int?
     public internal(set) var snapshot: UsageSnapshot = .notConnected
     public internal(set) var failure: LiveFailure?

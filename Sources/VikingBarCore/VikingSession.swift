@@ -1,16 +1,17 @@
 import Foundation
 
 public actor VikingSession {
-    private let api: LiveAPI
+    let api: LiveAPI
     private let store: any SessionStore
     private let lease: any SessionLease
-    private let cache: any BalanceCache
-    private var current = LiveSessionState()
-    private var token: LiveToken?
+    let cache: any BalanceCache
+    var current = LiveSessionState()
+    var token: LiveToken?
     private var tokenGeneration: UInt64?
-    private var generation: UInt64 = 0
+    var generation: UInt64 = 0
     private var flight: InFlight?
     private var failures = 0
+    var optionalOperation: (id: UUID, cancel: @Sendable () -> Void)?
 
     public init(
         transport: any ProofHTTPTransport, store: any SessionStore,
@@ -23,13 +24,17 @@ public actor VikingSession {
         self.cache = cache
     }
 
+    var hasBalanceOperation: Bool {
+        self.flight != nil
+    }
+
     public func state() -> LiveSessionState {
         self.current
     }
 
     public func bootstrapWithDiagnostics(credentials: ProofCredentials) async throws -> LiveSessionState {
         do {
-            guard self.flight == nil else { throw BootstrapFailure.sessionBusy }
+            guard self.flight == nil, self.optionalOperation == nil else { throw BootstrapFailure.sessionBusy }
             self.generation &+= 1
             self.token = nil
             self.current = LiveSessionState()
@@ -46,7 +51,7 @@ public actor VikingSession {
     }
 
     public func restore() throws -> LiveSessionState {
-        guard self.flight == nil else { throw LiveFailure.busy }
+        guard self.flight == nil, self.optionalOperation == nil else { throw LiveFailure.busy }
         let handle = try self.lease.acquire()
         defer { handle.release() }
         do {
@@ -82,6 +87,9 @@ public actor VikingSession {
     public func refresh(
         subscriptionID: String? = nil, forceTokenRefresh: Bool = false,
     ) async throws -> LiveSessionState {
+        if self.optionalOperation != nil {
+            self.cancel()
+        }
         let kind = OperationKind.refresh(subscriptionID: subscriptionID)
         if let flight {
             guard flight.kind == kind else { throw LiveFailure.busy }
@@ -112,7 +120,7 @@ public actor VikingSession {
     }
 
     public func selectBundle(index: Int) throws -> LiveSessionState {
-        guard self.flight == nil else { throw LiveFailure.busy }
+        guard self.flight == nil, self.optionalOperation == nil else { throw LiveFailure.busy }
         return try self.withConnectionLease(expected: self.current.connectionID) { _ in
             try self.current.selectBundle(index: index, at: self.api.now())
             try? self.cache.save(self.current)
@@ -123,6 +131,8 @@ public actor VikingSession {
     public func cancel() {
         self.generation &+= 1
         self.flight?.task.cancel()
+        self.optionalOperation?.cancel()
+        self.optionalOperation = nil
     }
 }
 
@@ -297,7 +307,7 @@ extension VikingSession {
 }
 
 extension VikingSession {
-    private func withConnectionLease<Value>(
+    func withConnectionLease<Value>(
         expected: ConnectionID?, operation: (StoredSession) throws -> Value,
     ) throws -> Value {
         let handle = try self.lease.acquire()
@@ -350,7 +360,7 @@ extension VikingSession {
         self.current.markStaleSnapshot(failure: failure, at: self.api.now())
     }
 
-    private func checkGeneration(_ generation: UInt64) throws {
+    func checkGeneration(_ generation: UInt64) throws {
         try Task.checkCancellation()
         guard generation == self.generation else { throw CancellationError() }
     }
@@ -380,13 +390,4 @@ private struct InFlight {
 private enum OperationKind: Equatable {
     case bootstrap
     case refresh(subscriptionID: String?)
-}
-
-private struct StoredSession: Codable {
-    var version = 1
-    let clientID: String
-    let connectionID: ConnectionID
-    var refreshToken: String
-    var generation: UInt64
-    var rotationPending: Bool
 }

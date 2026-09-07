@@ -10,10 +10,12 @@ Native live proof covers API comparisons, refresh, stored-token recovery after r
 
 The menu bar helmet shows the remaining allowance through its inset bar. Open **Settings** in the data card to enable **Show remaining GB in menu bar**. The saved choice defaults to off. The optional label uses decimal GB even when the card uses GiB.
 
+The **Bills** tab shows the latest account invoice or credit note, including grouped scope, payment state, and amount due. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md). Live invoice verification remains pending.
+
 ## Planned behavior
 
 - Daily usage chart and an explicitly labeled cycle forecast.
-- Viking Points and latest bill details.
+- Viking Points.
 - Launch at login.
 
 ## Build plan

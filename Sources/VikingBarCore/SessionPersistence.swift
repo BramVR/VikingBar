@@ -107,13 +107,17 @@ public struct FileBalanceCache: BalanceCache {
         do {
             let record = try JSONDecoder().decode(CachedBalance.self, from: Data(contentsOf: self.url))
             guard record.version == 1, record.state.connectionID == connectionID else { return nil }
-            return record.state
+            var state = record.state
+            state.invoiceDocument = nil
+            return state
         } catch { throw LiveFailure.storage }
     }
 
     public func save(_ state: LiveSessionState) throws {
         do {
-            let data = try JSONEncoder().encode(CachedBalance(version: 1, state: state))
+            var cached = state
+            cached.invoiceDocument = nil
+            let data = try JSONEncoder().encode(CachedBalance(version: 1, state: cached))
             let temporary = self.url.deletingLastPathComponent().appendingPathComponent(".balance-\(UUID()).tmp")
             let descriptor = open(temporary.path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0o600)
             guard descriptor >= 0 else { throw LiveFailure.storage }
@@ -132,4 +136,13 @@ public struct FileBalanceCache: BalanceCache {
 private struct CachedBalance: Codable {
     let version: Int
     let state: LiveSessionState
+}
+
+struct StoredSession: Codable {
+    var version = 1
+    let clientID: String
+    let connectionID: ConnectionID
+    var refreshToken: String
+    var generation: UInt64
+    var rotationPending: Bool
 }

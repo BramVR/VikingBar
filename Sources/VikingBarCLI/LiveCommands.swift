@@ -7,6 +7,7 @@ struct LiveReport: Encodable, Sendable {
     let snapshot: UsageSnapshot
     let menu: MenuPresentation
     let balanceDetails: LiveBalancePresentation
+    let invoiceDetails: InvoicePresentation
     let error: String?
 
     init(state: LiveSessionState, error: String? = nil) {
@@ -15,6 +16,10 @@ struct LiveReport: Encodable, Sendable {
         self.snapshot = state.snapshot
         self.menu = MenuPresentation(snapshot: state.snapshot)
         self.balanceDetails = LiveBalancePresentation(state: state)
+        self.invoiceDetails = InvoicePresentation(
+            snapshot: state.invoices,
+            selectedSubscriptionID: state.selectedSubscriptionID,
+        )
     }
 }
 
@@ -70,6 +75,7 @@ extension VikingBarCLI {
       vikingbar connect
       vikingbar proof auth-balance
       vikingbar proof balance-api
+      vikingbar proof invoices
 
     Live commands use the explicitly connected account and may access Keychain.
     Bundle indices are zero-based positions in the reported provider bundle array.
@@ -143,6 +149,28 @@ extension VikingBarCLI {
             } else {
                 self.writeJSON(CommandFailure(error: "live-failed"))
             }
+            exit(1)
+        }
+    }
+
+    static func invoiceProof() async {
+        do {
+            let transport = InvoiceOracleTransport(base: EphemeralProofTransport())
+            let session = try VikingSession.production(transport: transport)
+            _ = try await session.restore()
+            _ = try await session.refresh(forceTokenRefresh: true)
+            let invoices = try await session.refreshInvoices()
+            if let latest = invoices.invoices?.invoices.first {
+                _ = try await session.downloadInvoice(id: latest.id)
+            }
+            let state = await session.state()
+            let presentation = InvoicePresentation(
+                snapshot: state.invoices,
+                selectedSubscriptionID: state.selectedSubscriptionID,
+            )
+            try await self.writeJSON(transport.receipt(state: state, presentation: presentation))
+        } catch {
+            self.writeJSON(CommandFailure(error: "invoices-proof-failed"))
             exit(1)
         }
     }

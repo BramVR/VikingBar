@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add latest account invoice details with honest grouped-SIM relationships, separate payment amounts and credit notes, optional invoice refresh, and explicit authenticated private PDF downloads.
 - Show `Data bundle N` when a provider bundle title is blank, using its one-based position in the provider array without changing raw values.
 - Supply the OS username only to the private bootstrap tmux environment so the approved profile can select its service-account credential; keep the 1Password and CLI child environments unchanged.
 
