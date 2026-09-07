@@ -133,3 +133,12 @@ private struct CachedBalance: Codable {
     let version: Int
     let state: LiveSessionState
 }
+
+struct StoredSession: Codable {
+    var version = 1
+    let clientID: String
+    let connectionID: ConnectionID
+    var refreshToken: String
+    var generation: UInt64
+    var rotationPending: Bool
+}

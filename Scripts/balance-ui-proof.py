@@ -136,15 +136,17 @@ def process_identity(pid):
 
 
 class NativeProof:
-    def __init__(self, environment):
+    def __init__(self, environment, *, stored_session=False):
         self.environment = environment
         self.peekaboo = environment.get("PEEKABOO_BIN")
         if not self.peekaboo or not Path(self.peekaboo).is_file():
             raise UIFailure("configured-peekaboo-required")
-        reference = environment.get("VIKINGBAR_CREDENTIAL_REFERENCE", "")
-        if not Path(reference).is_file():
-            raise UIFailure("credential-reference-required")
-        self.reference = str(Path(reference).resolve())
+        self.reference = None
+        if not stored_session:
+            reference = environment.get("VIKINGBAR_CREDENTIAL_REFERENCE", "")
+            if not Path(reference).is_file():
+                raise UIFailure("credential-reference-required")
+            self.reference = str(Path(reference).resolve())
         self.directory = ROOT / ".build/proof" / uuid.uuid4().hex
         self.directory.mkdir(parents=True, mode=0o700)
         self.bundle = ROOT / ".build/app/VikingBar.app"

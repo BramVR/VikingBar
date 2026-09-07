@@ -24,17 +24,23 @@ public protocol ProofHTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> ProofHTTPResponse
 }
 
-/// The only allowed operations for the authentication and balance gate.
+/// Approved authentication and read-only account operations.
 public enum ProofEndpoint: Sendable {
     case token
     case subscriptions
     case balance(subscriptionID: String)
+    case pointsBalance
+    case pointsTransactions(page: Int)
 
     public func request() throws -> URLRequest {
         let path: String
         switch self {
         case .token: path = "/oauth2/token/"
         case .subscriptions: path = "/subscriptions"
+        case .pointsBalance: path = "/loyalty-points/balance"
+        case let .pointsTransactions(page):
+            guard (1 ... 3).contains(page) else { throw ProofFailure.requestDenied }
+            path = "/loyalty-points/transactions?page=\(page)&per_page=20"
         case let .balance(subscriptionID):
             guard Self.validIdentifier(subscriptionID) else { throw ProofFailure.requestDenied }
             path = "/subscriptions/\(subscriptionID)/balance"
@@ -57,9 +63,19 @@ public enum ProofEndpoint: Sendable {
               let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               parts.scheme == "https", parts.host == "uwa.mobilevikings.be",
               parts.port == nil, parts.user == nil, parts.password == nil,
-              parts.query == nil, parts.fragment == nil
+              parts.fragment == nil
         else { throw ProofFailure.requestDenied }
         let path = parts.percentEncodedPath
+        if request.httpMethod == "GET", path == "/mv/loyalty-points/transactions" {
+            guard let query = parts.percentEncodedQuery,
+                  (1 ... 3).contains(where: { query == "page=\($0)&per_page=20" })
+            else { throw ProofFailure.requestDenied }
+            return
+        }
+        guard parts.query == nil else { throw ProofFailure.requestDenied }
+        if request.httpMethod == "GET", path == "/mv/loyalty-points/balance" {
+            return
+        }
         if request.httpMethod == "POST", path == "/mv/oauth2/token/" {
             return
         }

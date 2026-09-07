@@ -253,6 +253,10 @@ final class AppSession {
             let state = try await client.request(request)
             guard self.isCurrent(intent) else { return }
             self.publish(state)
+            if case .refresh = request, self.isConnected {
+                await self.refreshPoints(client: client, intent: intent)
+            }
+            guard self.isCurrent(intent) else { return }
             self.finish()
         } catch {
             await self.failWorker(intent: intent)
@@ -279,6 +283,30 @@ final class AppSession {
 }
 
 extension AppSession {
+    var points: PointsPresentation {
+        var values = self.isFixtureLaunch
+            ? self.fixture?.points(referenceDate: self.referenceDate) : self.liveState.points(at: self.now())
+        if !self.isFixtureLaunch, self.bridgeFailure != nil {
+            values?.markUnavailable(.transport)
+        }
+        return PointsPresentation(points: values, timeZone: self.timeZone)
+    }
+
+    private func refreshPoints(client: any SessionClient, intent: Int) async {
+        do {
+            let state = try await client.request(.refreshPoints)
+            guard self.isCurrent(intent) else { return }
+            self.publish(state)
+        } catch {
+            guard self.isCurrent(intent) else { return }
+            self.liveState.markPointsUnavailable(.transport)
+            self.onPresentationChange?()
+            await client.shutdown()
+            guard self.isCurrent(intent) else { return }
+            self.client = nil
+        }
+    }
+
     private func cancelExpiry() {
         self.snapshotRevision += 1
         self.scheduledExpiry?.cancel()

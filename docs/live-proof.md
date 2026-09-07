@@ -39,7 +39,7 @@ The approved profile supplies `BRAM_OP_SERVICE_ACCOUNT_TOKEN`. Do not print it. 
 
 ## Requests and auth limits
 
-The transport allows only `https://uwa.mobilevikings.be` with `POST /mv/oauth2/token/`, `GET /mv/subscriptions`, and `GET /mv/subscriptions/{id}/balance`. Subscription IDs must contain only ASCII letters, digits, hyphens, or underscores. It rejects redirects. Requests use an ephemeral session without cookies or persistent caching. Authentication uses form-encoded password and refresh grants and honors `expires_in`.
+The transport allows only `https://uwa.mobilevikings.be` with `POST /mv/oauth2/token/`, `GET /mv/subscriptions`, `GET /mv/subscriptions/{id}/balance`, `GET /mv/loyalty-points/balance`, and `GET /mv/loyalty-points/transactions?page=N&per_page=20` for pages 1 through 3. Subscription IDs must contain only ASCII letters, digits, hyphens, or underscores. It rejects redirects and arbitrary pagination URLs. Requests use an ephemeral session without cookies or persistent caching. Authentication uses form-encoded password and refresh grants and honors `expires_in`.
 
 The initial grant requests `scope=read`. Support described the public client as read-only, but the prior probe received `read write` on both token responses. The receipt records a boolean scope mismatch, without copying arbitrary provider text. The client request allowlist is the enforcement boundary. Never test server write permissions through an account mutation.
 
@@ -61,7 +61,7 @@ Keep receipts in a private directory outside version control, such as `proof-pri
 
 ## Extend a check
 
-Add a named check and its explicit request policy in the Swift core. Add synthetic success, malformed-response, and forbidden-request tests before running it live. Extend the Python receipt validation if the new check needs different non-secret assertions. Run through the same credential bootstrap; never turn arbitrary URLs or HTTP methods into user-configurable proof inputs. History, points, and bills need their own endpoint assertions and real proof.
+Add a named check and its explicit request policy in the Swift core. Add synthetic success, malformed-response, and forbidden-request tests before running it live. Extend the Python receipt validation if the new check needs different non-secret assertions. Reuse the authorized stored session when the feature supports it; use the approved bootstrap only when connection is required. Never turn arbitrary URLs or HTTP methods into user-configurable proof inputs. History, points, and bills need their own endpoint assertions and real proof.
 
 ## Native balance proof
 
@@ -100,3 +100,19 @@ Live selection coverage was limited to one SIM and one data bundle. The API comp
 The later blank-title fallback uses `LiveBalancePresentation.title(for:index:)` for the card and picker. It displays `Data bundle N` using the provider index plus one and preserves raw provider values. A subsequent proof passed on the source committed as `c3e1259`, using the stored session with no additional credential reads. It opened the native picker, selected the existing data bundle, and verified readable matching titles in the picker and card. The run also passed independent API comparison with forced token rotation and a newer update after native Refresh, while preserving the connection identity. The coordinator inspected the actual card capture and verified native Quit exited 0 with the app and worker gone.
 
 The release-rebuild proof belongs to the earlier core gate. The later picker proof covers the updated debug build. Receipts and captures remain private; only redacted results and build identity may be published. Live multi-SIM and multiple-data-bundle selection remain unverified.
+
+## Viking Points proof
+
+Hold fresh coordinator slots for account access and native UI driving. Use an existing connected session and the configured Peekaboo executable, then run:
+
+```sh
+make proof-live CHECK=points
+```
+
+`Scripts/points-proof.py` builds a fresh bundle, reads the real loyalty endpoints through `vikingbar proof points-api`, and compares API balances and transaction states with production models. It then compares the native points section and expanded recent transactions with the shared CLI presentation. Native Refresh must produce newer successful points timestamps while the usage card stays usable. The proof preserves connection identity and quits the task-owned app.
+
+This check reuses the stored session. It does not retrieve the password or connect an account. A missing connection, Keychain access failure, failed loyalty request, mismatched value, hidden UI, or failed cleanup fails the gate. Reconnection requires the coordinator's credential slot and approved account setup.
+
+Raw account output and captures stay private under `.build/proof/`. Retain the build hashes, API comparison, native action receipts, images, result, and cleanup receipt. Inspect the PNGs after the automated check. Synthetic tests cover states absent from the live account; do not claim that every state was observed live.
+
+The points live gate has not yet run on this implementation. Source checks and fixtures cannot close that gap.

@@ -48,6 +48,7 @@ The smoke's three launches must each exit through `vikingbar.quit` with code 0. 
 - `make check-proof` runs synthetic API and credential-wrapper tests without 1Password or account access.
 - `make proof-live CHECK=balance-ui` requires the authorized [live balance](features/live-balance.md) recipe and private evidence.
 - `make proof-live CHECK=auth-balance` requires the authorized [auth/balance proof](features/auth-balance-proof.md) recipe.
+- `make proof-live CHECK=points` requires the authorized [Viking Points](features/points.md) recipe, stored session, and private native evidence.
 - `make smoke-app-fixture` runs `Scripts/smoke-app-fixture.py` end to end.
 - `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action.
 - `make package-app` builds the bundle for interactive checks.

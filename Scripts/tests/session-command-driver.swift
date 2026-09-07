@@ -14,6 +14,8 @@ private actor SyntheticSession {
             self.current.selectedBundleIndex = command.index
         case .restore:
             self.current.selectedSubscriptionID = "restored"
+        case .refreshPoints:
+            break
         case .selectSubscription:
             self.current.selectedSubscriptionID = command.id
         case .cancel, .shutdown:
