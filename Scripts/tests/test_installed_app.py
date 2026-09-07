@@ -139,6 +139,15 @@ class InstallerTests(unittest.TestCase):
             self.install(before_publish=Mock(side_effect=RuntimeError("registration already enabled")))
         self.assertFalse(self.target.exists())
 
+    def test_installer_rejects_bundle_version_mismatched_to_manifest(self):
+        synthetic_bundle(self.target)
+        path = self.target / "Contents/Info.plist"
+        info = plistlib.loads(path.read_bytes())
+        info["CFBundleVersion"] = "0.2.0"
+        path.write_bytes(plistlib.dumps(info))
+        with self.assertRaisesRegex(INSTALL.InstallFailure, "invalid-build-manifest"):
+            INSTALL.artifact(self.target, self.boundaries["verify"])
+
     def test_seal_only_signs_app_and_preserves_cli(self):
         synthetic_bundle(self.target)
         with patch.object(PACKAGE.subprocess, "run") as run:

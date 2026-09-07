@@ -76,6 +76,7 @@ def artifact(bundle, verify=signature):
         manifest = json.loads((bundle / "Contents/Resources/build-manifest.json").read_text())
         if (manifest.get("schemaVersion") != 1 or not re.fullmatch(r"[0-9a-f]{40}", manifest["commit"])
                 or not re.fullmatch(r"\d+\.\d+\.\d+", info["CFBundleVersion"])
+                or info["CFBundleVersion"] != manifest["version"].split("-")[0]
                 or info["CFBundleShortVersionString"] != manifest["version"].split("-")[0]
                 or manifest.get("localAdHocSealed") is not True
                 or manifest.get("developerIDSigned") is not False or manifest.get("notarized") is not False):
