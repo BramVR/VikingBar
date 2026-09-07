@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Build and install a local ad-hoc sealed VikingBar, retaining explicit updates."""
 import argparse
+import ctypes
 import datetime
+import errno
 import fcntl
 import hashlib
 import json
@@ -16,6 +18,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 IDENTIFIER = "be.bram.vikingbar"
 EXECUTABLES = ("VikingBarApp", "vikingbar")
+PROC_PIDPATHINFO_MAXSIZE = 4096
+PROC_PIDT_SHORTBSDINFO = 13
+PROC_FLAG_SYSTEM = 1
+SZOMB = 5
 
 
 class InstallFailure(Exception):
@@ -94,12 +100,63 @@ def artifact(bundle, verify=signature):
         raise InstallFailure("invalid-build-manifest") from None
 
 
+class ProcessInfo(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_uint32) for name in ("pid", "ppid", "pgid", "status")] + [
+        ("comm", ctypes.c_char * 16),
+    ] + [(name, ctypes.c_uint32) for name in ("flags", "uid", "gid", "ruid", "rgid", "svuid", "svgid", "reserved")]
+
+
+def process_executable(pid, library):
+    # libproc.h uses a uint32_t buffer size; PROC_PIDPATHINFO_MAXSIZE is 4 * MAXPATHLEN.
+    buffer = ctypes.create_string_buffer(PROC_PIDPATHINFO_MAXSIZE)
+    ctypes.set_errno(0)
+    length = library.proc_pidpath(pid, buffer, ctypes.sizeof(buffer))
+    if length > 0:
+        raw = buffer.value
+        if length >= len(buffer) or not raw.startswith(b"/") or len(raw) > length:
+            raise InstallFailure("process-inspection-failed")
+        return Path(os.fsdecode(raw))
+    if ctypes.get_errno() == errno.ESRCH:
+        return None
+    info = ProcessInfo()
+    ctypes.set_errno(0)
+    size = library.proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, ctypes.byref(info), ctypes.sizeof(info))
+    if size == 0 and ctypes.get_errno() == errno.ESRCH:
+        return None
+    if size == ctypes.sizeof(info) and info.pid == pid and (info.status == SZOMB or info.flags & PROC_FLAG_SYSTEM):
+        return None
+    raise InstallFailure("process-inspection-failed")
+
+
+def process_paths():
+    try:
+        library = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        library.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        library.proc_pidpath.restype = ctypes.c_int
+        library.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+        library.proc_pidinfo.restype = ctypes.c_int
+        result = subprocess.run(["ps", "-axo", "pid="], capture_output=True, text=True, timeout=10, check=False)
+        rows = result.stdout.split()
+        if result.returncode or not rows or any(not row.isascii() or not row.isdecimal() for row in rows):
+            raise InstallFailure("process-inspection-failed")
+        for pid in sorted(set(map(int, rows))):
+            if pid > 0:
+                path = process_executable(pid, library)
+                if path is not None:
+                    yield path
+    except (OSError, AttributeError, subprocess.SubprocessError):
+        raise InstallFailure("process-inspection-failed") from None
+
+
 def refuse_running(target):
-    result = subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True, timeout=10, check=False)
-    if result.returncode:
-        raise InstallFailure("process-inspection-failed")
-    if any(str(target) + "/" in row for row in result.stdout.splitlines()):
-        raise InstallFailure("running-target-refused-quit-it-first")
+    try:
+        resolved = target.resolve()
+        for executable in process_paths():
+            path = executable.resolve()
+            if resolved == path or resolved in path.parents:
+                raise InstallFailure("running-target-refused-quit-it-first")
+    except OSError:
+        raise InstallFailure("process-inspection-failed") from None
 
 
 def receipt_path(target):

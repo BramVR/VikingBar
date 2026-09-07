@@ -183,6 +183,43 @@ class InstalledProofTests(unittest.TestCase):
                     PROOF.InstalledProof(environment, "smoke")
             run.assert_not_called()
 
+    def test_proof_requires_false_dirty_flag_and_exact_head(self):
+        with patch.object(PROOF.subprocess, "check_output", return_value="a" * 40 + "\n"):
+            PROOF.require_reviewed_artifact({"sourceDirty": False, "commit": "a" * 40})
+            invalid = [{"sourceDirty": value, "commit": "a" * 40}
+                       for value in (True, None, 0, "false", [], {})]
+            invalid += [{"commit": "a" * 40}, {"sourceDirty": False},
+                        {"sourceDirty": False, "commit": "b" * 40}]
+            for artifact in invalid:
+                with self.subTest(artifact=artifact), self.assertRaisesRegex(PROOF.UIFailure, "clean-current"):
+                    PROOF.require_reviewed_artifact(artifact)
+
+    def test_dirty_candidate_never_executes_status_or_publishes_install(self):
+        self.proof.run = Mock()
+        target = self.root.resolve() / "destination/VikingBar.app"
+        with patch.object(PROOF.subprocess, "check_output", return_value="a" * 40), \
+                patch.object(PROOF.INSTALL, "artifact", return_value={"sourceDirty": True, "commit": "a" * 40}):
+            with self.assertRaisesRegex(PROOF.UIFailure, "clean-current"):
+                PROOF.INSTALL.install(str(target), builder=synthetic_bundle, verify=lambda _: SEAL,
+                                      check_running=lambda _: None, before_publish=self.proof.before_install)
+        self.proof.run.assert_not_called()
+        self.assertFalse(target.exists())
+
+    def test_dirty_installed_balance_fails_before_native_inspection_or_launch(self):
+        p = self.proof
+        p.check = "installed-balance"
+        p.peek = Mock()
+        receipt = {"artifact": {"sourceDirty": True, "commit": "a" * 40}}
+        with patch.object(PROOF.subprocess, "check_output", return_value="a" * 40), \
+                patch.object(PROOF.INSTALL, "validate_install", return_value=receipt), \
+                patch.object(PROOF.subprocess, "Popen") as launch:
+            with self.assertRaisesRegex(PROOF.UIFailure, "clean-current"):
+                p.perform()
+            with self.assertRaisesRegex(PROOF.UIFailure, "clean-current"):
+                p.launch()
+        p.peek.assert_not_called()
+        launch.assert_not_called()
+
     def test_saved_preferences_require_persisted_values_not_only_ui(self):
         expected = {"showRemainingGB": "0", "dataDisplayMode": "Used", "refreshInterval": "Every 5 minutes"}
         path = self.proof.settings_file

@@ -27,6 +27,12 @@ UIFailure = UI.UIFailure
 private_write = UI.private_write
 
 
+def require_reviewed_artifact(artifact):
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    if artifact.get("sourceDirty") is not False or artifact.get("commit") != head:
+        raise UIFailure("clean-current-commit-install-required")
+
+
 def login_receipt(value):
     if (not isinstance(value, dict) or set(value) != {"schema_version", "status", "passed"}
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
@@ -99,6 +105,7 @@ class InstalledProof(UI.NativeProof):
     def verify_installed(self):
         if self.install_receipt is None or INSTALL.validate_install(self.bundle) != self.install_receipt:
             raise UIFailure("installed-artifact-changed")
+        require_reviewed_artifact(self.install_receipt["artifact"])
 
     def login(self, operation):
         self.verify_installed()
@@ -115,6 +122,7 @@ class InstalledProof(UI.NativeProof):
                    "--path", str(self.directory / (label + ".png"))], label + "-image.json")
 
     def launch(self, first=False, label="launch"):
+        self.verify_installed()
         arguments = [str(self.executable)]
         if self.check == "smoke":
             arguments += ["--fixture", "finite", "--settings-file", str(self.directory / "settings.json"),
@@ -285,6 +293,7 @@ class InstalledProof(UI.NativeProof):
                 "preferences_restored": True, "password_bootstrap": False}
 
     def before_install(self, candidate):
+        require_reviewed_artifact(INSTALL.artifact(candidate))
         value = self.run([str(candidate / "Contents/MacOS/VikingBarApp"), "--login-item", "status"],
                          "login-before-install.json", timeout=30)
         if login_receipt(value) != "notRegistered":
@@ -293,17 +302,16 @@ class InstalledProof(UI.NativeProof):
                       "target": str(self.bundle), "bundleRetained": True, "osLoginExecutionProven": False})
 
     def perform(self):
+        if self.check != "smoke":
+            self.install_receipt = INSTALL.validate_install(self.bundle)
+            self.verify_installed()
         self.peek(["permissions", "status", "--all-sources"], "permissions.json")
         apps = self.peek(["app", "list", "--include-hidden", "--include-background"], "apps-before.json")
         if "be.bram.vikingbar" in json.dumps(apps):
             raise UIFailure("existing-app-must-be-quit")
         if self.check == "smoke":
             self.install_receipt = INSTALL.install(str(self.bundle), before_publish=self.before_install)
-        else:
-            self.install_receipt = INSTALL.validate_install(self.bundle)
-            if self.install_receipt["artifact"]["commit"] != subprocess.check_output(
-                    ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip():
-                raise UIFailure("fresh-current-commit-install-required")
+        self.verify_installed()
         private_write(self.directory / "install.json", self.install_receipt)
         self.run(["swiftc", "Scripts/inspect-ui.swift", "-o", ".build/inspect-ui"], timeout=120)
         self.executable_hash = INSTALL.digest(self.executable)
