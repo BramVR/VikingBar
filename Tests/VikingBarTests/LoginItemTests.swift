@@ -5,6 +5,31 @@ import Testing
 
 @MainActor
 struct LoginItemTests {
+    @Test func `external status change clears previous mutation error`() async throws {
+        let manager = FakeLoginItems()
+        let model = try AppSession(options: LaunchOptions(arguments: ["--fixture", "finite"]),
+                                   preferences: MenuBarPreferences(fileURL: nil), loginItems: manager)
+        manager.fail = true
+        await model.setLaunchAtLogin(true)
+        #expect(model.loginItemError != nil)
+        manager.status = .enabled
+        model.checkLoginItem()
+        #expect(model.loginItemStatus == .enabled)
+        #expect(model.loginItemError == nil)
+    }
+
+    @Test func `unchanged status preserves failed mutation error`() async throws {
+        let manager = FakeLoginItems()
+        let model = try AppSession(options: LaunchOptions(arguments: ["--fixture", "finite"]),
+                                   preferences: MenuBarPreferences(fileURL: nil), loginItems: manager)
+        manager.fail = true
+        await model.setLaunchAtLogin(true)
+        let failure = try #require(model.loginItemError)
+        model.checkLoginItem()
+        #expect(model.loginItemStatus == .notRegistered)
+        #expect(model.loginItemError == failure)
+    }
+
     @Test func `actual status rechecks after external changes and rejected mutation`() async throws {
         let manager = FakeLoginItems()
         let model = try AppSession(options: LaunchOptions(arguments: ["--fixture", "finite"]),

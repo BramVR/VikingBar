@@ -108,7 +108,11 @@ extension AppSession {
     }
 
     func checkLoginItem() {
-        self.loginItemStatus = self.loginItems.status
+        let status = self.loginItems.status
+        if status != self.loginItemStatus {
+            self.loginItemError = nil
+        }
+        self.loginItemStatus = status
     }
 
     func setLaunchAtLogin(_ enabled: Bool) async {
