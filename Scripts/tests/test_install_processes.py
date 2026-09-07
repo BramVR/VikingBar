@@ -150,15 +150,53 @@ class InstallProcessTests(unittest.TestCase):
                        Mock(returncode=0, stdout="42 garbage"), Mock(returncode=0, stdout="-1")):
             with self.subTest(result=result), patch.object(INSTALL.ctypes, "CDLL", return_value=Mock()), \
                     patch.object(INSTALL.subprocess, "run", return_value=result):
-                with self.assertRaisesRegex(INSTALL.InstallFailure, "process-inspection-failed"):
+                with self.assertRaisesRegex(INSTALL.InstallFailure, "existing-target-process-origin-unresolved"):
                     INSTALL.refuse_running(self.target)
         with patch.object(INSTALL.ctypes, "CDLL", side_effect=OSError("unavailable")):
-            with self.assertRaisesRegex(INSTALL.InstallFailure, "process-inspection-failed"):
+            with self.assertRaisesRegex(INSTALL.InstallFailure, "existing-target-process-origin-unresolved"):
                 INSTALL.refuse_running(self.target)
         with patch.object(INSTALL.ctypes, "CDLL", return_value=Mock()), \
                 patch.object(INSTALL.subprocess, "run", side_effect=subprocess.TimeoutExpired("ps", 10)):
-            with self.assertRaisesRegex(INSTALL.InstallFailure, "process-inspection-failed"):
+            with self.assertRaisesRegex(INSTALL.InstallFailure, "existing-target-process-origin-unresolved"):
                 INSTALL.refuse_running(self.target)
+
+    def test_fresh_destination_skips_process_scan_but_rejects_dangling_symlink(self):
+        absent = self.root / "fresh/VikingBar.app"
+        with patch.object(INSTALL, "process_paths") as scan:
+            INSTALL.refuse_running(absent)
+        scan.assert_not_called()
+        absent.parent.mkdir()
+        absent.symlink_to(self.root / "missing")
+        with self.assertRaisesRegex(INSTALL.InstallFailure, "symlink-target-refused"):
+            INSTALL.refuse_running(absent)
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS libproc contract")
+    def test_deleted_task_owned_cli_allows_fresh_target_but_blocks_update(self):
+        source, executable = self.root / "wait.c", self.root / "owned-wait"
+        source.write_text('#include <unistd.h>\nint main(void) { char c; write(1, "R", 1); read(0, &c, 1); return 0; }\n')
+        subprocess.run(["clang", str(source), "-o", str(executable)], check=True, capture_output=True)
+        child = subprocess.Popen([str(executable)], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        try:
+            self.assertEqual(child.stdout.read(1), b"R")
+            metadata = subprocess.check_output(
+                ["ps", "-p", str(child.pid), "-o", "pid=,ppid=,lstart=,command="], text=True).strip()
+            (self.root / "deleted-cli-ownership.json").write_text(json.dumps({
+                "pid": child.pid, "parentPID": os.getpid(), "psIdentity": metadata,
+                "executable": str(executable), "executableSHA256": hashlib.sha256(executable.read_bytes()).hexdigest()}))
+            executable.unlink()
+            library = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+            library.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            library.proc_pidpath.restype = ctypes.c_int
+            buffer = ctypes.create_string_buffer(4096)
+            self.assertEqual(library.proc_pidpath(child.pid, buffer, len(buffer)), 0)
+            self.assertEqual(ctypes.get_errno(), errno.ENOENT)
+            with patch.object(INSTALL.subprocess, "run", return_value=Mock(returncode=0, stdout=str(child.pid))):
+                INSTALL.refuse_running(self.root / "fresh/VikingBar.app")
+                with self.assertRaisesRegex(INSTALL.InstallFailure, "existing-target-process-origin-unresolved"):
+                    INSTALL.refuse_running(self.target)
+        finally:
+            child.communicate(b"Q", timeout=5)
+        self.assertEqual(child.returncode, 0)
 
 
 if __name__ == "__main__":

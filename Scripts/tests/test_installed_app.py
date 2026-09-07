@@ -60,6 +60,44 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(INSTALL.receipt_path(self.target).stat().st_mode & 0o777, 0o600)
         self.assertEqual(INSTALL.validate_install(self.target, self.boundaries["verify"]), receipt)
 
+    def test_destination_created_during_build_is_preserved_even_with_replace(self):
+        for replace in (False, True):
+            self.target = self.root / str(replace) / "VikingBar.app"
+            def race(_candidate):
+                synthetic_bundle(self.target, b"raced")
+            with self.assertRaisesRegex(INSTALL.InstallFailure, "target-created-during-build"):
+                self.install(replace=replace, before_publish=race)
+            self.assertEqual((self.target / "Contents/MacOS/vikingbar").read_bytes(), b"raced")
+
+    def test_atomic_publication_preserves_raced_in_empty_directory(self):
+        rename = INSTALL.rename_exclusive
+        def race(source, destination):
+            destination.mkdir()
+            rename(source, destination)
+        with patch.object(INSTALL, "rename_exclusive", side_effect=race):
+            with self.assertRaisesRegex(INSTALL.InstallFailure, "target-created-during-build"):
+                self.install(replace=True)
+        self.assertTrue(self.target.is_dir())
+        self.assertEqual(list(self.target.iterdir()), [])
+        self.assertFalse(INSTALL.receipt_path(self.target).exists())
+
+    def test_late_destination_race_never_enters_update_path(self):
+        exists = Path.exists
+        built = False
+        def builder(candidate):
+            nonlocal built
+            synthetic_bundle(candidate)
+            built = True
+        def race(path):
+            if built and path == INSTALL.receipt_path(self.target) and not exists(self.target):
+                synthetic_bundle(self.target, b"late race")
+            return exists(path)
+        with patch.object(Path, "exists", race):
+            with self.assertRaisesRegex(INSTALL.InstallFailure, "target-created-during-build"):
+                self.install(replace=True, builder=builder)
+        self.assertEqual((self.target / "Contents/MacOS/vikingbar").read_bytes(), b"late race")
+        self.assertEqual(list(self.root.glob(".vikingbar-install-*/previous.app")), [])
+
     def test_existing_target_refused_before_build_and_preserved(self):
         synthetic_bundle(self.target, b"original")
         builder = Mock()

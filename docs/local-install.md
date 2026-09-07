@@ -40,6 +40,8 @@ make install-app INSTALL_TARGET="$HOME/Applications/VikingBar.app" REPLACE=1
 
 The installer refuses unrelated bundles and running destination executables. It retains the previous bundle as a backup and reports the backup path. Open the new bundle and check the data card. Keep the backup until the new build works. Preferences and the account namespace do not change with the install path.
 
+An update reports `existing-target-process-origin-unresolved` if macOS cannot identify a live process's executable, including an unrelated executable deleted while still running. The installer cannot establish that process's original bundle and refuses the update. A fresh absent destination does not need this process check: publication is exclusive and refuses any destination that appears during the build, even with `REPLACE=1`.
+
 The adjacent `.VikingBar.app.install.json` records the installed manifest and executable hashes. Retain it with the bundle for installed proof. Backups and installation receipts remain private in the selected destination directory.
 
 ## Choose the display and refresh interval

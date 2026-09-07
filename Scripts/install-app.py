@@ -150,13 +150,37 @@ def process_paths():
 
 def refuse_running(target):
     try:
+        for part in (target, *target.parents):
+            if part.is_symlink():
+                raise InstallFailure("symlink-target-refused")
+        try:
+            target.stat()
+        except FileNotFoundError:
+            # Fresh publication must use an exclusive rename; no existing bundle is replaced.
+            return
         resolved = target.resolve()
         for executable in process_paths():
             path = executable.resolve()
             if resolved == path or resolved in path.parents:
                 raise InstallFailure("running-target-refused-quit-it-first")
+    except InstallFailure as error:
+        if str(error) == "process-inspection-failed":
+            raise InstallFailure("existing-target-process-origin-unresolved") from None
+        raise
     except OSError:
-        raise InstallFailure("process-inspection-failed") from None
+        raise InstallFailure("existing-target-process-origin-unresolved") from None
+
+
+def rename_exclusive(source, destination):
+    library = ctypes.CDLL(None, use_errno=True)
+    rename = library.renamex_np
+    rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+    rename.restype = ctypes.c_int
+    if rename(os.fsencode(source), os.fsencode(destination), 0x00000004):  # RENAME_EXCL
+        failure = ctypes.get_errno()
+        if failure == errno.EEXIST:
+            raise InstallFailure("target-created-during-build")
+        raise OSError(failure, os.strerror(failure))
 
 
 def receipt_path(target):
@@ -192,6 +216,7 @@ def install(value, replace=False, builder=build, verify=signature, check_running
     with os.fdopen(os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600), "r+") as stream:
         fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         target_path(value)
+        original = target.stat() if target.exists() else None
         if target.exists():
             if not replace:
                 raise InstallFailure("existing-target-requires-explicit-replace")
@@ -213,13 +238,17 @@ def install(value, replace=False, builder=build, verify=signature, check_running
             before_publish(candidate)
         target_path(value)
         check_running(target)
-        if target.exists() and not replace:
+        if target.exists() and original is None:
             raise InstallFailure("target-created-during-build")
+        if original is not None:
+            current = target.stat()
+            if (current.st_dev, current.st_ino) != (original.st_dev, original.st_ino):
+                raise InstallFailure("target-changed-during-build")
         installed = False
         if (previous_receipt.exists() or previous_receipt.is_symlink()) and not target.exists():
             raise InstallFailure("install-receipt-created-during-build")
         try:
-            if target.exists():
+            if original is not None:
                 bundle_metadata(target)
                 target.rename(backup)
                 record["backup"] = str(backup)
@@ -227,7 +256,7 @@ def install(value, replace=False, builder=build, verify=signature, check_running
                     if previous_receipt.is_symlink():
                         raise InstallFailure("symlink-receipt-refused")
                     previous_receipt.rename(stage / "previous-install.json")
-            candidate.rename(target)
+            rename_exclusive(candidate, target)
             installed = True
             if artifact(target, verify) != record["artifact"]:
                 raise InstallFailure("installed-artifact-changed")
@@ -240,7 +269,7 @@ def install(value, replace=False, builder=build, verify=signature, check_running
                 check_running(target)
                 target.rename(stage / "failed.app")
             if backup.exists():
-                backup.rename(target)
+                rename_exclusive(backup, target)
             if previous_receipt.exists() and installed:
                 previous_receipt.rename(stage / "failed-install.json")
             if (stage / "previous-install.json").exists():
