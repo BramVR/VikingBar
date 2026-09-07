@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import shlex
 import shutil
 import signal
@@ -144,6 +145,8 @@ def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sl
                  "--reference", str(Path(reference).resolve()), "--result", str(result_path)]
         command = 'set +x; source "$HOME/.profile" >/dev/null 2>&1; set +x; exec ' + shlex.join(child)
         clean = child_environment(environment)
+        # The approved profile uses USER to select the service-account Keychain item.
+        clean["USER"] = pwd.getpwuid(os.getuid()).pw_name
         # A private tmux server cannot inherit an existing server's credential environment.
         prefix = [tmux, "-L", session, "-f", "/dev/null"]
         created = False

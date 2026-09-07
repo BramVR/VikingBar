@@ -2,9 +2,12 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import pwd
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -66,7 +69,7 @@ class ConnectAccountTests(unittest.TestCase):
         self.assertTrue(start[2].startswith("vikingbar-connect-"))
         self.assertEqual(cleanup[-3:], ["kill-session", "-t", "=" + start[2]])
         self.assertIn('source "$HOME/.profile" >/dev/null 2>&1', start[-1])
-        self.assertEqual(calls[0][1]["env"], {"PATH": "/synthetic"})
+        self.assertEqual(calls[0][1]["env"], {"PATH": "/synthetic", "USER": pwd.getpwuid(os.getuid()).pw_name})
         self.assertNotIn("secret", json.dumps(calls))
         self.assertEqual(ownership["serverPID"], 12345)
         self.assertEqual(ownership["panePID"], 12346)
@@ -132,6 +135,26 @@ class ConnectAccountTests(unittest.TestCase):
             with patch.object(CONNECT.shutil, "which", return_value="/synthetic/op"):
                 with self.assertRaisesRegex(CONNECT.ConnectFailure, "^" + code + "$"):
                     CONNECT.inside(self.cli, self.reference, self.environment, execute)
+
+    def test_supervisor_profile_can_select_the_os_account_without_inheriting_user(self):
+        (Path(self.temp.name) / ".profile").write_text(
+            'if [ "$USER" = "synthetic-user" ]; then export BRAM_OP_SERVICE_ACCOUNT_TOKEN=synthetic; fi\n')
+        def execute(command, **kwargs):
+            if "new-session" in command:
+                import shlex
+                setup, child_text = command[-1].split("; exec ", 1)
+                shell = subprocess.run(["/bin/zsh", "-f", "-c", setup
+                                        + '; test "$BRAM_OP_SERVICE_ACCOUNT_TOKEN" = synthetic'],
+                                       env=kwargs["env"] | {"HOME": self.temp.name}, capture_output=True)
+                self.assertEqual(shell.returncode, 0)
+                self.assertEqual(kwargs["env"], {"PATH": "/synthetic", "USER": "synthetic-user"})
+                child = shlex.split(child_text)
+                CONNECT.write_receipt(child[child.index("--result") + 1], self.receipt)
+            return subprocess.CompletedProcess(command, 0, b"", b"")
+        with patch.object(CONNECT.shutil, "which", return_value="/synthetic/tmux"), \
+                patch("pwd.getpwuid", return_value=SimpleNamespace(pw_name="synthetic-user")):
+            self.assertEqual(CONNECT.supervise(self.cli, self.reference,
+                                               self.environment | {"USER": "untrusted-parent"}, execute), self.receipt)
 
     def test_timeout_cleans_own_session(self):
         calls = []
