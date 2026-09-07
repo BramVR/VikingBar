@@ -32,7 +32,8 @@ class PointsProofTests(unittest.TestCase):
         self.tree = {"elements": [
             {"AXIdentifier": "vikingbar.status", "frame": [[10, 0], [25, 20]]},
             {"AXRole": "AXPopover", "frame": [[10, 20], [500, 700]]},
-            {"AXIdentifier": "vikingbar.points.transactionsScroll", "frame": [[20, 200], [480, 300]]}],
+            {"AXRole": "AXScrollArea", "AXIdentifier": "vikingbar.points.transactionsScroll",
+             "frame": [[20, 200], [480, 300]]}],
             "windows": [{"kCGWindowNumber": 42,
                          "kCGWindowBounds": {"X": 10, "Y": 20, "Width": 500, "Height": 700}}]}
         for suffix, field in (("customerLabel", "customerLabel"), ("available", "availableText"),
@@ -89,6 +90,26 @@ class PointsProofTests(unittest.TestCase):
         with self.assertRaisesRegex(POINTS.UIFailure, "popover"):
             POINTS.compare_points(self.tree, self.report, self.screens)
 
+    def test_propagated_disclosure_identifier_accepts_only_scroll_area(self):
+        self.tree["elements"][2]["AXIdentifier"] = "vikingbar.points.transactionsToggle"
+        self.tree["elements"].insert(2, {"AXRole": "AXDisclosureTriangle",
+                                       "AXIdentifier": "vikingbar.points.transactionsToggle",
+                                       "frame": [[20, 180], [100, 20]]})
+        self.assertFalse(POINTS.is_transactions_scroll(self.tree["elements"][2]))
+        self.assertTrue(POINTS.is_transactions_scroll(self.tree["elements"][3]))
+        self.assertEqual(POINTS.compare_points(self.tree, self.report, self.screens, expanded=True), 1)
+        self.tree["elements"].pop(3)
+        with self.assertRaisesRegex(POINTS.UIFailure, "points-scroll-not-visible"):
+            POINTS.compare_points(self.tree, self.report, self.screens, expanded=True)
+
+    def test_scroll_identifiers_require_scroll_area_role(self):
+        for identifier in ("vikingbar.points.transactionsScroll", "vikingbar.points.transactionsToggle"):
+            for role in (None, "AXGroup", "AXDisclosureTriangle"):
+                with self.subTest(identifier=identifier, role=role):
+                    self.tree["elements"][2].update({"AXIdentifier": identifier, "AXRole": role})
+                    with self.assertRaisesRegex(POINTS.UIFailure, "points-scroll-not-visible"):
+                        POINTS.compare_points(self.tree, self.report, self.screens, expanded=True)
+
     def shifted_card(self, dx, dy):
         tree = copy.deepcopy(self.tree)
         for element in tree["elements"]:
@@ -133,8 +154,11 @@ class PointsProofTests(unittest.TestCase):
 
     def test_scroll_outside_popover_fails(self):
         self.tree["elements"][2]["frame"][0][1] = 600
-        with self.assertRaisesRegex(POINTS.UIFailure, "points-scroll-not-visible"):
-            POINTS.compare_points(self.tree, self.report, self.screens, expanded=True)
+        for identifier in ("vikingbar.points.transactionsScroll", "vikingbar.points.transactionsToggle"):
+            with self.subTest(identifier=identifier):
+                self.tree["elements"][2]["AXIdentifier"] = identifier
+                with self.assertRaisesRegex(POINTS.UIFailure, "points-scroll-not-visible"):
+                    POINTS.compare_points(self.tree, self.report, self.screens, expanded=True)
 
     def test_exact_display_edges_and_subpixel_window_match_pass(self):
         tree = self.shifted_card(-10, -20)
@@ -165,9 +189,13 @@ class PointsProofTests(unittest.TestCase):
     def test_stored_session_orchestration_packages_once_and_quits(self):
         calls = []
         report = self.report
+        self.tree["elements"][2]["AXIdentifier"] = "vikingbar.points.transactionsToggle"
+        self.tree["elements"].append({"AXRole": "AXDisclosureTriangle",
+                                      "AXIdentifier": "vikingbar.points.transactionsToggle",
+                                      "frame": [[20, 180], [100, 20]]})
         collapsed = copy.deepcopy(self.tree)
         collapsed["elements"] = [item for item in collapsed["elements"]
-                                 if item.get("AXIdentifier") != "vikingbar.points.transactionsScroll"
+                                 if not POINTS.is_transactions_scroll(item)
                                  and not item.get("AXIdentifier", "").startswith("vikingbar.points.transaction.")]
         expanded_tree = self.tree
 

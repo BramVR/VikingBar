@@ -57,6 +57,12 @@ def match_text(tree, identifier, expected, boundary):
     raise UIFailure("native-points-mismatch")
 
 
+def is_transactions_scroll(element):
+    return (element.get("AXRole") == "AXScrollArea"
+            and element.get("AXIdentifier") in ("vikingbar.points.transactionsScroll",
+                                                 "vikingbar.points.transactionsToggle"))
+
+
 def compare_points(tree, report, screens, expanded=False):
     points_timestamps(report)
     if not UI.visible_status(tree, screens):
@@ -70,8 +76,7 @@ def compare_points(tree, report, screens, expanded=False):
         match_text(tree, "vikingbar.points." + suffix, presentation[field], boundary)
     if not expanded:
         return 0
-    scroll = next((item for item in tree["elements"]
-                   if item.get("AXIdentifier") == "vikingbar.points.transactionsScroll"), None)
+    scroll = next((item for item in tree["elements"] if is_transactions_scroll(item)), None)
     if scroll is None or not UI.contained(scroll, boundary):
         raise UIFailure("points-scroll-not-visible")
     if not presentation["transactions"]:
@@ -148,8 +153,7 @@ class PointsProof(UI.NativeProof):
         if refreshed["state"]["connectionID"] != initial["state"]["connectionID"]:
             raise UIFailure("points-connection-changed")
         collapsed = self.inspect("collapsed-card.json")
-        if any(item.get("AXIdentifier") == "vikingbar.points.transactionsScroll"
-               for item in collapsed.get("elements", [])):
+        if any(is_transactions_scroll(item) for item in collapsed.get("elements", [])):
             raise UIFailure("points-history-not-collapsed")
         self.press("vikingbar.points.transactionsToggle")
         def expanded():
@@ -164,7 +168,7 @@ class PointsProof(UI.NativeProof):
         self.capture_points("expanded", tree)
         self.press("vikingbar.points.transactionsToggle")
         UI.wait_for(self.inspect, lambda tree: not any(
-            item.get("AXIdentifier") == "vikingbar.points.transactionsScroll"
+            is_transactions_scroll(item)
             or item.get("AXIdentifier", "").startswith("vikingbar.points.transaction.")
             for item in tree.get("elements", [])))
         self.press("Data")
