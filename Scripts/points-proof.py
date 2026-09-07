@@ -47,40 +47,11 @@ def points_timestamps(report):
         raise UIFailure("points-report-invalid") from None
 
 
-def frame(element):
-    try:
-        (x, y), (width, height) = element["frame"]
-        if width > 0 and height > 0:
-            return x, y, width, height
-    except (KeyError, TypeError, ValueError):
-        pass
-    raise UIFailure("points-frame-invalid")
-
-
-def contained(element, boundary):
-    x, y, width, height = frame(element)
-    bx, by, bw, bh = frame(boundary)
-    return x >= bx and y >= by and x + width <= bx + bw and y + height <= by + bh
-
-
-def popover_window(tree):
-    for element in tree.get("elements", []):
-        if element.get("AXRole") != "AXPopover":
-            continue
-        x, y, width, height = frame(element)
-        for window in tree.get("windows", []):
-            bounds = window.get("kCGWindowBounds", {})
-            if all(abs(bounds.get(key, -99999) - value) < 1 for key, value in
-                   (("X", x), ("Y", y), ("Width", width), ("Height", height))):
-                return element, window
-    raise UIFailure("points-popover-missing")
-
-
 def match_text(tree, identifier, expected, boundary):
     if not isinstance(expected, str) or not expected:
         raise UIFailure("points-presentation-invalid")
     for element in tree.get("elements", []):
-        if (element.get("AXIdentifier") == identifier and contained(element, boundary)
+        if (element.get("AXIdentifier") == identifier and UI.contained(element, boundary)
                 and expected in [element.get(key) for key in ("AXTitle", "AXValue", "AXDescription")]):
             return
     raise UIFailure("native-points-mismatch")
@@ -90,7 +61,7 @@ def compare_points(tree, report, screens, expanded=False):
     points_timestamps(report)
     if not UI.visible_status(tree, screens):
         raise UIFailure("status-not-visible")
-    boundary, _ = popover_window(tree)
+    boundary, _ = UI.popover_window(tree, screens)
     presentation = report["points"]
     for suffix, field in (("customerLabel", "customerLabel"), ("available", "availableText"),
                           ("pending", "pendingText"), ("blocked", "blockedText"),
@@ -101,7 +72,7 @@ def compare_points(tree, report, screens, expanded=False):
         return 0
     scroll = next((item for item in tree["elements"]
                    if item.get("AXIdentifier") == "vikingbar.points.transactionsScroll"), None)
-    if scroll is None or not contained(scroll, boundary):
+    if scroll is None or not UI.contained(scroll, boundary):
         raise UIFailure("points-scroll-not-visible")
     if not presentation["transactions"]:
         return 0
@@ -117,7 +88,7 @@ class PointsProof(UI.NativeProof):
         super().__init__(environment, stored_session=True)
 
     def capture_points(self, label, tree):
-        _, window = popover_window(tree)
+        _, window = UI.popover_window(tree, self.screens)
         target = self.directory / (label + ".png")
         self.peek(["see", "--window-id", str(window["kCGWindowNumber"]), "--no-elements", "--no-remote",
                    "--path", str(target)], label + "-image.json")

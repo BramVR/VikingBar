@@ -86,8 +86,69 @@ class PointsProofTests(unittest.TestCase):
         with self.assertRaises(POINTS.UIFailure):
             POINTS.compare_points(self.tree, self.report, self.screens, expanded=True)
         self.tree["windows"] = []
-        with self.assertRaisesRegex(POINTS.UIFailure, "points-popover-missing"):
+        with self.assertRaisesRegex(POINTS.UIFailure, "popover"):
             POINTS.compare_points(self.tree, self.report, self.screens)
+
+    def shifted_card(self, dx, dy):
+        tree = copy.deepcopy(self.tree)
+        for element in tree["elements"]:
+            if element.get("AXIdentifier") != "vikingbar.status":
+                element["frame"][0][0] += dx
+                element["frame"][0][1] += dy
+        bounds = tree["windows"][0]["kCGWindowBounds"]
+        bounds["X"] += dx
+        bounds["Y"] += dy
+        return tree
+
+    def test_offscreen_and_clipped_popover_fail_with_visible_status(self):
+        for dx, dy in ((2000, 0), (-11, 0), (491, 0), (0, -21), (0, 281)):
+            tree = self.shifted_card(dx, dy)
+            with self.subTest(dx=dx, dy=dy):
+                self.assertTrue(POINTS.UI.visible_status(tree, self.screens))
+                for expanded in (False, True):
+                    with self.assertRaises(POINTS.UIFailure):
+                        POINTS.compare_points(tree, self.report, self.screens, expanded=expanded)
+
+    def test_popover_on_secondary_display_accepts_positive_and_negative_origins(self):
+        for x, y in ((2000, 1000), (-2000, -1000)):
+            screens = self.screens + [{"bounds": {"x": x, "y": y, "width": 1000, "height": 1000}}]
+            with self.subTest(x=x, y=y):
+                self.assertEqual(POINTS.compare_points(self.shifted_card(x, y), self.report,
+                                                      screens, expanded=True), 1)
+
+    def test_popover_in_display_gap_fails(self):
+        screens = self.screens + [{"bounds": {"x": 2000, "y": 0, "width": 1000, "height": 1000}}]
+        with self.assertRaises(POINTS.UIFailure):
+            POINTS.compare_points(self.shifted_card(1100, 0), self.report, screens, expanded=True)
+
+    def test_mismatched_window_and_clipped_matching_window_fail(self):
+        self.tree["windows"][0]["kCGWindowBounds"]["X"] += 2
+        with self.assertRaises(POINTS.UIFailure):
+            POINTS.compare_points(self.tree, self.report, self.screens, expanded=True)
+        self.tree["windows"][0]["kCGWindowBounds"]["X"] -= 2
+        tree = self.shifted_card(490, 0)
+        tree["windows"][0]["kCGWindowBounds"]["Width"] += 0.5
+        with self.assertRaises(POINTS.UIFailure):
+            POINTS.compare_points(tree, self.report, self.screens, expanded=True)
+
+    def test_scroll_outside_popover_fails(self):
+        self.tree["elements"][2]["frame"][0][1] = 600
+        with self.assertRaisesRegex(POINTS.UIFailure, "points-scroll-not-visible"):
+            POINTS.compare_points(self.tree, self.report, self.screens, expanded=True)
+
+    def test_exact_display_edges_and_subpixel_window_match_pass(self):
+        tree = self.shifted_card(-10, -20)
+        screens = [{"bounds": {"x": 0, "y": 0, "width": 500, "height": 700}}]
+        self.assertEqual(POINTS.compare_points(tree, self.report, screens, expanded=True), 1)
+        tree["windows"][0]["kCGWindowBounds"].update({"X": 0.5, "Width": 499.5})
+        self.assertEqual(POINTS.compare_points(tree, self.report, screens, expanded=True), 1)
+
+    def test_points_capture_rejects_offscreen_popover(self):
+        proof = object.__new__(POINTS.PointsProof)
+        proof.screens = self.screens
+        with patch.object(proof, "peek") as peek, self.assertRaises(POINTS.UIFailure):
+            proof.capture_points("synthetic", self.shifted_card(2000, 0))
+        peek.assert_not_called()
 
     def test_stored_session_init_does_not_request_credential_reference(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(POINTS.UI, "ROOT", Path(directory)):

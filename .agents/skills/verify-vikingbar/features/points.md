@@ -19,6 +19,8 @@ The gate builds and identifies its own bundle and worker, compares raw loyalty r
 
 After native Refresh, require newer points balance and history timestamps, a usable usage card, and unchanged connection identity. The run must exit through native Quit and retain its successful cleanup receipt. Inspect the settled popover PNGs in the private `.build/proof/<run>/` directory.
 
+The status item and the matched popover must each fit within a real display. The balance and points gates share finite rectangle validation and AX-to-CoreGraphics window matching. Card text must lie inside that popover; expanded transaction text must also lie inside its scroll area. Offscreen or clipped popovers fail even when the status item remains visible. Capture the matched window, not the first window in the process list.
+
 For targeted inspection, use `Points`, `vikingbar.points.available`, `vikingbar.points.pending`, `vikingbar.points.blocked`, and `vikingbar.points.transactionsToggle`. Row identifiers use `vikingbar.points.transaction.<zero-based-index>.amount`, `.state`, `.updated`, and `.description`. Switch to **Data** for Refresh and Quit.
 
 Run `make check` and `Scripts/test.sh` for synthetic coverage. `vikingbar --fixture finite` exposes synthetic points through the shared CLI presentation without account access. The fixture states exercise pending, blocked, expired, failed, and unknown transaction states. Core tests also cover empty history and pagination boundaries.
