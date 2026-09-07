@@ -46,4 +46,11 @@ check-proof:
 	python3 Scripts/test-proof-runner.py
 
 proof-live: build
-	python3 Scripts/proof-live.py "$(CHECK)"
+	INSTALL_TARGET="$(INSTALL_TARGET)" python3 Scripts/proof-live.py "$(CHECK)"
+
+.PHONY: install-app smoke-installed-app
+install-app:
+	python3 Scripts/install-app.py $(if $(INSTALL_TARGET),--target "$(INSTALL_TARGET)",) $(if $(filter 1,$(REPLACE)),--replace,)
+
+smoke-installed-app:
+	INSTALL_TARGET="$(INSTALL_TARGET)" python3 Scripts/installed-app-proof.py smoke

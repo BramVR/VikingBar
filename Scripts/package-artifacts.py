@@ -51,6 +51,15 @@ def metadata(configuration):
                 toolchain=dict(xcode=xcode, swift=command("swift", "--version")))
 
 
+def seal_local(bundle):
+    cli = bundle / "Contents/MacOS/vikingbar"
+    original = digest(cli)
+    subprocess.run(["codesign", "--force", "--sign", "-", str(bundle)], check=True)
+    if digest(cli) != original:
+        raise ValueError("Local app sealing changed bundled CLI identity")
+    subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
+
+
 def build_bundle(bundle, info):
     configuration = info["configuration"]
     for product in ("VikingBarApp", "vikingbar"):
@@ -80,7 +89,7 @@ def build_bundle(bundle, info):
     (resources / "DEVELOPMENT.txt").write_text(NOTICE)
     plist = dict(CFBundleExecutable="VikingBarApp", CFBundleIdentifier="be.bram.vikingbar",
                  CFBundleName="VikingBar", CFBundlePackageType="APPL",
-                 CFBundleShortVersionString=info["version"].split("-")[0], CFBundleVersion="1",
+                 CFBundleShortVersionString=info["version"].split("-")[0], CFBundleVersion=info["version"].split("-")[0],
                  LSMinimumSystemVersion=info["minimumMacOS"], LSUIElement=True, NSHighResolutionCapable=True)
     (bundle / "Contents/Info.plist").write_bytes(plistlib.dumps(plist))
 
@@ -111,6 +120,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--app-only", action="store_true")
+    parser.add_argument("--local-adhoc", action="store_true", help="Seal local app without distribution trust")
     parser.add_argument("--configuration", choices=("debug", "release"), default="release")
     args = parser.parse_args()
     output = (args.output or ROOT / ".build/artifacts").resolve()
@@ -129,11 +139,14 @@ def main():
             raise ValueError("Prior artifacts must be regular files")
     output.parent.mkdir(parents=True, exist_ok=True)
     info = metadata(args.configuration)
+    info["localAdHocSealed"] = args.local_adhoc
     with tempfile.TemporaryDirectory(prefix="vikingbar-package-", dir=output.parent) as temporary:
         stage = Path(temporary)
         app_root = stage / "app"
         bundle = app_root / "VikingBar.app"
         build_bundle(bundle, info)
+        if args.local_adhoc:
+            seal_local(bundle)
         if args.app_only:
             if output.exists():
                 existing = plistlib.loads((output / "Contents/Info.plist").read_bytes())

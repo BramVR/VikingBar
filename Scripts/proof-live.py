@@ -47,6 +47,14 @@ def child_environment(environment):
 
 
 def run(check, environment, execute=subprocess.run):
+    if check == "installed-balance":
+        spec = importlib.util.spec_from_file_location("installed_app_proof", Path(__file__).with_name("installed-app-proof.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        try:
+            return module.run(environment)
+        except module.UIFailure as error:
+            raise ProofFailure(str(error)) from None
     if check == "balance-ui":
         spec = importlib.util.spec_from_file_location("balance_ui_proof", Path(__file__).with_name("balance-ui-proof.py"))
         module = importlib.util.module_from_spec(spec)
