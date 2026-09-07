@@ -52,6 +52,15 @@ def extract(archive, destination):
                 target.chmod(mode & 0o777)
 
 
+def verify_connect_helper(resources, manifest):
+    helper = resources / "connect-account.py"
+    expected = manifest["connectHelperSHA256"]
+    assert re.fullmatch(r"[0-9a-f]{64}", expected), "Invalid connection helper hash"
+    assert helper.is_file() and not helper.is_symlink(), "Connection helper missing"
+    assert os.access(helper, os.X_OK), "Connection helper is not executable"
+    assert digest(helper) == expected, "Connection helper differs from build manifest"
+
+
 def verify(directory):
     verify_checksums(directory)
     manifest = json.loads((directory / "manifest.json").read_text())
@@ -91,6 +100,7 @@ def verify(directory):
         for key, value in expected.items():
             assert plist[key] == value, key
         resources = bundle / "Resources"
+        verify_connect_helper(resources, manifest)
         for path in (resources, cli_root):
             assert json.loads((path / "build-manifest.json").read_text()) == embedded
             notice = (path / "DEVELOPMENT.txt").read_text()

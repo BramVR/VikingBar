@@ -5,7 +5,7 @@ description: "Verify VikingBar UI, CLI, build artifacts, and authorized API proo
 
 # Verify VikingBar
 
-Use the logged-in Mac desktop. Read [the feature map](features/README.md) before choosing coverage. The app and explicit fixture CLI use synthetic data. The separate [auth/balance proof](features/auth-balance-proof.md) intentionally accesses the network and requires authorized credentials.
+Use the logged-in Mac desktop. Read [the feature map](features/README.md) before choosing coverage. Explicit fixture app and CLI launches use synthetic data. Default native startup restores a live session and can access Keychain and the account API. Read [Live balance](features/live-balance.md) for that authorized path. The separate [auth/balance proof](features/auth-balance-proof.md) also requires authorized credentials.
 
 For development archives and existing private drafts, use [Build artifacts and private drafts](features/packaged-artifacts.md). Package checks execute fixture CLIs and do not require native UI driving.
 
@@ -13,7 +13,9 @@ For development archives and existing private drafts, use [Build artifacts and p
 
 Run `make smoke-app-fixture` from the repo root with the exclusive Mac UI slot. It builds `.build/app/VikingBar.app`, launches three task-owned fixture processes in sequence, and uses one new `.build/proof/<run>/settings.json` file for persistence proof. Require exit 0, `result.json` with `passed: true`, and `cleanup.json` with `exited: true` and three verified Quit exits of 0.
 
-For interactive coverage, run `make package-app` and `swiftc Scripts/inspect-ui.swift -o .build/inspect-ui`, then launch `.build/app/VikingBar.app/Contents/MacOS/VikingBarApp --fixture finite` in a task-owned terminal session. Record PID, parent, start time, full executable path, and SHA256 before driving. Explicit fixture launches use memory for the display preference. For relaunch proof, add `--settings-file` with an absolute path inside a new task-owned directory and reuse that file. This app-only option requires `--fixture`. Never read or migrate real settings for fixture proof.
+For interactive coverage, run `make package-app` and `swiftc Scripts/inspect-ui.swift -o .build/inspect-ui`, then launch `.build/app/VikingBar.app/Contents/MacOS/VikingBarApp --fixture finite` in a task-owned terminal session. Record PID, parent, start time, full executable path, and SHA256 before driving. Explicit fixture launches use memory for the display preference. For relaunch proof, add `--settings-file` with an absolute path inside a new task-owned directory and reuse that file. This app-only option requires `--fixture`. Never read or migrate real settings for fixture proof. Selecting **Not connected** inside that fixture launch must remain isolated and must not start a live worker.
+
+For authorized native live coverage, use `make proof-live CHECK=balance-ui` with the credential and Mac UI slots. Follow [Live balance](features/live-balance.md). Require one native bootstrap, API comparisons, native Refresh, relaunch, and release rebuild with stored-token relaunch. No second 1Password read in a successful sequence. Credential-read retries need explicit authorization. The core sequence and subsequent stored-session picker proof passed. Read the feature evidence for build boundaries and selection limits.
 
 ## Doctor
 
@@ -33,7 +35,7 @@ Keep raw `.build/proof/<run>/` receipts and captures private and outside commits
 
 Default status title is empty; amount mode adds only the remaining decimal GB amount or an honest exceptional state. Fixture provenance stays visible in the card and Settings and explicit in tooltip, accessibility label, and CLI. Inspect the actual PNGs; AX text alone does not prove visibility or helmet appearance. Card captures must target the settled popover window, not a transient fixture menu. The smoke matches CoreGraphics window bounds to the AXPopover frame before capture.
 
-Verify fixture isolation by tracing app and CLI entry points through their selected paths. Shared core imports include network transport, so imports alone cannot prove isolation. The CLI without arguments must exit 2 with fixture-required guidance. Only explicit `proof auth-balance` runs live authentication and balance requests; follow its credential prerequisite.
+Verify fixture isolation by tracing app and CLI entry points through their selected paths. Shared core imports include network transport, so imports alone cannot prove isolation. The CLI without arguments must exit 2 with fixture-required guidance. Explicit `connect`, `live`, `proof balance-api`, and private `session` commands access the connected account or its store. `proof auth-balance` performs a separate credential exchange without persistence. Follow their credential prerequisites; never use them as credential-free diagnostics.
 
 ## Cleanup
 
@@ -44,6 +46,7 @@ The smoke's three launches must each exit through `vikingbar.quit` with code 0. 
 - `make check` checks formatting, lint, build, tests, documentation, CLI fixtures, and Python gates.
 - `make smoke-package` builds and inspects development archives; follow [artifact trust and download checks](features/packaged-artifacts.md).
 - `make check-proof` runs synthetic API and credential-wrapper tests without 1Password or account access.
+- `make proof-live CHECK=balance-ui` requires the authorized [live balance](features/live-balance.md) recipe and private evidence.
 - `make proof-live CHECK=auth-balance` requires the authorized [auth/balance proof](features/auth-balance-proof.md) recipe.
 - `make smoke-app-fixture` runs `Scripts/smoke-app-fixture.py` end to end.
 - `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action.

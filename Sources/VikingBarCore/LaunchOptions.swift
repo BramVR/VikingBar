@@ -66,7 +66,7 @@ public enum ArgumentError: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case let .invalid(message): message
-        case .fixtureRequired: "Live account access is not available. Choose an explicit --fixture STATE."
+        case .fixtureRequired: "Choose an explicit --fixture STATE, or use live for a connected account."
         }
     }
 }

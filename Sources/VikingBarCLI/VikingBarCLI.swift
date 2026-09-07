@@ -5,6 +5,22 @@ import VikingBarCore
 struct VikingBarCLI {
     static func main() async {
         let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments.first == "session" {
+            guard arguments == ["session"] else {
+                self.writeJSON(CommandFailure(error: "invalid-session-command"))
+                exit(2)
+            }
+            await self.sessionLoop()
+            return
+        }
+        if arguments.first == "connect" {
+            await self.connect(arguments: arguments)
+            return
+        }
+        if arguments.first == "live" {
+            await self.live(arguments: arguments)
+            return
+        }
         if arguments.first == "proof" {
             await self.proof(arguments: arguments)
             return
@@ -13,6 +29,7 @@ struct VikingBarCLI {
             let options = try LaunchOptions(arguments: Array(CommandLine.arguments.dropFirst()))
             if options.showHelp {
                 print(LaunchOptions.usage)
+                print(self.liveUsage)
                 return
             }
             let report = try FixtureReport(options: options, referenceDate: Date())
@@ -29,19 +46,17 @@ struct VikingBarCLI {
     }
 
     private static func proof(arguments: [String]) async {
+        if arguments == ["proof", "balance-api"] {
+            await self.balanceProof()
+            return
+        }
         guard arguments == ["proof", "auth-balance"] else {
             self.writeProof(ProofReceipt(failure: .invalidInput))
             exit(2)
         }
         let credentials: ProofCredentials
         do {
-            var input = Data()
-            while let chunk = try FileHandle.standardInput.read(upToCount: 4096), !chunk.isEmpty {
-                input.append(chunk)
-                guard input.count <= 65536 else { throw ProofFailure.invalidInput }
-            }
-            credentials = try JSONDecoder().decode(ProofCredentials.self, from: input)
-            try credentials.validate()
+            credentials = try self.readCredentials()
         } catch {
             self.writeProof(ProofReceipt(failure: .invalidInput))
             exit(2)

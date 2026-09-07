@@ -1,69 +1,30 @@
 import AppKit
-import Observation
 import SwiftUI
 import VikingBarCore
-
-@MainActor
-@Observable
-final class FixtureSession {
-    var fixture: FixtureState? {
-        didSet { self.onPresentationChange?() }
-    }
-
-    var unit: DataUnit {
-        didSet { self.onPresentationChange?() }
-    }
-
-    var showRemainingGB: Bool {
-        didSet {
-            self.preferences.setShowRemainingGB(self.showRemainingGB)
-            self.settingsError = self.preferences.errorMessage
-            self.onPresentationChange?()
-        }
-    }
-
-    private(set) var settingsError: String?
-    let timeZone: TimeZone
-    let referenceDate: Date
-    @ObservationIgnored var onPresentationChange: (() -> Void)?
-    @ObservationIgnored private let preferences: MenuBarPreferences
-
-    init(options: LaunchOptions, preferences: MenuBarPreferences, referenceDate: Date = Date()) {
-        self.fixture = options.fixture
-        self.unit = options.unit
-        self.timeZone = options.timeZone
-        self.referenceDate = referenceDate
-        self.preferences = preferences
-        self.showRemainingGB = preferences.showRemainingGB
-        self.settingsError = preferences.errorMessage
-    }
-
-    var snapshot: UsageSnapshot {
-        self.fixture?.snapshot(referenceDate: self.referenceDate) ?? .notConnected
-    }
-
-    var menu: MenuPresentation {
-        MenuPresentation(snapshot: self.snapshot, unit: self.unit, timeZone: self.timeZone)
-    }
-
-    var status: StatusPresentation {
-        StatusPresentation(
-            snapshot: self.snapshot,
-            showRemainingGB: self.showRemainingGB,
-            unit: self.unit,
-            timeZone: self.timeZone,
-        )
-    }
-}
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
-    private let session: FixtureSession
+    private let session: AppSession
+    private let options: AppLaunchOptions
+    private var terminationPending = false
+    private var terminationReplySent = false
 
-    init(options: LaunchOptions, preferences: MenuBarPreferences) {
-        self.session = FixtureSession(options: options, preferences: preferences)
+    init(options: AppLaunchOptions, preferences: MenuBarPreferences) {
+        self.session = AppSession(
+            options: options.shared, preferences: preferences,
+            clientFactory: {
+                try SessionProcessClient(executableURL: Self.bundledURL("MacOS/vikingbar"))
+            },
+            connectorFactory: {
+                try AccountConnector(
+                    cliURL: Self.bundledURL("MacOS/vikingbar"),
+                    helperURL: Self.bundledURL("Resources/connect-account.py"),
+                )
+            },
+        )
+        self.options = options
         super.init()
         self.session.onPresentationChange = { [weak self] in self?.updateStatus() }
     }
@@ -77,8 +38,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.setAccessibilityIdentifier("vikingbar.status")
         self.updateStatus()
         self.popover.behavior = .transient
-        self.popover.contentSize = NSSize(width: 360, height: 570)
-        self.popover.contentViewController = NSHostingController(rootView: PopoverView(session: self.session))
+        self.popover.contentSize = NSSize(width: 360, height: self.session.isFixtureLaunch ? 570 : 760)
+        self.popover.contentViewController = NSHostingController(rootView: PopoverView(
+            session: self.session,
+            connect: self.connect,
+        ))
+        self.session.start()
+    }
+
+    private static func bundledURL(_ path: String) throws -> URL {
+        let bundle = Bundle.main.bundleURL
+        guard bundle.pathExtension == "app" else { throw LiveBridgeFailure.unavailable }
+        return bundle.appending(path: "Contents/" + path)
+    }
+
+    private func connect() {
+        if let reference = self.options.credentialReference {
+            self.connect(reference: reference)
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.title = "Choose the approved 1Password credential reference"
+        panel.message = "Select the credential reference JSON file for your Mobile Vikings account."
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.begin { [weak self] result in
+            guard result == .OK, let url = panel.url else { return }
+            self?.connect(reference: url)
+        }
+    }
+
+    private func connect(reference: URL) {
+        self.session.connect(
+            reference: reference,
+            resultURL: self.options.proofDirectory?.appending(path: "connect-result.json"),
+        )
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !self.terminationPending else { return .terminateLater }
+        self.terminationPending = true
+        Task {
+            await self.session.stop()
+            self.completeTermination(sender)
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(20))
+            self.completeTermination(sender)
+        }
+        return .terminateLater
+    }
+
+    private func completeTermination(_ application: NSApplication) {
+        guard !self.terminationReplySent else { return }
+        self.terminationReplySent = true
+        application.reply(toApplicationShouldTerminate: true)
     }
 
     private func updateStatus() {
@@ -113,13 +127,14 @@ struct VikingBarApp {
             if options.showHelp {
                 print(LaunchOptions.usage.replacingOccurrences(of: "vikingbar", with: "VikingBar"))
                 print("App fixture option: --settings-file ABSOLUTE_PATH saves the menu bar setting.")
+                print("Live options: --credential-reference ABSOLUTE_PATH --proof-directory ABSOLUTE_PATH")
                 return
             }
             let application = NSApplication.shared
             let settingsFile = options.fixture == nil
                 ? URL.applicationSupportDirectory.appending(path: "VikingBar/menu-bar-preferences.json")
                 : appOptions.settingsFile
-            let delegate = AppDelegate(options: options, preferences: MenuBarPreferences(fileURL: settingsFile))
+            let delegate = AppDelegate(options: appOptions, preferences: MenuBarPreferences(fileURL: settingsFile))
             application.delegate = delegate
             withExtendedLifetime(delegate) { application.run() }
         } catch {

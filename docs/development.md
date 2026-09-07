@@ -1,5 +1,5 @@
 ---
-summary: "Build, inspect, and verify the fixture app."
+summary: "Build, inspect, and verify the native app and isolated fixtures."
 read_when:
   - Building VikingBar
   - Changing fixture UI or CLI behavior
@@ -29,7 +29,7 @@ swift run vikingbar --fixture finite
 swift run vikingbar --fixture unlimited --unit GiB --time-zone Europe/Brussels
 ```
 
-The fixture names are `finite`, `unlimited`, `exhausted`, `stale`, and `error`. JSON contains both the snapshot and the menu model. GB means 1,000,000,000 bytes; GiB means 1,073,741,824 bytes. Dates default to the current user's timezone. The CLI rejects a missing fixture selection. The app opens an unavailable setup card when no fixture is selected.
+The fixture names are `finite`, `unlimited`, `exhausted`, `stale`, and `error`. JSON contains both the snapshot and the menu model. GB means 1,000,000,000 bytes; GiB means 1,073,741,824 bytes. Dates default to the current user's timezone. The CLI rejects a missing fixture selection. The app without `--fixture` restores a live account session and shows account setup when disconnected. That path can access Keychain.
 
 Build an unsigned development bundle:
 
@@ -38,7 +38,7 @@ make package-app
 open .build/app/VikingBar.app --args --fixture finite
 ```
 
-The app has no Dock icon. Click its helmet menu bar item to inspect the data card. Choose another fixture in the card or use **Quit VikingBar** to exit. Open **Settings** to turn on **Show remaining GB in menu bar**. The label uses decimal GB independently of the card's units. Turning it off leaves only the helmet. Fixture provenance remains visible in the card and available in the tooltip, accessibility label, and CLI. The app remains fixture-only. The explicit [local API proof command](live-proof.md) uses the shared network client; no Keychain store exists.
+The app has no Dock icon. Click its helmet menu bar item to inspect the data card. Choose another fixture in the card or use **Quit VikingBar** to exit. Open **Settings** to turn on **Show remaining GB in menu bar**. The label uses decimal GB independently of the card's units. Turning it off leaves only the helmet. Fixture provenance remains visible in the card and available in the tooltip, accessibility label, and CLI. Keep `--fixture` on every credential-free app launch. Selecting **Not connected** in its picker stays in fixture mode and cannot access the live account. For live startup, follow [account setup](live-account.md).
 
 Explicit fixture launches keep the display preference in memory. To verify persistence, pass the app-only `--settings-file` option with an absolute path inside a task-owned temporary directory. It requires an explicit `--fixture`. Reuse that file for the task-owned relaunch; never pass a real settings file. The automatic smoke command supplies its own isolated file.
 
@@ -61,3 +61,11 @@ make smoke-app-fixture
 The command builds a fresh bundle, starts a task-owned process, checks its identity, captures the visible helmet, opens the real data card, and checks its accessibility text with a targeted native probe. It selects fixtures, switches the Settings toggle, and verifies both menu bar modes. Task-owned relaunches verify that on and off choices persist in the isolated settings file. Cropped status images, card and Settings captures, process receipts, `result.json`, and cleanup receipts remain under `.build/proof/`. Cleanup stops only recorded task processes. Missing permissions, a hidden status item, or missing required behavior fail the command.
 
 Read the [verification skill](../.agents/skills/verify-vikingbar/SKILL.md) for feature coverage and targeted follow-up proof. These commands require no credentials and never use real accounts.
+
+## Verify live account behavior
+
+The packaged app contains `vikingbar` and `Resources/connect-account.py`. Native connection requires `/usr/bin/python3`, tmux, the 1Password CLI, and the approved service-account setup in `~/.profile`. The helper sources that profile inside its own named tmux session.
+
+The app-only `--credential-reference` and `--proof-directory` flags each accept one absolute path and reject fixture launches. The reference selects an approved item without storing its credentials. The proof directory receives `connect-result.json` and must not already contain that receipt. Neither flag connects automatically; press **Connect with 1Password**.
+
+With explicit account authorization and the credential and Mac UI slots, run `make proof-live CHECK=balance-ui`. The required gate covers one native connection, API comparison, native refresh, stored-token relaunch, and a release rebuild followed by stored-token relaunch. No second 1Password read is allowed in that sequence. See [live proof requirements](live-proof.md#native-balance-proof). See [recorded coverage](live-proof.md#recorded-coverage) for the completed core gate and stored-session picker proof.

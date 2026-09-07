@@ -36,7 +36,7 @@ struct MenuBarPreferencesTests {
         fileIO.failure = true
         let url = URL(fileURLWithPath: "/synthetic-home/settings.json")
         let preferences = MenuBarPreferences(fileURL: url, fileIO: fileIO)
-        let session = try FixtureSession(
+        let session = try AppSession(
             options: LaunchOptions(arguments: ["--fixture", "finite"]),
             preferences: preferences,
         )
@@ -57,16 +57,16 @@ struct MenuBarPreferencesTests {
         let url = root.appending(path: "synthetic-home/Application Support/VikingBar/settings.json")
         let fileIO = RecordingPreferenceIO(containedRoot: root)
         let options = try LaunchOptions(arguments: ["--fixture", "finite"])
-        let first = FixtureSession(options: options, preferences: MenuBarPreferences(fileURL: url, fileIO: fileIO))
+        let first = AppSession(options: options, preferences: MenuBarPreferences(fileURL: url, fileIO: fileIO))
         #expect(!first.showRemainingGB)
         #expect(first.settingsError == nil)
         first.showRemainingGB = true
         #expect(first.settingsError == nil)
-        let second = FixtureSession(options: options, preferences: MenuBarPreferences(fileURL: url, fileIO: fileIO))
+        let second = AppSession(options: options, preferences: MenuBarPreferences(fileURL: url, fileIO: fileIO))
         #expect(second.showRemainingGB)
         #expect(second.status.title == "36 GB")
         second.showRemainingGB = false
-        let third = FixtureSession(options: options, preferences: MenuBarPreferences(fileURL: url, fileIO: fileIO))
+        let third = AppSession(options: options, preferences: MenuBarPreferences(fileURL: url, fileIO: fileIO))
         #expect(!third.showRemainingGB)
         #expect(third.status.title.isEmpty)
         #expect(fileIO.reads == [url, url, url])

@@ -103,6 +103,24 @@ class PackagingTests(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 smoke.verify_checksums(root)
 
+    def test_packaged_connection_helper_must_match_build_and_remain_executable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            helper = root / "connect-account.py"
+            helper.write_bytes(b"synthetic connection helper")
+            helper.chmod(0o755)
+            manifest = {"connectHelperSHA256": package.digest(helper)}
+            smoke.verify_connect_helper(root, manifest)
+            helper.chmod(0o644)
+            with self.assertRaisesRegex(AssertionError, "not executable"):
+                smoke.verify_connect_helper(root, manifest)
+            helper.chmod(0o755)
+            helper.write_bytes(b"changed helper")
+            with self.assertRaisesRegex(AssertionError, "differs from build manifest"):
+                smoke.verify_connect_helper(root, manifest)
+            with self.assertRaisesRegex(AssertionError, "missing"):
+                smoke.verify_connect_helper(root / "missing", manifest)
+
 
 if __name__ == "__main__":
     unittest.main()

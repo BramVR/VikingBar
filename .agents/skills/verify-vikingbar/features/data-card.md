@@ -24,4 +24,4 @@ For targeted checks, use the interactive launch and doctor in [the verification 
 
 SwiftUI tab-content accessibility identifiers can overwrite descendant control identifiers. Target native tabs by their observed `AXRadioButton` descriptions, `Data` and `Settings`; retain the individual card identifiers. The helper matches popup current values only on `AXPopUpButton` and prefers an actual menu item when open.
 
-Quit can disconnect Accessibility before AXPress returns. The helper waits for its captured application to terminate. A failure-cleanup termination is not Quit proof. No-argument launch shows setup information without synthetic balances.
+Quit can disconnect Accessibility before AXPress returns. The helper waits for its captured application to terminate. A failure-cleanup termination is not Quit proof. No-argument app launch restores the stored live session; setup information appears when disconnected. Use an explicit fixture launch for synthetic proof.

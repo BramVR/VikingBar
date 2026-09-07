@@ -3,7 +3,9 @@ import SwiftUI
 import VikingBarCore
 
 struct DataCard: View {
-    @Bindable var session: FixtureSession
+    @Bindable var session: AppSession
+
+    var connect: () -> Void = {}
 
     var body: some View {
         let menu = self.session.menu
@@ -20,6 +22,9 @@ struct DataCard: View {
                         .background(.orange.opacity(0.2), in: Capsule())
                         .accessibilityIdentifier("vikingbar.fixtureMarker")
                 }
+            }
+            if !self.session.isFixtureLaunch {
+                self.liveSelection
             }
             VStack(alignment: .leading, spacing: 5) {
                 Text(menu.title).font(.subheadline).foregroundStyle(.secondary)
@@ -61,13 +66,17 @@ struct DataCard: View {
                 Text(menu.sourceLabel)
                     .font(.caption.weight(.medium))
                     .accessibilityIdentifier("vikingbar.source")
-                Picker("Fixture state", selection: self.$session.fixture) {
-                    Text("Not connected").tag(FixtureState?.none)
-                    ForEach(FixtureState.allCases, id: \.self) { fixture in
-                        Text(fixture.rawValue.capitalized).tag(Optional(fixture))
+                if self.session.isFixtureLaunch {
+                    Picker("Fixture state", selection: self.$session.fixture) {
+                        Text("Not connected").tag(FixtureState?.none)
+                        ForEach(FixtureState.allCases, id: \.self) { fixture in
+                            Text(fixture.rawValue.capitalized).tag(Optional(fixture))
+                        }
                     }
+                    .accessibilityIdentifier("vikingbar.fixturePicker")
+                } else {
+                    self.liveActions
                 }
-                .accessibilityIdentifier("vikingbar.fixturePicker")
                 Picker("Data units", selection: self.$session.unit) {
                     ForEach(DataUnit.allCases, id: \.self) { unit in
                         Text(unit.rawValue).tag(unit)
@@ -83,6 +92,65 @@ struct DataCard: View {
                 .accessibilityIdentifier("vikingbar.quit")
         }
         .padding(20)
-        .frame(width: 360, height: 520, alignment: .top)
+        .frame(width: 360, height: self.session.isFixtureLaunch ? 520 : nil, alignment: .top)
+        .frame(minHeight: self.session.isFixtureLaunch ? nil : 710, alignment: .top)
+    }
+
+    private var liveSelection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !self.session.liveState.subscriptions.isEmpty {
+                Picker("SIM", selection: Binding(
+                    get: { self.session.liveState.selectedSubscriptionID ?? "" },
+                    set: { self.session.selectSubscription($0) },
+                )) {
+                    ForEach(self.session.liveState.subscriptions, id: \.id) { subscription in
+                        Text(subscription.displayName).tag(subscription.id)
+                    }
+                }
+                .accessibilityIdentifier("vikingbar.subscriptionPicker")
+                .disabled(!self.session.canSelectAccountData)
+            }
+            if !self.session.activeBundleIndices.isEmpty {
+                Picker("Data bundle", selection: Binding(
+                    get: { self.session.liveState.selectedBundleIndex ?? -1 },
+                    set: { self.session.selectBundle($0) },
+                )) {
+                    ForEach(self.session.activeBundleIndices, id: \.self) { index in
+                        if let bundle = self.session.liveState.balance?.bundles[index] {
+                            Text(LiveBalancePresentation.title(for: bundle, index: index)).tag(index)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("vikingbar.bundlePicker")
+                .disabled(!self.session.canSelectAccountData)
+            }
+            let details = self.session.balanceDetails
+            Text(details.bundleTitle).font(.subheadline.weight(.medium))
+            if !details.bundleDescription.isEmpty {
+                Text(details.bundleDescription).font(.caption)
+            }
+            if !details.applicabilityText.isEmpty {
+                Text(details.applicabilityText).font(.caption).foregroundStyle(.secondary)
+            }
+            Text(details.extraChargesText).font(.caption)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var liveActions: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(self.session.activity == .refreshing ? "Refreshing…" : "Refresh now") {
+                self.session.refresh()
+            }
+            .disabled(!self.session.canRefresh)
+            .accessibilityIdentifier("vikingbar.refresh")
+            Button(self.session.activity == .connecting ? "Connecting…" : "Connect with 1Password") {
+                self.connect()
+            }
+            .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
+            .accessibilityIdentifier("vikingbar.connect")
+            Link("Open My Viking", destination: URL(string: "https://mobilevikings.be/en/my-viking/")!)
+                .accessibilityIdentifier("vikingbar.openMyViking")
+        }
     }
 }

@@ -33,4 +33,4 @@ Confirm receipts contain no credentials, tokens, subscription identifiers, phone
 
 ## Gotchas
 
-The app and ordinary fixture CLI remain synthetic. This route proves endpoint execution and response validation, not allowance display correctness. MFA behavior remains unverified; a challenge fails the gate without disabling MFA or using browser cookies. Hosted CI must not run this credentialed recipe.
+Explicit fixture app and CLI launches remain synthetic. Default app startup restores a stored live session and can access Keychain and the provider. This auth/balance route proves endpoint execution and response validation, not allowance display correctness. MFA behavior remains unverified; a challenge fails the gate without disabling MFA or using browser cookies. Hosted CI must not run this credentialed recipe.

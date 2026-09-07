@@ -47,6 +47,9 @@ public struct MenuPresentation: Codable, Equatable, Sendable {
         case let .fixture(state):
             self.sourceLabel = "FIXTURE · \(state.rawValue.capitalized) · Synthetic data"
             isFixture = true
+        case .live:
+            self.sourceLabel = "Mobile Vikings · Live account"
+            isFixture = false
         case .notConnected:
             self.sourceLabel = "Not connected"
             isFixture = false
