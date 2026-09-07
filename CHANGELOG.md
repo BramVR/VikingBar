@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add native live account connection through one approved 1Password read, CLI-owned Keychain refresh sessions, separate SIM and bundle selection, extra charges in euros, and refresh with stale-data recovery; required native live proof remains pending.
+
 - Show remaining allowance inside a native Viking helmet, with an optional decimal GB label controlled by a saved Settings toggle and isolated fixture proof.
 - Add shared macOS CI checks, verified app and CLI development archives, and manually dispatched private draft releases from exact version tags.
 - Exclude inherited dynamic-loader settings from credential and proof subprocesses, and document the wrapper failure receipt.

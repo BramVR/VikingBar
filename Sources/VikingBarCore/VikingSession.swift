@@ -32,6 +32,10 @@ public actor VikingSession {
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700],
         )
+        guard try directory.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else {
+            throw LiveFailure.storage
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         return VikingSession(
             transport: transport, store: KeychainSessionStore(),
             lease: FileSessionLease(url: directory.appendingPathComponent("session.lock")),

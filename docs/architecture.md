@@ -8,7 +8,7 @@ read_when:
 
 # ADR 001: Native menu app with a shared Swift core
 
-Status: implemented for fixture allowance display and the menu bar display preference. The CLI has a separate local auth/balance proof. Live app integration and account persistence remain pending.
+Status: native live sessions, account persistence, fixture display, and menu bar preferences are implemented. Required native live proof remains pending. The CLI also retains the separate local auth/balance proof.
 
 ## Decision
 
@@ -44,6 +44,18 @@ The app owns an AppKit status item and hosts its card in a SwiftUI popover. This
 
 The core owns immutable allowance snapshots and their menu presentation. The CLI serializes both, while the app renders the same presentation. A separate status presentation derives the helmet state and optional decimal GB label from the selected snapshot. The CLI report keeps its existing status-title semantics.
 
-The app draws one fixed native template helmet. Its inset bar drains from right to left as the remaining fraction decreases. Unlimited and unavailable balances use distinct internal marks. A zero total has no fraction, and stale data keeps its known fill. The tooltip and accessibility label expose allowance, subscription, freshness, and fixture provenance. The card retains its visible fixture marker. No-argument launch has no synthetic balance.
+The app draws one fixed native template helmet. Its inset bar drains from right to left as the remaining fraction decreases. Unlimited and unavailable balances use distinct internal marks. A zero total has no fraction, and stale data keeps its known fill. The tooltip and accessibility label expose allowance, subscription, freshness, and fixture provenance. The card retains its visible fixture marker. No-argument launch restores a live session and refreshes it when connected. Without a stored connection, it shows account setup.
 
 The session owns status updates, so changing a fixture or the display preference updates AppKit independently of the mounted SwiftUI tab. The Settings tab binds to the default-off **Show remaining GB in menu bar** preference. The app stores that preference in a new settings file with no migration from other applications. Fixture launches use memory unless an explicit isolated settings file is supplied for relaunch proof. Tests inject their persistence inputs and never discover real user state.
+
+## Live session ownership
+
+`AppSession` restores live state, schedules refresh, and publishes presentation changes. `SessionProcessClient` sends JSON-lines commands to the bundled `vikingbar session` process over private pipes. The CLI owns `VikingSession`, the token store, and the account cache. The app never reads the token directly.
+
+`AccountConnector` starts the packaged `connect-account.py` helper. The helper creates one private named tmux session, sources the approved profile there, and reads one approved 1Password item. It passes the three credential fields to the same bundled CLI's `connect` command through stdin. Only the 1Password child receives the service-account token. Passwords are released before balance retrieval.
+
+Each successful connection receives a new connection ID. Cached subscription state belongs to that connection, and each SIM retains its own bundles. The selected active data bundle supplies the helmet and allowance card. Applicability, expiry, and extra charges remain separate display values. Missing amounts stay unavailable.
+
+A process lease serializes token rotation across CLI processes. The owner records a pending rotation before the refresh request and replaces the whole Keychain record afterward. An interrupted rotation requires reconnect. The server exchange and local write cannot be atomic. Relaunch refresh uses the stored token without another 1Password read. Unsigned rebuilds can require renewed Keychain authorization; the release rebuild proof must verify that boundary.
+
+Fixture isolation is fixed at launch. Selecting **Not connected** in a fixture picker does not create a live worker or read Keychain. Fixture settings remain in memory unless `--settings-file` supplies an isolated path. Live startup uses the app's settings file and exposes no fixture picker.

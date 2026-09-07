@@ -1,12 +1,20 @@
 import SwiftUI
 
 struct PopoverView: View {
-    @Bindable var session: FixtureSession
+    @Bindable var session: AppSession
+
+    var connect: () -> Void = {}
 
     var body: some View {
         TabView {
-            DataCard(session: self.session)
-                .tabItem { Text("Data") }
+            Group {
+                if self.session.isFixtureLaunch {
+                    DataCard(session: self.session, connect: self.connect)
+                } else {
+                    ScrollView { DataCard(session: self.session, connect: self.connect) }
+                }
+            }
+            .tabItem { Text("Data") }
             VStack(alignment: .leading, spacing: 12) {
                 if self.session.fixture != nil {
                     Text(self.session.menu.sourceLabel)
@@ -30,6 +38,6 @@ struct PopoverView: View {
             .frame(width: 360, height: 520, alignment: .topLeading)
             .tabItem { Text("Settings") }
         }
-        .frame(width: 360, height: 570)
+        .frame(width: 360, height: self.session.isFixtureLaunch ? 570 : 760)
     }
 }

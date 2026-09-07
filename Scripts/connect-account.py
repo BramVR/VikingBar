@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Bootstrap one account through one task-owned tmux session."""
 import argparse
+import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -93,12 +95,18 @@ def inside(cli, reference, environment, execute=subprocess.run):
         raise ConnectFailure("invalid-connect-receipt") from None
 
 
-def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sleep, clock=time.monotonic):
+def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sleep, clock=time.monotonic,
+              ownership=None):
     reference_at(reference)
     tmux = shutil.which("tmux", path=environment.get("PATH"))
     if not tmux or not Path(cli).is_file():
         raise ConnectFailure("dependency-required")
     session = "vikingbar-connect-" + uuid.uuid4().hex
+    if ownership is not None:
+        ownership.update(helperPID=os.getpid(), parentPID=os.getppid(), arguments=sys.argv,
+                         startedAt=datetime.datetime.now(datetime.timezone.utc).isoformat(), session=session,
+                         helperSHA256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                         cliSHA256=hashlib.sha256(Path(cli).read_bytes()).hexdigest())
     with tempfile.TemporaryDirectory(prefix="vikingbar-connect-") as directory:
         result_path = Path(directory) / "result.json"
         script = Path(__file__).resolve()
@@ -111,11 +119,17 @@ def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sl
         created = False
         try:
             created = True
-            result = execute([*prefix, "new-session", "-d", "-s", session,
+            result = execute([*prefix, "new-session", "-d", "-P", "-F", "#{pid} #{pane_pid} #{session_name}",
+                              "-s", session,
                               "/bin/zsh", "-f", "-c", command], env=clean, capture_output=True,
                              timeout=10, check=False)
             if result.returncode:
                 raise ConnectFailure("tmux-start-failed")
+            if ownership is not None:
+                parts = result.stdout.decode().strip().split()
+                if len(parts) != 3 or not all(part.isdigit() for part in parts[:2]) or parts[2] != session:
+                    raise ConnectFailure("tmux-ownership-invalid")
+                ownership.update(serverPID=int(parts[0]), panePID=int(parts[1]))
             deadline = clock() + 160
             while clock() < deadline:
                 if result_path.exists():
@@ -130,8 +144,12 @@ def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sl
             raise ConnectFailure("connect-timeout")
         finally:
             if created:
-                execute([*prefix, "kill-session", "-t", "=" + session], env=clean,
-                        capture_output=True, timeout=10, check=False)
+                if ownership is not None:
+                    ownership["cleanupAttempted"] = True
+                cleanup = execute([*prefix, "kill-session", "-t", "=" + session], env=clean,
+                                  capture_output=True, timeout=10, check=False)
+                if ownership is not None:
+                    ownership["cleanupReturncode"] = cleanup.returncode
 
 
 def main(arguments=None, environment=None):
@@ -143,14 +161,15 @@ def main(arguments=None, environment=None):
     args = parser.parse_args(arguments)
     environment = os.environ if environment is None else environment
     previous_handlers = {}
+    ownership = {} if args.result and not args.inside_tmux else None
     def interrupted(_signal, _frame):
         raise ConnectFailure("connect-cancelled")
     if not args.inside_tmux:
         for signum in (signal.SIGTERM, signal.SIGINT):
             previous_handlers[signum] = signal.signal(signum, interrupted)
     try:
-        operation = inside if args.inside_tmux else supervise
-        receipt = operation(args.cli, args.reference, environment)
+        receipt = (inside(args.cli, args.reference, environment) if args.inside_tmux
+                   else supervise(args.cli, args.reference, environment, ownership=ownership))
     except ConnectFailure as error:
         receipt = {"passed": False, "error": str(error)}
     except Exception:
@@ -160,6 +179,9 @@ def main(arguments=None, environment=None):
             signal.signal(signum, handler)
     if args.result:
         try:
+            if ownership is not None:
+                path = Path(args.result)
+                write_receipt(path.with_name(path.stem + "-ownership.json"), ownership)
             write_receipt(args.result, receipt)
         except OSError:
             receipt = {"passed": False, "error": "receipt-write-failed"}

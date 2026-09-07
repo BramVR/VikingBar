@@ -4,16 +4,17 @@ Native macOS menu bar app for Mobile Vikings usage, allowances, Viking Points, a
 
 ## Status
 
-The fixture app and CLI show synthetic mobile data balances without account access. Account login and live data integration remain separate build tickets.
+The native app opens a live account session by default. Connect through the approved 1Password helper to show a selected SIM's data bundle, expiry, and extra charges. See [account setup](docs/live-account.md). Explicit fixture launches remain isolated from account access.
+
+Native live verification for issue #4 is pending. Completion requires API comparisons, native refresh, and stored-token recovery after both relaunch and a release rebuild.
 
 The menu bar helmet shows the remaining allowance through its inset bar. Open **Settings** in the data card to enable **Show remaining GB in menu bar**. The saved choice defaults to off. The optional label uses decimal GB even when the card uses GiB.
 
 ## Planned behavior
 
-- Data usage meter, remaining allowance, bundle expiry, and extra charges.
 - Daily usage chart and an explicitly labeled cycle forecast.
 - Viking Points and latest bill details.
-- SIM selection, automatic refresh, clear freshness/error states, and launch at login.
+- Launch at login.
 
 ## Build plan
 
@@ -38,7 +39,7 @@ Start with [VISION.md](VISION.md), [CONTEXT.md](CONTEXT.md), [AGENTS.md](AGENTS.
 
 ## Credentials
 
-1Password holds the login credentials. The public OAuth client needs no client secret. The planned app stores refresh tokens in macOS Keychain. Never commit passwords, tokens, account responses, or private proof artifacts. See [authentication findings](CONTEXT.md#authentication).
+1Password holds the login credentials. The public OAuth client needs no client secret. The bundled CLI owns refresh tokens in macOS Keychain. The native app communicates with that CLI over private pipes. Never commit passwords, tokens, account responses, or private proof artifacts. See [authentication findings](CONTEXT.md#authentication).
 
 ## Attribution
 

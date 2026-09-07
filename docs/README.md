@@ -16,3 +16,4 @@ read_when:
 - [CI checks and artifacts](ci.md): toolchain, artifact contents, and merge enforcement status.
 - [Draft releases](RELEASING.md): artifact downloads, version tags, and private draft verification.
 - [Local API proof](live-proof.md): targeted credential setup, request limits, and auth/balance gates.
+- [Live account setup](live-account.md): connection, SIM and bundle selection, refresh, and recovery.

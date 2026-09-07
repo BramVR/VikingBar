@@ -62,7 +62,7 @@ struct StatusPresentationTests {
 
     @MainActor @Test func `session updates status without mounted views using the card snapshot`() throws {
         let options = try LaunchOptions(arguments: ["--fixture", "finite", "--time-zone", "UTC"])
-        let session = FixtureSession(
+        let session = AppSession(
             options: options,
             preferences: MenuBarPreferences(fileURL: nil),
             referenceDate: self.date,

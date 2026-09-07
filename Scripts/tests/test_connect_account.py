@@ -53,9 +53,12 @@ class ConnectAccountTests(unittest.TestCase):
                 import shlex
                 child = shlex.split(shell.split("; exec ", 1)[1])
                 CONNECT.write_receipt(child[child.index("--result") + 1], self.receipt)
-            return subprocess.CompletedProcess(command, 0, b"", b"")
+            output = f"12345 12346 {command[2]}".encode() if "new-session" in command else b""
+            return subprocess.CompletedProcess(command, 0, output, b"")
         with patch.object(CONNECT.shutil, "which", return_value="/synthetic/tmux"):
-            self.assertEqual(CONNECT.supervise(self.cli, self.reference, self.environment, execute), self.receipt)
+            ownership = {}
+            self.assertEqual(CONNECT.supervise(self.cli, self.reference, self.environment, execute,
+                                               ownership=ownership), self.receipt)
         self.assertEqual(len(calls), 2)
         start, cleanup = calls[0][0], calls[1][0]
         self.assertEqual(start[:5], cleanup[:5])
@@ -65,6 +68,11 @@ class ConnectAccountTests(unittest.TestCase):
         self.assertIn('source "$HOME/.profile" >/dev/null 2>&1', start[-1])
         self.assertEqual(calls[0][1]["env"], {"PATH": "/synthetic"})
         self.assertNotIn("secret", json.dumps(calls))
+        self.assertEqual(ownership["serverPID"], 12345)
+        self.assertEqual(ownership["panePID"], 12346)
+        self.assertEqual(ownership["session"], start[2])
+        self.assertTrue(ownership["cleanupAttempted"])
+        self.assertEqual(ownership["cleanupReturncode"], 0)
 
     def test_timeout_cleans_own_session(self):
         calls = []

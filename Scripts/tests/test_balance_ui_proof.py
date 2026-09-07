@@ -74,6 +74,28 @@ class BalanceUIProofTests(unittest.TestCase):
             UI.private_write(target, self.report)
             self.assertEqual(target.stat().st_mode & 0o777, 0o600)
 
+    def test_runtime_worker_requires_exact_bundled_cli_and_parent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proof = UI.NativeProof.__new__(UI.NativeProof)
+            proof.directory = Path(directory)
+            proof.cli = Path(directory) / "VikingBar.app/Contents/MacOS/vikingbar"
+            proof.cli.parent.mkdir(parents=True)
+            proof.cli.write_bytes(b"synthetic executable")
+            proof.process = Mock(pid=12345)
+            proof.verify_process = Mock()
+            row = f"12346 12345 Mon Sep 7 08:00:00 2026 {proof.cli} session"
+            proof.run = Mock(side_effect=[b"12346\n", row.encode()])
+            proof.verify_worker("synthetic")
+            receipt = json.loads((proof.directory / "synthetic-worker.json").read_text())
+            self.assertEqual(receipt["identity"], row)
+            self.assertEqual(len(receipt["cliSHA256"]), 64)
+            for incorrect in (row.replace("12345", "99999"), row + " --fixture finite",
+                              row.replace(str(proof.cli), "/tmp/unrelated/vikingbar"), row + "\n" + row):
+                proof.run = Mock(side_effect=[b"12346\n", incorrect.encode()])
+                with self.assertRaisesRegex(UI.UIFailure, "runtime-worker-identity-mismatch"):
+                    proof.verify_worker("rejected")
+            self.assertFalse((proof.directory / "rejected-worker.json").exists())
+
     def test_launch_inspection_failure_still_cleans_recorded_child(self):
         with tempfile.TemporaryDirectory() as directory:
             proof = UI.NativeProof.__new__(UI.NativeProof)

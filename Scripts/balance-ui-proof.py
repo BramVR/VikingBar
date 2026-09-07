@@ -171,7 +171,7 @@ class NativeProof:
         if hashlib.sha256(self.executable.read_bytes()).hexdigest() != self.executable_hash:
             raise UIFailure("running-artifact-changed")
 
-    def launch(self, first):
+    def launch(self, first, label=None):
         arguments = [str(self.executable), "--proof-directory", str(self.directory)]
         if first:
             arguments += ["--credential-reference", self.reference]
@@ -180,7 +180,7 @@ class NativeProof:
         self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.owned_process = self.process
-        label = "initial" if first else "resumed"
+        label = label or ("initial" if first else "resumed")
         self.launch_record = {
             "pid": self.process.pid, "parentPID": os.getpid(), "arguments": arguments,
             "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -213,6 +213,7 @@ class NativeProof:
             except UIFailure:
                 return None
         report, tree = wait_for(observe, lambda value: value is not None)
+        self.verify_worker(label)
         window = next((window for window in tree.get("windows", [])
                        if window.get("kCGWindowBounds", {}).get("Height", 0) > 100), None)
         if not window:
@@ -220,6 +221,20 @@ class NativeProof:
         self.peek(["see", "--window-id", str(window["kCGWindowNumber"]), "--no-elements", "--no-remote",
                    "--path", str(self.directory / (label + "-card.png"))], label + "-image.json")
         return report
+
+    def verify_worker(self, label):
+        self.verify_process()
+        children = self.run(["pgrep", "-P", str(self.process.pid)]).decode().split()
+        if not children or any(not child.isdigit() for child in children):
+            raise UIFailure("runtime-worker-missing")
+        rows = self.run(["ps", "-p", ",".join(children), "-o", "pid=,ppid=,lstart=,command="]).decode().splitlines()
+        matches = [row for row in rows if len(row.split(None, 7)) == 8
+                   and row.split(None, 7)[1] == str(self.process.pid)
+                   and row.split(None, 7)[7] == str(self.cli) + " session"]
+        if len(matches) != 1:
+            raise UIFailure("runtime-worker-identity-mismatch")
+        private_write(self.directory / (label + "-worker.json"), {
+            "identity": matches[0], "cliSHA256": hashlib.sha256(self.cli.read_bytes()).hexdigest()})
 
     def quit(self):
         self.press("vikingbar.quit")
@@ -236,6 +251,7 @@ class NativeProof:
         self.run(["./Scripts/package-app.sh"], timeout=300)
         self.run(["swiftc", "Scripts/inspect-ui.swift", "-o", ".build/inspect-ui"], timeout=120)
         self.executable_hash = hashlib.sha256(self.executable.read_bytes()).hexdigest()
+        initial_cli_hash = hashlib.sha256(self.cli.read_bytes()).hexdigest()
         self.screens = self.peek(["screen", "list"], "screens.json")["screens"]
         tree = self.launch(first=True)
         if not any(item.get("AXIdentifier") == "vikingbar.connect" for item in tree["elements"]):
@@ -246,6 +262,16 @@ class NativeProof:
         connect_receipt = json.loads(receipt_path.read_text())
         if connect_receipt != {"schema_version": 1, "check": "connect", "passed": True, "connected": True}:
             raise UIFailure("native-connect-failed")
+        ownership = json.loads((self.directory / "connect-result-ownership.json").read_text())
+        if (ownership.get("parentPID") != self.process.pid
+                or any(type(ownership.get(key)) is not int or ownership[key] <= 0
+                       for key in ("helperPID", "serverPID", "panePID"))
+                or not ownership.get("session", "").startswith("vikingbar-connect-")
+                or ownership.get("cleanupAttempted") is not True
+                or ownership.get("cliSHA256") != initial_cli_hash
+                or ownership.get("helperSHA256") != hashlib.sha256(
+                    (self.bundle / "Contents/Resources/connect-account.py").read_bytes()).hexdigest()):
+            raise UIFailure("connect-ownership-invalid")
         initial = self.matched_balance("connected")
         def api_check():
             try:
@@ -273,8 +299,21 @@ class NativeProof:
                 or resumed["state"]["connectionID"] != initial["state"]["connectionID"]):
             raise UIFailure("resume-reconnected")
         self.quit()
+        self.run(["python3", "Scripts/package-artifacts.py", "--app-only", "--configuration", "release",
+                  "--output", str(self.bundle)], timeout=300)
+        self.executable_hash = hashlib.sha256(self.executable.read_bytes()).hexdigest()
+        if hashlib.sha256(self.cli.read_bytes()).hexdigest() == initial_cli_hash:
+            raise UIFailure("rebuilt-cli-identity-unchanged")
+        time.sleep(1.1)
+        self.launch(first=False, label="rebuilt")
+        rebuilt = self.matched_balance("rebuilt", successful_timestamp(resumed))
+        if (receipt_path.read_bytes() != receipt_bytes or receipt_path.stat().st_mtime_ns != receipt_modified
+                or rebuilt["state"]["connectionID"] != initial["state"]["connectionID"]):
+            raise UIFailure("rebuild-reconnected")
+        self.quit()
         receipt = {"schema_version": 1, "check": "balance-ui", "passed": True, "native_connect": True,
-                   "api_matches": True, "native_refresh": True, "keychain_resume": True, "visible_menu_matches": True}
+                   "api_matches": True, "native_refresh": True, "keychain_resume": True,
+                   "keychain_rebuild": True, "visible_menu_matches": True}
         private_write(self.directory / "result.json", receipt)
         return receipt
 
