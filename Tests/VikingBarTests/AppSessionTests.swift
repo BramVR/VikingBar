@@ -136,7 +136,7 @@ struct AppSessionTests {
         let reference = URL(fileURLWithPath: "/synthetic/reference")
         let result = URL(fileURLWithPath: "/synthetic/proof/connect-result.json")
         model.connect(reference: reference, resultURL: result)
-        try await Self.until { model.activity == .idle }
+        try await Self.until { model.activity == .idle && second.requests.last == "refreshPoints" }
         #expect(first.shutdowns == 1)
         #expect(creations == 2)
         #expect(second.requests == ["restore", "refresh", "refreshPoints"])

@@ -50,7 +50,7 @@ struct LiveAPI: Sendable {
         return try await self.send(request)
     }
 
-    private func send(_ request: URLRequest, tokenExchange: Bool = false) async throws -> Data {
+    func send(_ request: URLRequest, tokenExchange: Bool = false) async throws -> Data {
         do { try ProofEndpoint.validate(request) } catch { throw LiveFailure.requestDenied }
         let response: ProofHTTPResponse
         do { response = try await self.transport.send(request) } catch is CancellationError {

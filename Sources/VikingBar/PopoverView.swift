@@ -15,6 +15,9 @@ struct PopoverView: View {
                 }
             }
             .tabItem { Text("Data") }
+            if !self.session.isFixtureLaunch {
+                InvoicesView(session: self.session).tabItem { Text("Bills") }
+            }
             PointsCard(session: self.session)
                 .tabItem { Text("Points") }
             VStack(alignment: .leading, spacing: 12) {

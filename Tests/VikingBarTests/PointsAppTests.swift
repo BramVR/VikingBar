@@ -14,9 +14,12 @@ struct PointsAppTests {
         #expect(client.requests == ["restore", "refresh", "refreshPoints"])
         #expect(model.snapshot == client.state.snapshot)
         #expect(model.bridgeError == nil)
+        #expect(model.activity == .idle)
+        #expect(model.canRefresh)
+        #expect(model.canSelectAccountData)
         client.pendingPoints?.resume(throwing: LiveBridgeFailure.invalidReply)
         client.pendingPoints = nil
-        try await AppSessionTests.until { model.activity == .idle }
+        try await AppSessionTests.until { model.points.balanceStatus.contains("Unavailable") }
         #expect(model.snapshot == client.state.snapshot)
         #expect(model.liveState.failure == nil)
         #expect(model.points.availableText == "Available: unavailable")
