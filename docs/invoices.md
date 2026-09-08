@@ -19,7 +19,7 @@ Invoice and points requests share an optional queue. Opening Bills during a poin
 
 Only an explicit PDF action requests the document. Metadata refresh never downloads PDFs. The worker authenticates the PDF request with an HTTP header through the same allowlisted transport as other account reads. It rejects redirects and never puts a bearer token in a URL or diagnostic.
 
-The worker requires a PDF content type, PDF markers, and a document that CoreGraphics can parse. Responses cannot exceed 10 MiB. The authenticated transport uses a 30-second request timeout and a 60-second resource timeout. Metadata responses cannot exceed 2 MiB.
+The PDF endpoint rejects `Accept: application/pdf`, so its request uses `Accept: */*`. The worker still requires a PDF content type, PDF markers, and a document that CoreGraphics can parse. Responses cannot exceed 10 MiB. The authenticated transport uses a 30-second request timeout and a 60-second resource timeout. Metadata responses cannot exceed 2 MiB.
 
 The worker creates an owner-only temporary directory named `vikingbar-invoice-XXXXXX` and writes `invoice.pdf` with mode `0600`. The directory has mode `0700`. Provider filenames and response URLs do not select a local destination. Creation is exclusive and does not follow a file symlink. Failed writes remove only the generated file and directory.
 

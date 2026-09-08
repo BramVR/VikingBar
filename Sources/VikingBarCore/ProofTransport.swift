@@ -49,7 +49,8 @@ public enum ProofEndpoint: Sendable {
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if case .invoicePDF = self {
-            request.setValue("application/pdf", forHTTPHeaderField: "Accept")
+            // The PDF endpoint rejects application/pdf in Accept.
+            request.setValue("*/*", forHTTPHeaderField: "Accept")
         }
         return request
     }
