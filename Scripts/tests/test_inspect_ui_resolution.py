@@ -36,6 +36,12 @@ case "timeout":
         fatalError("Missing target did not time out")
     } catch ResolutionFailure.timeout {}
     precondition(actions.isEmpty && resolutions > 0 && tick <= 2.5)
+case "late":
+    do {
+        try run({ tick = 5; return 42 }, { actions.append($0) })
+        fatalError("Late resolution dispatched an action")
+    } catch ResolutionFailure.timeout {}
+    precondition(resolutions == 1 && actions.isEmpty)
 case "duplicate":
     do {
         try run({ try uniqueTarget([11, 22]) }, { actions.append($0) })
@@ -89,6 +95,9 @@ print("passed " + scenario)
 
     def test_missing_target_times_out_without_dispatch(self):
         self.verify("timeout")
+
+    def test_late_resolution_never_dispatches(self):
+        self.verify("late")
 
     def test_distinct_matching_controls_fail_without_dispatch(self):
         self.verify("duplicate")

@@ -66,6 +66,7 @@ func resolveAndPerform<T>(
     let deadline = now() + timeout
     while true {
         if let target = try resolve() {
+            guard now() < deadline else { throw ResolutionFailure.timeout }
             try perform(target)
             return
         }

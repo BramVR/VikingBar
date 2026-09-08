@@ -27,7 +27,7 @@ The native helper waits briefly for Launch Services registration after a process
 
 The automatic smoke presses the real helmet, opens footer Settings and Back, checks both display modes across all five fixtures and Not connected, verifies GB/GiB, and proves on/off persistence through real Quit and relaunch. It also drives synthetic SIM/bundle selection, refresh, details, Points, and app-local light/dark/accessibility appearances. The redesigned gate is pending until actual runtime receipts and captures pass. Read [Helmet and display setting](features/helmet-and-display-setting.md) for the state and rendering matrix. [Data card](features/data-card.md) and [Fixture selection](features/fixture-selection.md) cover exact card expectations.
 
-For targeted actions, use `.build/inspect-ui <pid> press <selector>` and re-observe after each action. Selectors match identifiers, titles, current popup values, and native tab radio-button descriptions. Press `vikingbar.settings` for Settings and `vikingbar.back` to return to the balance. Wait for popup menu items before choosing a value; the helper prefers actual menu items over a popup's current value.
+For targeted actions, use `.build/inspect-ui <pid> press <selector>` and re-observe after each action. Selectors match identifiers, titles, current popup values, and native tab radio-button descriptions. Press `vikingbar.settings` for Settings and `vikingbar.back` to return to the balance. For pickers, use `.build/inspect-ui <pid> choose <picker-identifier> <exact-menu-title>`. This invocation presses the picker once, waits boundedly for one visible matching menu item, and presses it once. Do not split picker readiness and selection across invocations. Never retry a successful or uncertain action; retain the failure receipt and stop. Resolution waits do not make synchronous Accessibility calls interruptible.
 
 ## Evidence
 
@@ -51,7 +51,7 @@ The smoke's four launches must each exit through `vikingbar.quit` with code 0. F
 - `make proof-live CHECK=invoices` requires the authorized [invoice proof](features/invoices.md) recipe. It accesses the stored account and downloads a PDF only when an invoice exists; it never opens a PDF viewer.
 - `make proof-live CHECK=points` requires the authorized [Viking Points](features/points.md) recipe, stored session, and private native evidence.
 - `make smoke-app-fixture` runs `Scripts/smoke-app-fixture.py` end to end.
-- `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action.
+- `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action or `choose <picker-identifier> <exact-menu-title>` for picker selection in one invocation. Action errors are terminal; never retry successful or uncertain dispatch.
 - `make package-app` builds the bundle for interactive checks.
 
 Use `$maintain-verification-skill` when available to update the map after product changes.
