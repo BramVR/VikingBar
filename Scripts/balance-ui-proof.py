@@ -25,6 +25,10 @@ class UIFailure(Exception):
     """Fixed public diagnostic."""
 
 
+class ProofTerminated(BaseException):
+    pass
+
+
 def source_digest(root=ROOT):
     digest = hashlib.sha256()
     paths = [root / "Package.swift"]
@@ -258,6 +262,8 @@ def process_identity(pid):
 
 class NativeProof:
     direct = None
+    launch_in_progress = False
+    termination_requested = False
 
     def __init__(self, environment, *, stored_session=False, direct_connect=False):
         self.direct = direct_configuration(environment) if direct_connect else None
@@ -338,28 +344,34 @@ class NativeProof:
             arguments = ["/usr/bin/sandbox-exec", "-p", direct_sandbox(self.executable, self.cli), *arguments]
         clean = {key: self.environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL")
                  if key in self.environment}
-        self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        label = label or ("initial" if first else "resumed")
-        self.launch_record = {
-            "pid": self.process.pid, "parentPID": os.getpid(), "arguments": arguments,
-            "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "executableSHA256": self.executable_hash, "workerOwnershipEstablished": False}
-        self.launches.append((self.process, self.launch_record))
-        identity = process_identity(self.process.pid)
-        if self.direct is not None:
-            identity = wait_for(lambda: process_identity(self.process.pid), lambda value:
-                                value is not None and value["command"].startswith(str(self.executable) + " "), seconds=5)
-        if identity is None:
-            raise UIFailure("app-exited")
-        self.identity = identity["identity"]
-        self.launch_record.update(identity=self.identity, cli=str(self.cli),
-                                  cliSHA256=hashlib.sha256(self.cli.read_bytes()).hexdigest())
-        workers = self.capture_worker(self.process, self.launch_record, seconds=3)
-        if len(workers) != 1:
-            raise UIFailure("runtime-worker-identity-mismatch")
-        self.launch_record["workerOwnershipEstablished"] = True
-        private_write(self.directory / (label + "-process.json"), self.launch_record)
+        self.launch_in_progress = True
+        try:
+            self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            label = label or ("initial" if first else "resumed")
+            self.launch_record = {
+                "pid": self.process.pid, "parentPID": os.getpid(), "arguments": arguments,
+                "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "executableSHA256": self.executable_hash, "workerOwnershipEstablished": False}
+            self.launches.append((self.process, self.launch_record))
+            identity = process_identity(self.process.pid)
+            if self.direct is not None:
+                identity = wait_for(lambda: process_identity(self.process.pid), lambda value:
+                                    value is not None and value["command"].startswith(str(self.executable) + " "), seconds=5)
+            if identity is None:
+                raise UIFailure("app-exited")
+            self.identity = identity["identity"]
+            self.launch_record.update(identity=self.identity, cli=str(self.cli),
+                                      cliSHA256=hashlib.sha256(self.cli.read_bytes()).hexdigest())
+            workers = self.capture_worker(self.process, self.launch_record, seconds=3)
+            if len(workers) != 1:
+                raise UIFailure("runtime-worker-identity-mismatch")
+            self.launch_record["workerOwnershipEstablished"] = True
+            private_write(self.directory / (label + "-process.json"), self.launch_record)
+        finally:
+            self.launch_in_progress = False
+            if self.termination_requested:
+                raise ProofTerminated()
         tree = wait_for(self.inspect, lambda value: visible_status(value, self.screens), seconds=20)
         if tree.get("activationPolicy") != 1:
             raise UIFailure("accessory-policy-required")
@@ -747,20 +759,41 @@ class NativeProof:
 def run(environment, *, direct_connect=False):
     old_mask = os.umask(0o077)
     core_limit = resource.getrlimit(resource.RLIMIT_CORE)
+    previous_handler = signal.getsignal(signal.SIGTERM)
     proof = None
+    termination_requested = False
+    cleanup_started = False
+
+    def terminate(_signum, _frame):
+        nonlocal termination_requested
+        if cleanup_started or termination_requested:
+            return
+        termination_requested = True
+        if proof is not None and proof.launch_in_progress:
+            proof.termination_requested = True
+            return
+        raise ProofTerminated()
+
     try:
+        signal.signal(signal.SIGTERM, terminate)
         if direct_connect:
             resource.setrlimit(resource.RLIMIT_CORE, (0, core_limit[1]))
         proof = NativeProof(environment, direct_connect=direct_connect)
         return proof.perform()
+    except ProofTerminated:
+        raise UIFailure("native-proof-terminated") from None
     finally:
+        cleanup_started = True
         try:
             if proof is not None:
                 proof.cleanup()
         finally:
-            os.umask(old_mask)
-            if direct_connect:
-                resource.setrlimit(resource.RLIMIT_CORE, core_limit)
+            try:
+                os.umask(old_mask)
+                if direct_connect:
+                    resource.setrlimit(resource.RLIMIT_CORE, core_limit)
+            finally:
+                signal.signal(signal.SIGTERM, previous_handler)
 
 
 def main():
