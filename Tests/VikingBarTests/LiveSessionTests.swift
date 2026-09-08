@@ -232,7 +232,10 @@ actor LiveTransport: ProofHTTPTransport {
     private var tokens = 0
     private var pause = false
     private var pausePath: String?
-    private var paused: CheckedContinuation<Void, Never>?
+    private var paused: CheckedContinuation<Void, any Error>?
+    private var pauseID: UUID?
+    private var cancelPause = false
+    private(set) var cancellations = 0
     private var pauseWaiter: CheckedContinuation<Void, Never>?
     private var failure: Int?
     private var responses: [String: String] = [:]
@@ -251,9 +254,10 @@ actor LiveTransport: ProofHTTPTransport {
         self.balanceFailure = code
     }
 
-    func pauseNext(path: String? = nil) {
+    func pauseNext(path: String? = nil, cancellable: Bool = false) {
         self.pause = true
         self.pausePath = path
+        self.cancelPause = cancellable
     }
 
     func failNext(code: Int) {
@@ -285,20 +289,45 @@ actor LiveTransport: ProofHTTPTransport {
     func resume() {
         self.paused?.resume()
         self.paused = nil
+        self.pauseID = nil
+    }
+
+    private func cancelPaused(id: UUID) {
+        guard self.pauseID == id else { return }
+        self.cancellations += 1
+        self.paused?.resume(throwing: CancellationError())
+        self.paused = nil
+        self.pauseID = nil
+    }
+
+    private func suspendIfNeeded(path: String?) async throws {
+        let matchesPause = self.pausePath == nil || self.pausePath == path
+        if self.pause, matchesPause {
+            self.pause = false
+            let id = UUID()
+            let cancellable = self.cancelPause
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation {
+                    self.pauseID = id
+                    self.paused = $0
+                    self.pauseWaiter?.resume()
+                    self.pauseWaiter = nil
+                }
+                if cancellable {
+                    try Task.checkCancellation()
+                }
+            } onCancel: {
+                if cancellable {
+                    Task { await self.cancelPaused(id: id) }
+                }
+            }
+        }
     }
 
     func send(_ request: URLRequest) async throws -> ProofHTTPResponse {
         try ProofEndpoint.validate(request)
         self.requests.append(request)
-        let matchesPause = self.pausePath == nil || self.pausePath == request.url?.path
-        if self.pause, matchesPause {
-            self.pause = false
-            await withCheckedContinuation {
-                self.paused = $0
-                self.pauseWaiter?.resume()
-                self.pauseWaiter = nil
-            }
-        }
+        try await self.suspendIfNeeded(path: request.url?.path)
         if let failure = self.failure {
             self.failure = nil
             return ProofHTTPResponse(statusCode: failure, data: Data())

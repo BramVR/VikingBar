@@ -73,17 +73,18 @@ struct AppSessionExpiryTests {
         var updates = 0
         model.onPresentationChange = { updates += 1 }
         model.start()
-        try await AppSessionTests.until { model.activity == .idle && !sleeper.deadlines.isEmpty }
+        try await AppSessionTests
+            .until { model.activity == .idle && model.activeOptional == nil && !sleeper.deadlines.isEmpty }
         if action == "replacement" {
             client.state.snapshot = UsageSnapshot(
                 source: .live, subscriptionName: "Replacement SIM", allowance: .unlimited(usedBytes: 1),
                 expiresAt: nil, freshness: .current(lastUpdated: LiveModelsTests.now),
             )
             model.refresh()
-            try await AppSessionTests.until { model.activity == .idle }
+            try await AppSessionTests.until { model.activity == .idle && model.activeOptional == nil }
         } else if action == "connect" {
             model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
-            try await AppSessionTests.until { model.activity == .idle }
+            try await AppSessionTests.until { model.activity == .idle && model.activeOptional == nil }
         } else {
             await model.stop()
         }

@@ -19,6 +19,10 @@ struct AppSessionTests {
         model.refresh()
         model.selectSubscription("synthetic")
         model.selectBundle(0)
+        model.loadInvoices()
+        model.openInvoice("synthetic")
+        #expect(model.pendingOptional.isEmpty)
+        #expect(model.activeOptional == nil)
         model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
         await model.stop()
         #expect(model.isFixtureLaunch)
@@ -136,7 +140,7 @@ struct AppSessionTests {
         let reference = URL(fileURLWithPath: "/synthetic/reference")
         let result = URL(fileURLWithPath: "/synthetic/proof/connect-result.json")
         model.connect(reference: reference, resultURL: result)
-        try await Self.until { model.activity == .idle }
+        try await Self.until { model.activity == .idle && second.requests.last == "refreshPoints" }
         #expect(first.shutdowns == 1)
         #expect(creations == 2)
         #expect(second.requests == ["restore", "refresh", "refreshPoints"])

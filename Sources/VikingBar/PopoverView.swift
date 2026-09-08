@@ -3,7 +3,7 @@ import SwiftUI
 import VikingBarCore
 
 struct PopoverView: View {
-    enum Destination { case balance, settings, points }
+    enum Destination { case balance, settings, points, bills }
 
     @Bindable var session: AppSession
     @State private var destination = Destination.balance
@@ -51,6 +51,10 @@ struct PopoverView: View {
             case .balance:
                 DataCard(session: self.session, connect: self.connect)
                 Divider().padding(.vertical, 6)
+                if !self.session.isFixtureLaunch {
+                    Button { self.destination = .bills } label: { Label("Bills", systemImage: "doc.text") }
+                        .accessibilityIdentifier("vikingbar.bills")
+                }
                 Button { self.destination = .points } label: { Label("Viking Points", systemImage: "star") }
                     .accessibilityIdentifier("vikingbar.points")
                 Divider().padding(.vertical, 6)
@@ -61,6 +65,8 @@ struct PopoverView: View {
                 self.settings
             case .points:
                 PointsCard(session: self.session)
+            case .bills:
+                InvoicesView(session: self.session)
             }
         }
         .buttonStyle(.plain)

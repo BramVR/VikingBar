@@ -47,6 +47,8 @@ def child_environment(environment):
 
 
 def run(check, environment, execute=subprocess.run):
+    if check == "invoices":
+        return run_invoices(environment, execute)
     if check == "points":
         spec = importlib.util.spec_from_file_location("points_proof", Path(__file__).with_name("points-proof.py"))
         module = importlib.util.module_from_spec(spec)
@@ -99,6 +101,47 @@ def run(check, environment, execute=subprocess.run):
     except (ValueError, TypeError, KeyError):
         raise ProofFailure("invalid-proof-receipt") from None
     return safe
+
+
+def run_invoices(environment, execute):
+    executable = Path(__file__).resolve().parent.parent / ".build/debug/vikingbar"
+    if not executable.is_file():
+        raise ProofFailure("build-required")
+    result = execute(
+        [str(executable), "proof", "invoices"], env=child_environment(environment),
+        capture_output=True, timeout=180, check=False,
+    )
+    if result.returncode:
+        raise ProofFailure("invoices-proof-failed")
+    try:
+        return validate_invoice_receipt(json.loads(result.stdout))
+    except (ValueError, TypeError, KeyError):
+        raise ProofFailure("invalid-proof-receipt") from None
+
+
+def validate_invoice_receipt(receipt):
+    expected = {"schema_version", "check", "passed", "invoice_count", "empty", "truncated",
+                "metadata_matches", "presentation_matches", "pdf_downloaded"}
+    if not isinstance(receipt, dict) or set(receipt) != expected:
+        raise ValueError()
+    if type(receipt["schema_version"]) is not int or receipt["schema_version"] != 1:
+        raise ValueError()
+    if receipt["check"] != "invoices":
+        raise ValueError()
+    for key in ("passed", "metadata_matches", "presentation_matches"):
+        if receipt[key] is not True:
+            raise ValueError()
+    count = receipt["invoice_count"]
+    if type(count) is not int or not 0 <= count <= 100:
+        raise ValueError()
+    for key in ("empty", "truncated", "pdf_downloaded"):
+        if type(receipt[key]) is not bool:
+            raise ValueError()
+    if receipt["empty"] != (count == 0) or receipt["pdf_downloaded"] != (count > 0):
+        raise ValueError()
+    if receipt["truncated"] and count != 100:
+        raise ValueError()
+    return receipt
 
 
 def validate_receipt(receipt):

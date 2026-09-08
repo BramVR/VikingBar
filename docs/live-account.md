@@ -7,6 +7,16 @@ read_when:
 
 # Connect your Mobile Vikings account
 
+## Before connecting
+
+A Mobile Vikings account does not automatically include API access. Request it by emailing `api@mobilevikings.be`, including your name, the brand (Mobile Vikings), the application name (VikingBar), and its purpose (viewing your own balance). Wait for approval and client details before attempting to connect. See the provider's [API access instructions](https://docs.uwa.mobilevikings.be/).
+
+The current development app requires the configured 1Password helper described below. It has no supported manual sign-in form yet. Owning a 1Password account alone is not sufficient: the CLI and authorized helper configuration are also required.
+
+VikingBar's verified integration uses the support-approved public client with no client secret. The generic API documentation also describes confidential clients; confirm that Mobile Vikings approves a compatible public-client setup for your use. Do not put a client secret into the public-client ID field. See [authentication context](../CONTEXT.md#authentication).
+
+## Connect the development app
+
 Build the development app with `make package-app`, then open `.build/app/VikingBar.app`. Open the helmet in the menu bar and choose **Connect with 1Password**. Select your approved credential reference file if prompted. The reference contains the vault, item ID, and field labels described in [local proof setup](live-proof.md#setup). It contains no credential values.
 
 The packaged connection helper uses `/usr/bin/python3` and requires tmux, the 1Password CLI, and the authorized service-account setup in `~/.profile`. It sources that profile inside one private named tmux session and reads the configured item once. The helper supplies the OS username as `USER` only to tmux so the profile can select its service-account credential. The 1Password and CLI child environments remain restricted. The app never receives the service-account token. The initial password exchange releases the password before balance retrieval begins.
@@ -16,6 +26,8 @@ Opening the app without `--fixture` restores the stored session and refreshes it
 After connection, choose a SIM and data bundle in the card. Different bundles keep their own amounts, applicability, and expiry. Blank or whitespace-only titles display as `Data bundle N`, where N is the bundle's one-based position in the provider array. The picker and card use the same title, and raw provider values remain unchanged. The helmet represents the selected bundle. Extra charges show the selected SIM's out-of-bundle cost in euros; a missing amount stays unavailable. **Refresh now** requests an update. **Open My Viking** opens the provider's account website.
 
 The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
+
+Open **Bills** for the latest account invoice or credit note. Grouped totals remain account-level amounts, with the selected SIM's known relationship shown separately. Invoice failures leave the data balance usable. **Open PDF** downloads the requested document and opens its private local file. See [invoice fields, download handling, and proof](invoices.md).
 
 ## Viking Points
 

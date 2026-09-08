@@ -72,7 +72,7 @@ With explicit account authorization and the credential and Mac UI slots, run `ma
 
 ## Inspect the compact layout
 
-The balance opens directly. Read the SIM and bundle selectors, remaining and total allowance, progress, usage, expiry, and extra charges. Expand **Bundle details** for applicability and description. **Refresh** displays freshness separately from expiry. **Points** opens customer-wide balances. The footer has one **Settings** entry.
+The balance opens directly. Read the SIM and bundle selectors, remaining and total allowance, progress, usage, expiry, and extra charges. Expand **Bundle details** for applicability and description. **Refresh** displays freshness separately from expiry. **Points** opens customer-wide balances. Connected-mode **Bills** opens the latest account invoice; **Back** returns to the same selected balance. The footer has one **Settings** entry.
 
 For synthetic appearance proof, add `--fixture-appearance light`, `dark`, `high-contrast-light`, or `high-contrast-dark`. Add `--fixture-reduce-transparency` for the opaque fallback. Both options require `--fixture` and affect only this app instance.
 
