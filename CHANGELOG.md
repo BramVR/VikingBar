@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Show customer-wide Viking Points with separate available, pending, and blocked balances, expandable scrollable recent transactions that keep the balance visible, and independent stale or failed points states.
+- Publish a searchable GitHub Pages website with a rounded Three.js helmet, draggable plus-sign stars, a full-to-empty/refill animation, an interactive native menu demo matching issue #22, Mobile Vikings-inspired styling, API-access and 1Password setup requirements, an expandable FAQ, development-build links, and a source reference panel.
+
 - Show `Data bundle N` when a provider bundle title is blank, using its one-based position in the provider array without changing raw values.
 - Supply the OS username only to the private bootstrap tmux environment so the approved profile can select its service-account credential; keep the 1Password and CLI child environments unchanged.
 

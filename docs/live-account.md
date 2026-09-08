@@ -7,6 +7,16 @@ read_when:
 
 # Connect your Mobile Vikings account
 
+## Before connecting
+
+A Mobile Vikings account does not automatically include API access. Request it by emailing `api@mobilevikings.be`, including your name, the brand (Mobile Vikings), the application name (VikingBar), and its purpose (viewing your own balance). Wait for approval and client details before attempting to connect. See the provider's [API access instructions](https://docs.uwa.mobilevikings.be/).
+
+The current development app requires the configured 1Password helper described below. It has no supported manual sign-in form yet. Owning a 1Password account alone is not sufficient: the CLI and authorized helper configuration are also required.
+
+VikingBar's verified integration uses the support-approved public client with no client secret. The generic API documentation also describes confidential clients; confirm that Mobile Vikings approves a compatible public-client setup for your use. Do not put a client secret into the public-client ID field. See [authentication context](../CONTEXT.md#authentication).
+
+## Connect the development app
+
 Build the development app with `make package-app`, then open `.build/app/VikingBar.app`. Open the helmet in the menu bar and choose **Connect with 1Password**. Select your approved credential reference file if prompted. The reference contains the vault, item ID, and field labels described in [local proof setup](live-proof.md#setup). It contains no credential values.
 
 The packaged connection helper uses `/usr/bin/python3` and requires tmux, the 1Password CLI, and the authorized service-account setup in `~/.profile`. It sources that profile inside one private named tmux session and reads the configured item once. The helper supplies the OS username as `USER` only to tmux so the profile can select its service-account credential. The 1Password and CLI child environments remain restricted. The app never receives the service-account token. The initial password exchange releases the password before balance retrieval begins.

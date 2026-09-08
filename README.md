@@ -29,6 +29,8 @@ The [development guide](docs/development.md) covers source builds and a demo wit
 
 The app has no Dock icon. Its helmet opens the data card. **Settings** contains **Show remaining GB in menu bar**, which defaults to off. That label uses decimal GB even when the card uses GiB.
 
+The [website](https://bramvr.github.io/VikingBar/) explains setup and includes an interactive sample menu. See the [website development guide](website/README.md) for its separate build and checks.
+
 For your own balance, the [account setup guide](docs/live-account.md) covers connection through **Connect with 1Password**. The current connection helper requires the 1Password CLI, tmux, `/usr/bin/python3`, and the service-account and credential-reference setup described in that guide.
 
 Opening the app without `--fixture` restores a live session or shows account setup. Subsequent refreshes use the stored token.
