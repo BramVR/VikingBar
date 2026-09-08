@@ -107,7 +107,17 @@ def popover_window(data):
 
 
 def capture_card(name, fixture=True):
-    data = wait_for(lambda: inspect(f'{name}-capture.json'), lambda d: popover_window(d) is not None)
+    def ready(data):
+        window = popover_window(data)
+        if window is None:
+            return False
+        if not fixture:
+            return True
+        boundary, _ = UI.popover_window(data, screens)
+        marker = element(data, 'vikingbar.fixtureMarker')
+        return (UI.contained(marker, boundary)
+                and marker['frame'][0][1] >= window['kCGWindowBounds']['Y'] + 20)
+    data = wait_for(lambda: inspect(f'{name}-capture.json'), ready)
     window = popover_window(data)
     if fixture:
         marker = element(data, 'vikingbar.fixtureMarker')
@@ -204,7 +214,7 @@ def settings_toggle(expected, name, change=False):
 
 
 def check_layout(name):
-    data = inspect(f'{name}-layout.json')
+    data = wait_for(lambda: inspect(f'{name}-layout.json'), lambda d: popover_window(d) is not None)
     identifiers = [e.get('AXIdentifier') for e in data['elements']]
     assert identifiers.count('vikingbar.settings') == 1, 'Balance needs exactly one Settings entry.'
     assert 'vikingbar.fixturePicker' not in identifiers, 'Fixture picker belongs in Settings.'
@@ -268,13 +278,14 @@ def selection_and_refresh():
     coverage.append({'scenario': 'SIM and bundle selection, Settings return, refresh, details, Points'})
 
 
-def launch(name, appearance='light', reduce_transparency=False):
+def launch(name, appearance=None, reduce_transparency=False):
     global process, app_log
     assert process is None or process.poll() is not None, 'Previous task-owned app is still running.'
     process = None
     executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
-    arguments = ['--fixture', 'finite', '--settings-file', str(SETTINGS),
-                 '--fixture-appearance', appearance]
+    arguments = ['--fixture', 'finite', '--settings-file', str(SETTINGS)]
+    if appearance is not None:
+        arguments.extend(['--fixture-appearance', appearance])
     if reduce_transparency:
         arguments.append('--fixture-reduce-transparency')
     app_log = (PROOF / f'{name}-app.log').open('w')

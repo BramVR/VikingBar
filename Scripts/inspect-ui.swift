@@ -15,9 +15,15 @@ func children(_ element: AXUIElement) -> [AXUIElement] {
     return result
 }
 
-func elements(_ element: AXUIElement, depth: Int = 0) -> [AXUIElement] {
-    guard depth < 15 else { return [] }
-    return [element] + children(element).flatMap { elements($0, depth: depth + 1) }
+func elements(_ element: AXUIElement) -> [AXUIElement] {
+    var visited: [AXUIElement] = []
+    func visit(_ current: AXUIElement, depth: Int) {
+        guard depth < 15, !visited.contains(where: { CFEqual($0, current) }) else { return }
+        visited.append(current)
+        for child in children(current) { visit(child, depth: depth + 1) }
+    }
+    visit(element, depth: 0)
+    return visited
 }
 
 func record(_ element: AXUIElement) -> [String: Any] {
@@ -55,7 +61,7 @@ if arguments.count == 3, arguments[1] == "press" {
         (attribute($0, "AXRole") as? String) == "AXMenuItem"
             && (attribute($0, "AXTitle") as? String) == arguments[2]
     })
-    guard let target = menuItem ?? tree.first(where: {
+    guard let selected = menuItem ?? tree.first(where: {
         (attribute($0, "AXIdentifier") as? String) == arguments[2]
             || (attribute($0, "AXTitle") as? String) == arguments[2]
             || ((attribute($0, "AXRole") as? String) == "AXPopUpButton"
@@ -63,6 +69,14 @@ if arguments.count == 3, arguments[1] == "press" {
             || ((attribute($0, "AXRole") as? String) == "AXRadioButton"
                 && (attribute($0, "AXDescription") as? String) == arguments[2])
     }) else { fatalError("Requested accessibility element is absent.") }
+    let target: AXUIElement
+    if (attribute(selected, "AXRole") as? String) == "AXGroup" {
+        let disclosures = elements(selected).filter { (attribute($0, "AXRole") as? String) == "AXDisclosureTriangle" }
+        guard disclosures.count == 1 else { fatalError("Require one disclosure inside the selected group.") }
+        target = disclosures[0]
+    } else {
+        target = selected
+    }
     let isQuit = (attribute(target, "AXIdentifier") as? String) == "vikingbar.quit"
     guard !app.isTerminated else { fatalError("Target application already terminated.") }
     let pressResult = AXUIElementPerformAction(target, kAXPressAction as CFString)
