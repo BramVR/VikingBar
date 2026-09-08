@@ -82,11 +82,7 @@ def press(selector, name):
 
 
 def choose_popup(selector, value, name):
-    press(selector, f'{name}-picker')
-    wait_for(lambda: inspect(f'{name}-menu.json'), lambda d: any(
-        e.get('AXRole') == 'AXMenuItem' and e.get('AXTitle') == value for e in d['elements']
-    ))
-    press(value, f'{name}-select')
+    run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'choose', selector, value], f'{name}-choose.json')
 
 
 def capture_status(data, name):

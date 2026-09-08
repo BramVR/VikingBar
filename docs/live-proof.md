@@ -89,7 +89,7 @@ Required issue #4 sequence:
 1. Build and launch a fresh native bundle. Record its path, PID, parent, start time, and executable hashes.
 2. Press **Connect with 1Password** once. Require the packaged helper's redacted connection receipt from exactly one approved item read.
 3. Compare raw API fields with production models through the bundled `vikingbar proof balance-api`. Compare the native card and visible status item with the same account's production CLI report.
-4. Press **Refresh now**. Require a newer successful update and matching native values.
+4. Press **Refresh**. Require a newer successful update and matching native values.
 5. Quit and relaunch. Require the same connection ID and a successful refresh using the stored token.
 6. Quit, rebuild the bundle in release configuration, and relaunch. Require another successful stored-token refresh with the same connection ID and no second 1Password read.
 7. Preserve API comparison, native captures, build identities, connection, relaunch, and cleanup receipts. Missing stages fail the gate.
