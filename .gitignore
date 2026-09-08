@@ -20,3 +20,6 @@ proof-private/
 
 # Commit Package.resolved once SwiftPM dependencies exist.
 # Public/synthetic proof belongs in reviewed paths, not proof-private/.
+
+# Local website design explorations and reference captures.
+/output/
