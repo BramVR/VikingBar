@@ -5,6 +5,48 @@ import Testing
 
 @MainActor
 struct ConnectionFormTests {
+    @Test func `unsubmitted form does not own another session connection`() {
+        var attempt = ConnectionFormAttempt()
+        #expect(!attempt.isConnecting(activity: .connecting))
+        let finished = attempt.finishIfNeeded(activity: .idle)
+        #expect(!finished)
+    }
+
+    @Test func `submitted form shows progress only while its connection is active`() {
+        var attempt = ConnectionFormAttempt()
+        attempt.recordSubmission(accepted: true)
+        #expect(attempt.isConnecting(activity: .connecting))
+        let finished = attempt.finishIfNeeded(activity: .connecting)
+        #expect(!finished)
+        #expect(attempt.isConnecting(activity: .connecting))
+    }
+
+    @Test(arguments: [
+        AppSession.Activity.idle, .restoring, .refreshing, .selecting, .stopped,
+    ])
+    func `refused or finished submissions recover once and allow retry`(activity: AppSession.Activity) {
+        var attempt = ConnectionFormAttempt()
+        attempt.recordSubmission(accepted: true)
+        #expect(!attempt.isConnecting(activity: activity))
+        let finished = attempt.finishIfNeeded(activity: activity)
+        #expect(finished)
+        let finishedAgain = attempt.finishIfNeeded(activity: activity)
+        #expect(!finishedAgain)
+        #expect(!attempt.isConnecting(activity: .connecting))
+        attempt.recordSubmission(accepted: true)
+        #expect(attempt.isConnecting(activity: .connecting))
+    }
+
+    @Test func `terminal activity missed while hidden reconciles on return`() {
+        var attempt = ConnectionFormAttempt()
+        attempt.recordSubmission(accepted: true)
+        #expect(attempt.isConnecting(activity: .connecting))
+        #expect(!attempt.isConnecting(activity: .idle))
+        let finished = attempt.finishIfNeeded(activity: .idle)
+        #expect(finished)
+        #expect(!attempt.isConnecting(activity: .connecting))
+    }
+
     @Test func `submission normalizes identifiers preserves password and consumes credentials once`() throws {
         let model = ConnectionFormModel()
         model.clientID = " synthetic-client \n"

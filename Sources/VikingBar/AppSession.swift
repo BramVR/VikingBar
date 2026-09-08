@@ -328,12 +328,13 @@ extension AppSession {
 }
 
 extension AppSession {
-    func connect(input: AccountConnectionInput, resultURL: URL?) {
+    @discardableResult
+    func connect(input: AccountConnectionInput, resultURL: URL?) -> Bool {
         guard !self.isFixtureLaunch, self.activity != .stopped, self.activity != .connecting else {
             if case let .credentials(credentials) = input {
                 credentials.discard()
             }
-            return
+            return false
         }
         let intent = self.begin(.connecting)
         let previous = self.client
@@ -364,6 +365,7 @@ extension AppSession {
                 self.finish()
             }
         }
+        return true
     }
 
     func cancelConnection() async {

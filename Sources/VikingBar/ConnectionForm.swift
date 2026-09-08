@@ -1,9 +1,28 @@
 import SwiftUI
 
+struct ConnectionFormAttempt {
+    private enum Phase { case ready, submitted }
+    private var phase = Phase.ready
+
+    mutating func recordSubmission(accepted: Bool) {
+        self.phase = accepted ? .submitted : .ready
+    }
+
+    func isConnecting(activity: AppSession.Activity) -> Bool {
+        self.phase == .submitted && activity == .connecting
+    }
+
+    mutating func finishIfNeeded(activity: AppSession.Activity) -> Bool {
+        guard self.phase == .submitted, activity != .connecting else { return false }
+        self.phase = .ready
+        return true
+    }
+}
+
 struct ConnectionForm: View {
     @Bindable var session: AppSession
     @State private var fields = ConnectionFormModel()
-    @State private var submitted = false
+    @State private var attempt = ConnectionFormAttempt()
     @FocusState private var clientIDFocused: Bool
     let resultURL: URL?
     let reference: () -> Void
@@ -13,7 +32,7 @@ struct ConnectionForm: View {
         VStack(alignment: .leading, spacing: 10) {
             ScrollView { self.content }
             HStack {
-                if !self.submitted {
+                if !self.isConnecting {
                     Button("Connect", action: self.submit)
                         .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.defaultAction)
@@ -29,7 +48,7 @@ struct ConnectionForm: View {
                 .keyboardShortcut(.cancelAction)
                 .accessibilityIdentifier("vikingbar.connect.cancel")
             }
-            if !self.submitted {
+            if !self.isConnecting {
                 Button("Connect with 1Password", action: self.connectReference)
                     .accessibilityIdentifier("vikingbar.connect")
                 Text("Optional. Requires the configured 1Password helper and an approved credential reference.")
@@ -39,27 +58,24 @@ struct ConnectionForm: View {
         .textFieldStyle(.roundedBorder)
         .padding(20)
         .frame(width: 360, alignment: .topLeading)
-        .onAppear { self.clientIDFocused = true }
-        .onDisappear {
-            self.fields.clear()
-            if self.submitted {
-                Task { await self.session.cancelConnection() }
-            }
+        .onAppear {
+            self.clientIDFocused = true
+            self.finishIfNeeded()
         }
-        .onChange(of: self.session.activity) { _, activity in
-            guard self.submitted, activity != .connecting else { return }
-            self.fields.clear()
-            self.submitted = false
-            if self.session.bridgeError == nil, self.session.isConnected {
-                self.dismiss()
-            }
+        .onDisappear { self.fields.clear() }
+        .onChange(of: self.session.activity) { _, _ in
+            self.finishIfNeeded()
         }
+    }
+
+    private var isConnecting: Bool {
+        self.attempt.isConnecting(activity: self.session.activity)
     }
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Connect your account").font(.headline)
-            if self.submitted {
+            if self.isConnecting {
                 ProgressView("Connecting…")
             } else {
                 Text(
@@ -93,8 +109,17 @@ struct ConnectionForm: View {
 
     private func submit() {
         guard let credentials = self.fields.takeCredentials(isFixture: self.session.isFixtureLaunch) else { return }
-        self.submitted = true
-        self.session.connect(input: .credentials(credentials), resultURL: self.resultURL)
+        let accepted = self.session.connect(input: .credentials(credentials), resultURL: self.resultURL)
+        self.attempt.recordSubmission(accepted: accepted)
+        self.finishIfNeeded()
+    }
+
+    private func finishIfNeeded() {
+        guard self.attempt.finishIfNeeded(activity: self.session.activity) else { return }
+        self.fields.clear()
+        if self.session.bridgeError == nil, self.session.isConnected {
+            self.dismiss()
+        }
     }
 
     private func connectReference() {

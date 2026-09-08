@@ -10,7 +10,7 @@ struct DirectConnectionSessionTests {
         let connector = ModelTestConnector(fails: false)
         let model = try AppSessionTests.model(client: client, connector: connector)
         let credentials = try Self.credentials()
-        model.connect(input: .credentials(credentials), resultURL: nil)
+        #expect(model.connect(input: .credentials(credentials), resultURL: nil))
         try await AppSessionTests.until { model.activity == .idle && client.requests.last == "refreshPoints" }
         #expect(client.requests == ["restore", "refresh", "refreshPoints"])
         #expect(connector.connects == 1)
@@ -31,7 +31,7 @@ struct DirectConnectionSessionTests {
         }
         let requests = client.requests
         let credentials = try Self.credentials()
-        model.connect(input: .credentials(credentials), resultURL: nil)
+        #expect(model.connect(input: .credentials(credentials), resultURL: nil))
         try await AppSessionTests.until { connector.pendingConnect != nil }
         #expect(model.liveState.connectionID == nil)
         await model.cancelConnection()
@@ -49,7 +49,7 @@ struct DirectConnectionSessionTests {
         let connector = ModelTestConnector(fails: true)
         let model = try AppSessionTests.model(client: client, connector: connector)
         let credentials = try Self.credentials()
-        model.connect(input: .credentials(credentials), resultURL: nil)
+        #expect(model.connect(input: .credentials(credentials), resultURL: nil))
         try await AppSessionTests.until { model.activity == .idle }
         #expect(client.requests.isEmpty)
         #expect(model.bridgeError == LiveBridgeFailure.connectFailed.message)
@@ -65,10 +65,42 @@ struct DirectConnectionSessionTests {
             connectorFactory: { creations += 1; throw LiveBridgeFailure.connectFailed },
         )
         let credentials = try Self.credentials()
-        model.connect(input: .credentials(credentials), resultURL: nil)
+        let accepted = model.connect(input: .credentials(credentials), resultURL: nil)
+        var attempt = ConnectionFormAttempt()
+        attempt.recordSubmission(accepted: accepted)
+        #expect(!accepted)
+        #expect(!attempt.isConnecting(activity: model.activity))
         #expect(creations == 0)
         #expect(throws: LiveBridgeFailure.self) { try credentials.takePayload() }
         await model.stop()
+    }
+
+    @Test func `duplicate and stopped direct submissions are refused and release credentials`() async throws {
+        let connector = ModelTestConnector(fails: false)
+        connector.holdConnect = true
+        let model = try AppSessionTests.model(client: ModelTestClient(), connector: connector)
+        let active = try Self.credentials()
+        #expect(model.connect(input: .credentials(active), resultURL: nil))
+        try await AppSessionTests.until { connector.pendingConnect != nil }
+
+        let duplicate = try Self.credentials()
+        let duplicateAccepted = model.connect(input: .credentials(duplicate), resultURL: nil)
+        var attempt = ConnectionFormAttempt()
+        attempt.recordSubmission(accepted: duplicateAccepted)
+        #expect(!duplicateAccepted)
+        #expect(model.activity == .connecting)
+        #expect(!attempt.isConnecting(activity: model.activity))
+        #expect(connector.connects == 1)
+        #expect(throws: LiveBridgeFailure.self) { try duplicate.takePayload() }
+
+        await model.stop()
+        let stopped = try Self.credentials()
+        let stoppedAccepted = model.connect(input: .credentials(stopped), resultURL: nil)
+        attempt.recordSubmission(accepted: stoppedAccepted)
+        #expect(!stoppedAccepted)
+        #expect(!attempt.isConnecting(activity: model.activity))
+        #expect(connector.connects == 1)
+        #expect(throws: LiveBridgeFailure.self) { try stopped.takePayload() }
     }
 
     @Test func `cancel during post login restoration shuts down the worker before draining the operation`(
