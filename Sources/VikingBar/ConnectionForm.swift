@@ -1,21 +1,27 @@
 import SwiftUI
 
+@MainActor
 struct ConnectionFormAttempt {
-    private enum Phase { case ready, submitted }
-    private var phase = Phase.ready
+    private var attempt: AppSession.ConnectionAttempt?
 
-    mutating func recordSubmission(accepted: Bool) {
-        self.phase = accepted ? .submitted : .ready
+    mutating func recordSubmission(_ attempt: AppSession.ConnectionAttempt?) {
+        self.attempt = attempt
     }
 
-    func isConnecting(activity: AppSession.Activity) -> Bool {
-        self.phase == .submitted && activity == .connecting
+    func isConnecting(in session: AppSession) -> Bool {
+        guard let attempt = self.attempt else { return false }
+        return session.isConnecting(attempt)
     }
 
-    mutating func finishIfNeeded(activity: AppSession.Activity) -> Bool {
-        guard self.phase == .submitted, activity != .connecting else { return false }
-        self.phase = .ready
+    mutating func finishIfNeeded(in session: AppSession) -> Bool {
+        guard self.attempt != nil, !self.isConnecting(in: session) else { return false }
+        self.attempt = nil
         return true
+    }
+
+    mutating func takeAttempt() -> AppSession.ConnectionAttempt? {
+        defer { self.attempt = nil }
+        return self.attempt
     }
 }
 
@@ -40,8 +46,11 @@ struct ConnectionForm: View {
                 }
                 Button("Cancel") {
                     self.fields.clear()
+                    let attempt = self.attempt.takeAttempt()
                     Task {
-                        await self.session.cancelConnection()
+                        if let attempt {
+                            await self.session.cancelConnection(attempt)
+                        }
                         self.dismiss()
                     }
                 }
@@ -69,7 +78,7 @@ struct ConnectionForm: View {
     }
 
     private var isConnecting: Bool {
-        self.attempt.isConnecting(activity: self.session.activity)
+        self.attempt.isConnecting(in: self.session)
     }
 
     private var content: some View {
@@ -109,13 +118,13 @@ struct ConnectionForm: View {
 
     private func submit() {
         guard let credentials = self.fields.takeCredentials(isFixture: self.session.isFixtureLaunch) else { return }
-        let accepted = self.session.connect(input: .credentials(credentials), resultURL: self.resultURL)
-        self.attempt.recordSubmission(accepted: accepted)
+        let attempt = self.session.connect(input: .credentials(credentials), resultURL: self.resultURL)
+        self.attempt.recordSubmission(attempt)
         self.finishIfNeeded()
     }
 
     private func finishIfNeeded() {
-        guard self.attempt.finishIfNeeded(activity: self.session.activity) else { return }
+        guard self.attempt.finishIfNeeded(in: self.session) else { return }
         self.fields.clear()
         if self.session.bridgeError == nil, self.session.isConnected {
             self.dismiss()

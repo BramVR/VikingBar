@@ -5,46 +5,51 @@ import Testing
 
 @MainActor
 struct ConnectionFormTests {
-    @Test func `unsubmitted form does not own another session connection`() {
-        var attempt = ConnectionFormAttempt()
-        #expect(!attempt.isConnecting(activity: .connecting))
-        let finished = attempt.finishIfNeeded(activity: .idle)
-        #expect(!finished)
+    @Test func `data and settings forms present only the attempt each submitted`() async throws {
+        let connector = ModelTestConnector(fails: false)
+        connector.holdConnect = true
+        let session = try AppSessionTests.model(client: ModelTestClient(), connector: connector)
+        var dataForm = ConnectionFormAttempt()
+        var settingsForm = ConnectionFormAttempt()
+        let attempt = try #require(session.connect(
+            input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil,
+        ))
+        dataForm.recordSubmission(attempt)
+        try await AppSessionTests.until { connector.pendingConnect != nil }
+
+        #expect(dataForm.isConnecting(in: session))
+        #expect(!settingsForm.isConnecting(in: session))
+
+        let settingsAttempt = settingsForm.takeAttempt()
+        #expect(settingsAttempt == nil)
+        #expect(session.isConnecting(attempt))
+        await session.stop()
     }
 
-    @Test func `submitted form shows progress only while its connection is active`() {
-        var attempt = ConnectionFormAttempt()
-        attempt.recordSubmission(accepted: true)
-        #expect(attempt.isConnecting(activity: .connecting))
-        let finished = attempt.finishIfNeeded(activity: .connecting)
-        #expect(!finished)
-        #expect(attempt.isConnecting(activity: .connecting))
-    }
+    @Test func `hidden form from a prior attempt does not attach to its successor`() async throws {
+        let connector = ModelTestConnector(fails: false)
+        connector.holdConnect = true
+        let session = try AppSessionTests.model(client: ModelTestClient(), connector: connector)
+        var hiddenForm = ConnectionFormAttempt()
+        let first = try #require(session.connect(
+            input: .reference(URL(fileURLWithPath: "/synthetic/first")), resultURL: nil,
+        ))
+        hiddenForm.recordSubmission(first)
+        try await AppSessionTests.until { connector.pendingConnect != nil }
+        await session.cancelConnection(first)
 
-    @Test(arguments: [
-        AppSession.Activity.idle, .restoring, .refreshing, .selecting, .stopped,
-    ])
-    func `refused or finished submissions recover once and allow retry`(activity: AppSession.Activity) {
-        var attempt = ConnectionFormAttempt()
-        attempt.recordSubmission(accepted: true)
-        #expect(!attempt.isConnecting(activity: activity))
-        let finished = attempt.finishIfNeeded(activity: activity)
-        #expect(finished)
-        let finishedAgain = attempt.finishIfNeeded(activity: activity)
-        #expect(!finishedAgain)
-        #expect(!attempt.isConnecting(activity: .connecting))
-        attempt.recordSubmission(accepted: true)
-        #expect(attempt.isConnecting(activity: .connecting))
-    }
+        var currentForm = ConnectionFormAttempt()
+        let second = try #require(session.connect(
+            input: .reference(URL(fileURLWithPath: "/synthetic/second")), resultURL: nil,
+        ))
+        currentForm.recordSubmission(second)
+        try await AppSessionTests.until { connector.pendingConnect != nil }
 
-    @Test func `terminal activity missed while hidden reconciles on return`() {
-        var attempt = ConnectionFormAttempt()
-        attempt.recordSubmission(accepted: true)
-        #expect(attempt.isConnecting(activity: .connecting))
-        #expect(!attempt.isConnecting(activity: .idle))
-        let finished = attempt.finishIfNeeded(activity: .idle)
-        #expect(finished)
-        #expect(!attempt.isConnecting(activity: .connecting))
+        #expect(!hiddenForm.isConnecting(in: session))
+        let hiddenFinished = hiddenForm.finishIfNeeded(in: session)
+        #expect(hiddenFinished)
+        #expect(currentForm.isConnecting(in: session))
+        await session.stop()
     }
 
     @Test func `submission normalizes identifiers preserves password and consumes credentials once`() throws {

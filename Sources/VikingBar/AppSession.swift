@@ -8,6 +8,8 @@ import VikingBarCore
 final class AppSession {
     enum Activity { case idle, restoring, refreshing, selecting, connecting, stopped }
 
+    struct ConnectionAttempt: Equatable, Sendable { fileprivate let id: UUID }
+
     let isFixtureLaunch: Bool
     var fixture: FixtureState? {
         didSet { self.onPresentationChange?() }
@@ -54,6 +56,7 @@ final class AppSession {
     @ObservationIgnored var client: (any SessionClient)?
     @ObservationIgnored private var connector: (any AccountConnecting)?
     @ObservationIgnored private var operation: Task<Void, Never>?
+    private var connectionAttempt: ConnectionAttempt?
     @ObservationIgnored private var scheduledRefresh: Task<Void, Never>?
     @ObservationIgnored private var scheduledExpiry: Task<Void, Never>?
     @ObservationIgnored private var snapshotRevision = 0
@@ -156,6 +159,7 @@ final class AppSession {
         guard self.activity != .stopped else { return }
         let operation = self.operation
         _ = self.begin(.stopped)
+        self.connectionAttempt = nil
         self.cancelExpiry()
         let connector = self.connector
         let client = self.client
@@ -329,14 +333,16 @@ extension AppSession {
 
 extension AppSession {
     @discardableResult
-    func connect(input: AccountConnectionInput, resultURL: URL?) -> Bool {
+    func connect(input: AccountConnectionInput, resultURL: URL?) -> ConnectionAttempt? {
         guard !self.isFixtureLaunch, self.activity != .stopped, self.activity != .connecting else {
             if case let .credentials(credentials) = input {
                 credentials.discard()
             }
-            return false
+            return nil
         }
         let intent = self.begin(.connecting)
+        let attempt = ConnectionAttempt(id: UUID())
+        self.connectionAttempt = attempt
         let previous = self.client
         self.client = nil
         self.liveState = LiveSessionState()
@@ -365,11 +371,17 @@ extension AppSession {
                 self.finish()
             }
         }
-        return true
+        return attempt
     }
 
-    func cancelConnection() async {
-        guard self.activity == .connecting else { return }
+    func isConnecting(_ attempt: ConnectionAttempt) -> Bool {
+        self.activity == .connecting && self.connectionAttempt == attempt
+    }
+
+    @discardableResult
+    func cancelConnection(_ attempt: ConnectionAttempt) async -> Bool {
+        guard self.isConnecting(attempt) else { return false }
+        self.connectionAttempt = nil
         let operation = self.operation
         let intent = self.begin(.connecting)
         let connector = self.connector
@@ -378,9 +390,10 @@ extension AppSession {
         await connector?.cancel()
         await client?.shutdown()
         await operation?.value
-        guard self.isCurrent(intent) else { return }
+        guard self.isCurrent(intent) else { return false }
         self.connector = nil
         self.bridgeFailure = nil
         self.finish()
+        return true
     }
 }
