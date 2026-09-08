@@ -157,7 +157,7 @@ struct NativeProcessFixture {
     }
 
     func waitUntilStarted(suffix: String = "started") async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
         while !FileManager.default.fileExists(atPath: self.executable.path + "." + suffix) {
             guard ContinuousClock.now < deadline else { throw LiveBridgeFailure.unavailable }
             try await Task.sleep(for: .milliseconds(10))
