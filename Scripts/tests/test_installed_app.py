@@ -312,6 +312,21 @@ class InstalledProofTests(unittest.TestCase):
                     PROOF.InstalledProof(environment, "smoke")
             run.assert_not_called()
 
+    def test_preferences_reject_identical_serialized_controls_as_ambiguous(self):
+        duplicate = {
+            "AXIdentifier": "vikingbar.showRemainingGB",
+            "AXValue": "0",
+            "frame": [[10, 20], [30, 40]],
+        }
+        tree = {"elements": [
+            duplicate,
+            dict(duplicate),
+            {"AXIdentifier": "vikingbar.dataDisplayMode", "AXValue": "Remaining"},
+            {"AXIdentifier": "vikingbar.refreshInterval", "AXValue": "Every 5 minutes"},
+        ]}
+        with self.assertRaisesRegex(PROOF.UIFailure, "settings-values-missing"):
+            PROOF.preferences(tree)
+
     def test_constructor_proves_absent_target_and_receipt_before_enabling_fresh_policy(self):
         home = self.root.resolve()
         target = home / "Applications/proof/VikingBar.app"
