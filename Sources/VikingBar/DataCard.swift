@@ -3,7 +3,7 @@ import VikingBarCore
 
 struct DataCard: View {
     @Bindable var session: AppSession
-    @State private var detailsExpanded = false
+    @Binding var detailsExpanded: Bool
     var connect: () -> Void = {}
 
     var body: some View {

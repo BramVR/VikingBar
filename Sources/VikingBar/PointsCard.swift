@@ -3,7 +3,7 @@ import VikingBarCore
 
 struct PointsCard: View {
     @Bindable var session: AppSession
-    @State private var expanded = false
+    @Binding var expanded: Bool
 
     var body: some View {
         let points = self.session.points

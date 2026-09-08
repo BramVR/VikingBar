@@ -7,6 +7,8 @@ struct PopoverView: View {
 
     @Bindable var session: AppSession
     @State private var destination = Destination.balance
+    @State private var detailsExpanded = false
+    @State private var pointsExpanded = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var connect: () -> Void = {}
     var fixtureReduceTransparency = false
@@ -49,7 +51,7 @@ struct PopoverView: View {
             }
             switch self.destination {
             case .balance:
-                DataCard(session: self.session, connect: self.connect)
+                DataCard(session: self.session, detailsExpanded: self.$detailsExpanded, connect: self.connect)
                 Divider().padding(.vertical, 6)
                 if !self.session.isFixtureLaunch {
                     Button { self.destination = .bills } label: { Label("Bills", systemImage: "doc.text") }
@@ -64,7 +66,7 @@ struct PopoverView: View {
             case .settings:
                 self.settings
             case .points:
-                PointsCard(session: self.session)
+                PointsCard(session: self.session, expanded: self.$pointsExpanded)
             case .bills:
                 InvoicesView(session: self.session)
             }

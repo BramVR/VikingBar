@@ -15,6 +15,8 @@ An explicit fixture launch never creates a live worker. Choosing **Not connected
 ## Source
 
 - `Sources/VikingBar/AppSession.swift` owns startup, refresh scheduling, account selection, and fixture isolation.
+- `Sources/VikingBar/AppSessionOptional.swift` queues Points and Bills metadata, resumes interrupted metadata, and drops interrupted PDF actions.
+- `Sources/VikingBarCore/VikingSessionOperation.swift` serializes worker operations and gives required data refresh priority over optional work.
 - `Sources/VikingBar/SessionProcessClient.swift` owns the CLI process and private command pipes.
 - `Sources/VikingBar/AccountConnector.swift` invokes the packaged `Scripts/connect-account.py` helper.
 - `Sources/VikingBar/DataCard.swift` renders account actions, SIMs, active bundles, and charges.
@@ -39,6 +41,8 @@ For stored-session title verification, launch the fresh bundle with the stored s
 When the live account has several SIMs or active bundles, select each and compare its own amount, expiry, applicability, and charges with the corresponding report. If the account lacks that data, record the unavailable case and retain synthetic selection coverage. Do not claim live multi-SIM proof from a single-SIM account.
 
 Require visible status and card captures, current native AX values, successful API comparisons, unchanged bootstrap receipt, and verified Quit exits. Preserve evidence through cleanup. Missing native access, Keychain authorization, API data, or a release-relaunch receipt leaves coverage pending or failed.
+
+A balance-only gate does not prove the shared optional queue. On the current bundle, also settle Bills auto-load, compare Points, refresh usage, and require newer usage and Points timestamps with unchanged connection identity. Require resumed invoice metadata when interrupted. Fast responses do not prove delayed preemption. Current combined native maintenance remains pending; historical evidence below retains its original build boundaries.
 
 ## Evidence and cleanup
 
