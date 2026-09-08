@@ -130,14 +130,27 @@ class CaptureUIProofTests(unittest.TestCase):
             }]},
         }
 
-    def test_transitional_ax_and_cg_shape_never_dispatches(self):
+    def test_saved_transitional_ax_and_cg_shape_is_rejected_before_stability(self):
         tree = self.tree(alpha=0.147)
         tree["windows"][0]["kCGWindowBounds"] = {"X": 91, "Y": 31, "Width": 58, "Height": 84}
         tracker = UI.CapturePopoverStability()
         calls = []
+        with self.assertRaisesRegex(UI.UIFailure, "native-capture-popover-match-count-0"):
+            UI.capture_popover_window(tree, self.screens, self.PID)
         if tracker.observe(tree, self.screens, self.PID) is not None:
             calls.append("capture")
         self.assertEqual(calls, [])
+        self.assertEqual(tracker.count, 0)
+
+    def test_positive_finite_ax_and_cg_frames_must_match_within_one_point(self):
+        tree = self.tree()
+        tree["windows"][0]["kCGWindowBounds"]["X"] += 2
+        with self.assertRaisesRegex(UI.UIFailure, "native-capture-popover-match-count-0"):
+            UI.capture_popover_window(tree, self.screens, self.PID)
+        tracker = UI.CapturePopoverStability()
+        self.assertIsNone(tracker.observe(self.tree(), self.screens, self.PID))
+        self.assertIsNone(tracker.observe(tree, self.screens, self.PID))
+        self.assertEqual(tracker.count, 0)
 
     def test_same_valid_shape_must_be_observed_twice(self):
         tracker = UI.CapturePopoverStability()
