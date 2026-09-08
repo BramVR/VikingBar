@@ -11,6 +11,14 @@ extension AppSession {
         return self.liveState.subscriptions.map { AccountChoice(id: $0.id, title: $0.displayName) }
     }
 
+    var hasSelectableBundle: Bool {
+        !self.bundles.isEmpty
+    }
+
+    var bundleSelectionLabel: String {
+        self.hasSelectableBundle ? "Selected bundle" : "No active data bundle"
+    }
+
     var bundles: [BundleChoice] {
         if self.isFixtureLaunch {
             return self.fixture == nil ? [] : self.fixtureAccount.subscription.bundles.enumerated().map {

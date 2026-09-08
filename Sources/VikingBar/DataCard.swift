@@ -56,14 +56,17 @@ struct DataCard: View {
             .accessibilityIdentifier("vikingbar.subscriptionPicker")
             .disabled(!self.session.canSelectAccountData)
             Divider().padding(.vertical, 6)
-            Picker("Data bundle", selection: Binding(
-                get: { self.session.selectedBundleIndex }, set: { self.session.selectBundle($0) },
-            )) {
-                ForEach(self.session.bundles) { Text($0.title).tag($0.id) }
+            if self.session.hasSelectableBundle {
+                Picker("Data bundle", selection: Binding(
+                    get: { self.session.selectedBundleIndex }, set: { self.session.selectBundle($0) },
+                )) {
+                    ForEach(self.session.bundles) { Text($0.title).tag($0.id) }
+                }
+                .accessibilityIdentifier("vikingbar.bundlePicker")
+                .disabled(!self.session.canSelectAccountData)
             }
-            .accessibilityIdentifier("vikingbar.bundlePicker")
-            .disabled(!self.session.canSelectAccountData)
-            Text("Selected bundle").font(.caption).foregroundStyle(.secondary)
+            Text(self.session.bundleSelectionLabel).font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("vikingbar.bundleSelectionLabel")
         }
         .pickerStyle(.menu)
     }
@@ -115,6 +118,7 @@ struct DataCard: View {
                     Text(self.session.bundleDescription)
                         .accessibilityIdentifier("vikingbar.bundleDescription")
                     Text(self.session.applicabilityText).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("vikingbar.bundleApplicability")
                 }
                 .font(.caption).frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 6)

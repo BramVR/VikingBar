@@ -4,7 +4,6 @@ import datetime
 import hashlib
 import importlib.util
 import json
-import math
 import os
 import signal
 from pathlib import Path
@@ -19,8 +18,15 @@ CONNECT = importlib.util.module_from_spec(CONNECT_SPEC)
 CONNECT_SPEC.loader.exec_module(CONNECT)
 
 
-class UIFailure(Exception):
-    """Fixed public diagnostic."""
+UI_SPEC = importlib.util.spec_from_file_location("native_ui_proof", ROOT / "Scripts/native-ui-proof.py")
+UI = importlib.util.module_from_spec(UI_SPEC)
+UI_SPEC.loader.exec_module(UI)
+UIFailure = UI.UIFailure
+frame = UI.frame
+contained = UI.contained
+display_frames = UI.display_frames
+visible_status = UI.visible_status
+popover_window = UI.popover_window
 
 
 def private_write(path, value):
@@ -28,68 +34,6 @@ def private_write(path, value):
     with os.fdopen(os.open(path, flags, 0o600), "w") as stream:
         json.dump(value, stream, sort_keys=True)
 
-
-def frame(element):
-    try:
-        (x, y), (width, height) = element["frame"]
-        values = (x, y, width, height)
-        if (all(type(value) in (int, float) and math.isfinite(value) for value in values)
-                and width > 0 and height > 0 and math.isfinite(x + width) and math.isfinite(y + height)):
-            return values
-    except (KeyError, TypeError, ValueError, OverflowError):
-        pass
-    raise UIFailure("native-frame-invalid")
-
-
-def contained(element, boundary):
-    try:
-        x, y, width, height = frame(element)
-        bx, by, bw, bh = frame(boundary)
-        return x >= bx and y >= by and x + width <= bx + bw and y + height <= by + bh
-    except UIFailure:
-        return False
-
-
-def display_frames(screens):
-    displays = []
-    for screen in screens:
-        try:
-            bounds = screen["bounds"]
-            display = {"frame": [[bounds["x"], bounds["y"]], [bounds["width"], bounds["height"]]]}
-            frame(display)
-            displays.append(display)
-        except (KeyError, TypeError, UIFailure):
-            pass
-    return displays
-
-
-def visible_status(tree, screens):
-    displays = display_frames(screens)
-    return any(element.get("AXIdentifier") == "vikingbar.status"
-               and any(contained(element, display) for display in displays)
-               for element in tree.get("elements", []))
-
-
-def popover_window(tree, screens):
-    displays = display_frames(screens)
-    for element in tree.get("elements", []):
-        if element.get("AXRole") != "AXPopover":
-            continue
-        try:
-            ax_frame = frame(element)
-        except UIFailure:
-            continue
-        for window in tree.get("windows", []):
-            try:
-                bounds = window["kCGWindowBounds"]
-                cg_element = {"frame": [[bounds["X"], bounds["Y"]], [bounds["Width"], bounds["Height"]]]}
-                cg_frame = frame(cg_element)
-            except (KeyError, TypeError, UIFailure):
-                continue
-            if (all(abs(ax - cg) < 1 for ax, cg in zip(ax_frame, cg_frame))
-                    and any(contained(element, display) and contained(cg_element, display) for display in displays)):
-                return element, window
-    raise UIFailure("native-popover-not-visible")
 
 
 def successful_timestamp(report):

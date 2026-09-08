@@ -2,6 +2,7 @@
 """Build and drive the actual fixture app; retain receipts after process cleanup."""
 import datetime
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -12,6 +13,9 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+UI_SPEC = importlib.util.spec_from_file_location('native_ui_proof', ROOT / 'Scripts/native-ui-proof.py')
+UI = importlib.util.module_from_spec(UI_SPEC)
+UI_SPEC.loader.exec_module(UI)
 PROOF = ROOT / '.build/proof' / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 PROOF.mkdir(parents=True)
 SETTINGS = PROOF / 'settings.json'
@@ -70,16 +74,7 @@ def element(data, identifier):
 
 
 def visible_status(data):
-    status = element(data, 'vikingbar.status')
-    if not status:
-        return False
-    (x, y), (width, height) = status['frame']
-    return width > 0 and height > 0 and any(
-        x >= screen['bounds']['x'] and y >= screen['bounds']['y']
-        and x + width <= screen['bounds']['x'] + screen['bounds']['width']
-        and y + height <= screen['bounds']['y'] + screen['bounds']['height']
-        for screen in screens
-    )
+    return UI.visible_status(data, screens)
 
 
 def press(selector, name):
@@ -104,14 +99,11 @@ def capture_status(data, name):
 
 
 def popover_window(data):
-    popover = next((e for e in data['elements'] if e.get('AXRole') == 'AXPopover'), None)
-    if popover is None:
+    try:
+        _, window = UI.popover_window(data, screens)
+        return window
+    except UI.UIFailure:
         return None
-    (x, y), (width, height) = popover['frame']
-    return next((w for w in data['windows'] if all(
-        abs(w['kCGWindowBounds'][key] - value) < 1
-        for key, value in [('X', x), ('Y', y), ('Width', width), ('Height', height)]
-    )), None)
 
 
 def capture_card(name, fixture=True):
@@ -120,6 +112,8 @@ def capture_card(name, fixture=True):
     if fixture:
         marker = element(data, 'vikingbar.fixtureMarker')
         assert marker, 'Fixture marker missing.'
+        boundary, _ = UI.popover_window(data, screens)
+        assert UI.contained(marker, boundary), 'Fixture marker is clipped.'
         assert marker['frame'][0][1] >= window['kCGWindowBounds']['Y'] + 20, 'Fixture header is clipped.'
     peek(['see', '--window-id', str(window['kCGWindowNumber']), '--no-elements', '--no-remote',
           '--path', str(PROOF / f'{name}.png')], f'{name}-image.json')
@@ -218,6 +212,7 @@ def check_layout(name):
     assert not any(e.get('AXRole') == 'AXTabGroup' for e in data['elements']), 'Old tab shell remains.'
     window = popover_window(data)
     assert window, 'Balance popover missing.'
+    boundary, _ = UI.popover_window(data, screens)
     bounds = window['kCGWindowBounds']
     previous_y = bounds['Y']
     for identifier in ['vikingbar.subscriptionPicker', 'vikingbar.bundlePicker', 'vikingbar.remaining',
@@ -225,7 +220,8 @@ def check_layout(name):
                        'vikingbar.settings']:
         item = element(data, identifier)
         assert item, f'Missing balance control {identifier}.'
-        (x, y), (width, height) = item['frame']
+        assert UI.contained(item, boundary), f'Clipped or invalid control {identifier}.'
+        x, y, width, height = UI.frame(item)
         assert y >= previous_y, f'Approved order violated at {identifier}.'
         assert x >= bounds['X'] and y >= bounds['Y'] and width > 0 and height > 0
         assert x + width <= bounds['X'] + bounds['Width'] + 1
@@ -250,9 +246,11 @@ def selection_and_refresh():
         back_to_balance(name)
         assert amount in json.dumps(element(inspect(f'{name}-return.json'), 'vikingbar.remaining'))
     press('vikingbar.bundleDetails', 'details-expand')
-    wait_for(lambda: inspect('details.json'), lambda d: 'Extra charges' in json.dumps(d))
+    wait_for(lambda: inspect('details.json'), lambda d: UI.bundle_details_visible(
+        d, screens, 'Monthly data', 'Monthly mobile data allowance', 'Mobile data · Domestic and EU roaming'))
     capture_card('bundle-details')
     press('vikingbar.bundleDetails', 'details-collapse')
+    wait_for(lambda: inspect('details-collapsed.json'), lambda d: UI.bundle_details_collapsed(d, screens))
     before = json.dumps(element(inspect('refresh-before.json'), 'vikingbar.freshness'))
     press('vikingbar.refresh', 'refresh')
     refreshing = wait_for(lambda: inspect('refreshing.json'), lambda d: 'Refreshing' in json.dumps(d))

@@ -108,6 +108,30 @@ struct CompactBundleTests {
         await model.stop()
     }
 
+    @Test func `connected account without active bundles has an explicit unavailable selection`() async throws {
+        var state = LiveSessionState()
+        state.connectionID = ConnectionID()
+        state.subscriptions = [MobileSubscription(id: "empty", displayName: "Empty SIM", type: "postpaid")]
+        state.selectedSubscriptionID = "empty"
+        state.balance = LiveBalance(bundles: [], regionality: nil, outOfBundleCost: nil)
+        state.snapshot = UsageSnapshot(
+            source: .live, subscriptionName: "Empty SIM", allowance: .unavailable,
+            expiresAt: nil, freshness: .current(lastUpdated: LiveModelsTests.now),
+        )
+        let client = ModelTestClient(state: state)
+        let model = try AppSessionTests.model(client: client)
+        model.start()
+        try await AppSessionTests.until { model.activity == .idle }
+        #expect(!model.needsConnection)
+        #expect(model.canSelectAccountData)
+        #expect(model.bundles.isEmpty)
+        #expect(!model.hasSelectableBundle)
+        #expect(model.bundleSelectionLabel == "No active data bundle")
+        #expect(model.menu.remainingText == "Unavailable")
+        #expect(model.menu.percentageRemaining == nil)
+        await model.stop()
+    }
+
     private static func model() throws -> AppSession {
         try AppSession(
             options: LaunchOptions(arguments: ["--fixture", "finite"]),
