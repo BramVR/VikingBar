@@ -33,6 +33,8 @@ A successful balance fetch does not imply successful history retrieval. A points
 
 The stored-session live gate passed on product commit `9481b3af40ba2c1cc992d9432effb8b327e0423e`. It verified the independent API comparison and token refresh, newer balance and history timestamps after native Refresh, unchanged connection identity, expansion and collapse, one complete visible transaction row, and native Quit with successful owned-process cleanup. Actual collapsed, refreshed, and expanded screenshots were inspected; balances, freshness labels, tabs, and the first row remained inside the settled popover. The history viewport is bounded to keep the summary visible.
 
+Combined invoice and points coverage passed on `a2b87f3b22170b5c90ac4a6528d8d61d2ae3f55d`. Bills loading preserved points. The independent points API comparison passed, and native Refresh produced newer usage, points balance, and history timestamps on the same connection. Native summaries and the first expanded row matched the CLI; collapse and Quit with owned-process cleanup passed. Captures and receipts remain private.
+
 This proves the fetched live history and the first visible row, not every row's onscreen rendering. Empty history, truncation, stale/error recovery, and provider states absent from the account remain covered by synthetic tests. Re-run the live gate after material product or proof changes; keep its private receipts bound to the tested source and executable hashes.
 
 Account values, transaction descriptions, native captures, and cached CLI output remain private. Publish only redacted receipts and build identity. Reconnection needs the approved setup and a coordinator credential slot.

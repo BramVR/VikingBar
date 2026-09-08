@@ -142,4 +142,4 @@ This check reuses the stored session. It does not retrieve the password or conne
 
 Raw account output and captures stay private under `.build/proof/`. Retain the build hashes, API comparison, native action receipts, images, result, and cleanup receipt. Inspect the PNGs after the automated check. Synthetic tests cover states absent from the live account; do not claim that every state was observed live.
 
-The [points feature map](../.agents/skills/verify-vikingbar/features/points.md) records the earlier live gate and its coverage limits. The combined points and invoice refresh lifecycle requires new live proof on its final source head.
+The [points feature map](../.agents/skills/verify-vikingbar/features/points.md) records live coverage and its limits.

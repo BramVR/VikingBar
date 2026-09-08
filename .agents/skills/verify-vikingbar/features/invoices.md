@@ -30,4 +30,5 @@ Preserve the source SHA, binary hash, command, exit code, redacted receipt, and 
 - The API's subscription invoice list omits grouped invoices. Account listing is mandatory.
 - A page cap cannot establish an empty account. Do not fabricate an invoice for empty-account proof.
 - Metadata refresh must never fetch a PDF. Download errors must leave the balance usable.
-- Live API and native invoice coverage remain pending until their authorized runs complete.
+- The authorized invoice gate passed on `ccf7c5319a36fb08f44a0098d125bddd9baa5bfc`, including metadata, presentation, and production PDF validation. After a documentation-only merge, the CLI and app executable hashes remained identical. Combined native Bills and Points coverage passed with the clean `a2b87f3b22170b5c90ac4a6528d8d61d2ae3f55d` bundle: displayed bill fields and scope, newer metadata after Load bills, Points API/native comparison, newer usage and both points timestamps after Refresh, transaction expansion/collapse, settled bill controls, and native Quit with owned-process cleanup. Captures were inspected and retained privately.
+- Native PDF opening was not authorized or exercised. Live empty-account and delayed-preemption cases were not observed; their synthetic coverage does not establish live proof.

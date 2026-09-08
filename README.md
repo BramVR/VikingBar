@@ -15,7 +15,7 @@ The helmet in the menu bar shows the selected data bundle's remaining allowance.
 
 Each SIM keeps its own allowance. Viking Points belong to the whole account. Missing amounts stay unavailable rather than appearing as zero.
 
-The **Bills** tab shows the latest account invoice or credit note, including grouped scope, payment state, and amount due. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md). Native invoice verification remains pending.
+The **Bills** tab shows the latest account invoice or credit note, including grouped scope, payment state, and amount due. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md).
 
 ## Requirements and availability
 

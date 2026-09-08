@@ -33,4 +33,4 @@ PDFs contain personal billing information. Keep downloaded documents and proof a
 
 Native menu coverage also requires the Mac UI slot. Follow the [project verification skill](../.agents/skills/verify-vikingbar/SKILL.md). Synthetic coverage does not establish native or live API success.
 
-The endpoint schema is documented in the [official API specification](https://docs.uwa.mobilevikings.be/swagger.json). Live invoice coverage remains pending until the authorized gate completes.
+The endpoint schema is documented in the [official API specification](https://docs.uwa.mobilevikings.be/swagger.json). The [invoice feature map](../.agents/skills/verify-vikingbar/features/invoices.md) records completed live coverage and its limits.
