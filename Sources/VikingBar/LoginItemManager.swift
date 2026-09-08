@@ -3,11 +3,12 @@ import ServiceManagement
 import VikingBarCore
 
 enum LoginItemStatus: String, Codable, Sendable {
-    case notRegistered, enabled, requiresApproval, unavailable
+    case notRegistered, notFound, enabled, requiresApproval, unavailable
 
     var title: String {
         switch self {
         case .notRegistered: "Off"
+        case .notFound: "Not found"
         case .enabled: "On"
         case .requiresApproval: "Approval required"
         case .unavailable: "Unavailable"
@@ -44,13 +45,17 @@ struct SystemLoginItemManager: LoginItemManaging {
     }
 
     var status: LoginItemStatus {
-        guard self.isApplicationBundle else { return .unavailable }
-        switch SMAppService.mainApp.status {
-        case .notRegistered: return .notRegistered
-        case .enabled: return .enabled
-        case .requiresApproval: return .requiresApproval
-        case .notFound: return .unavailable
-        @unknown default: return .unavailable
+        Self.resolve(isApplicationBundle: self.isApplicationBundle) { SMAppService.mainApp.status.rawValue }
+    }
+
+    static func resolve(isApplicationBundle: Bool, rawStatus: () -> Int) -> LoginItemStatus {
+        guard isApplicationBundle else { return .unavailable }
+        switch rawStatus() {
+        case SMAppService.Status.notRegistered.rawValue: return .notRegistered
+        case SMAppService.Status.enabled.rawValue: return .enabled
+        case SMAppService.Status.requiresApproval.rawValue: return .requiresApproval
+        case SMAppService.Status.notFound.rawValue: return .notFound
+        default: return .unavailable
         }
     }
 

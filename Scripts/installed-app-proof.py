@@ -37,7 +37,7 @@ def login_receipt(value):
     if (not isinstance(value, dict) or set(value) != {"schema_version", "status", "passed"}
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
             or value["passed"] is not True
-            or value["status"] not in ("notRegistered", "enabled", "requiresApproval", "unavailable")):
+            or value["status"] not in ("notRegistered", "notFound", "enabled", "requiresApproval", "unavailable")):
         raise UIFailure("invalid-login-item-receipt")
     return value["status"]
 
@@ -80,10 +80,15 @@ class InstalledProof(UI.NativeProof):
         if not environment.get("INSTALL_TARGET"):
             raise UIFailure("explicit-INSTALL_TARGET-required")
         self.bundle = INSTALL.target_path(environment["INSTALL_TARGET"])
+        self.fresh_install = False
+        self.login_baselines = {}
         if check == "smoke":
             applications = Path.home() / "Applications"
-            if applications not in self.bundle.parents or self.bundle.exists():
+            receipt = INSTALL.receipt_path(self.bundle)
+            if (applications not in self.bundle.parents or self.bundle.exists()
+                    or receipt.exists() or receipt.is_symlink()):
                 raise UIFailure("fresh-absent-target-under-user-Applications-required")
+            self.fresh_install = True
         self.environment, self.check = environment, check
         self.peekaboo = environment.get("PEEKABOO_BIN")
         if not self.peekaboo or not Path(self.peekaboo).is_file():
@@ -219,16 +224,17 @@ class InstalledProof(UI.NativeProof):
 
     def perform_smoke(self):
         initial_status = self.login("status")
-        if initial_status != "notRegistered":
-            raise UIFailure("initial-login-item-must-be-notRegistered")
+        self.record_login_baseline("installed", self.bundle, initial_status)
         self.launch(label="fixture")
         initial = preferences(self.settings())
         changed = {"showRemainingGB": "1",
                    "dataDisplayMode": "Used", "refreshInterval": "Every 30 minutes"}
         private_write(self.directory / "restoration-intent.json", {"loginItem": "notRegistered",
+                      "initialLoginStates": self.login_baselines, "registrationScope": "exact-task-owned-paths",
                       "settingsFile": str(self.directory / "settings.json"), "initialPreferences": initial,
                       "bundleRetained": True, "osLoginExecutionProven": False})
         self.apply_preferences(changed)
+        self.record_login_baseline("beforeToggle", self.bundle, self.login("status"))
         self.registration_intent = True
         self.press("vikingbar.launchAtLogin")
         UI.wait_for(lambda: self.login("status"), lambda value: value in ("enabled", "requiresApproval"))
@@ -293,13 +299,26 @@ class InstalledProof(UI.NativeProof):
                 "preferences_restored": True, "password_bootstrap": False}
 
     def before_install(self, candidate):
+        receipt = INSTALL.receipt_path(self.bundle)
+        if (self.check != "smoke" or not self.fresh_install or self.bundle.exists() or self.bundle.is_symlink()
+                or receipt.exists() or receipt.is_symlink()
+                or candidate.parent.parent != self.bundle.parent
+                or not candidate.parent.name.startswith(".vikingbar-install-") or candidate.name != "VikingBar.app"):
+            raise UIFailure("fresh-task-owned-install-required")
         require_reviewed_artifact(INSTALL.artifact(candidate))
         value = self.run([str(candidate / "Contents/MacOS/VikingBarApp"), "--login-item", "status"],
                          "login-before-install.json", timeout=30)
-        if login_receipt(value) != "notRegistered":
-            raise UIFailure("initial-login-item-must-be-notRegistered")
+        self.record_login_baseline("candidate", candidate, login_receipt(value))
         private_write(self.directory / "restoration-intent.json", {"loginItem": "notRegistered",
+                      "initialLoginStates": self.login_baselines, "registrationScope": "exact-task-owned-paths",
                       "target": str(self.bundle), "bundleRetained": True, "osLoginExecutionProven": False})
+
+    def record_login_baseline(self, phase, bundle, status):
+        self.login_baselines[phase] = {"path": str(bundle), "status": status}
+        private_write(self.directory / "login-baselines.json", self.login_baselines)
+        if (self.check != "smoke" or not self.fresh_install
+                or status not in ("notRegistered", "notFound")):
+            raise UIFailure("fresh-login-item-baseline-required")
 
     def perform(self):
         if self.check != "smoke":

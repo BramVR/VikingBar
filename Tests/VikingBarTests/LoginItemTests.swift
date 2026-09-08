@@ -5,6 +5,32 @@ import Testing
 
 @MainActor
 struct LoginItemTests {
+    @Test func `missing service record remains distinct from invalid bundle and unknown status`() {
+        let cases: [(Int, LoginItemStatus)] = [
+            (0, .notRegistered), (1, .enabled), (2, .requiresApproval), (3, .notFound), (99, .unavailable),
+        ]
+        for (raw, expected) in cases {
+            #expect(SystemLoginItemManager.resolve(isApplicationBundle: true) { raw } == expected)
+        }
+        #expect(SystemLoginItemManager.resolve(isApplicationBundle: false) {
+            Issue.record("Invalid bundle queried ServiceManagement")
+            return 3
+        } == .unavailable)
+        #expect(LoginItemStatus.notFound.title == "Not found")
+    }
+
+    @Test func `maintenance preserves missing record status without registering`() async throws {
+        let manager = FakeLoginItems()
+        manager.status = .notFound
+        let status = await LoginItemCommand.status.run(manager: manager)
+        #expect(status.passed)
+        #expect(status.status == .notFound)
+        #expect(manager.mutations.isEmpty)
+        let encoded = try JSONEncoder().encode(status)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["status"] as? String == "notFound")
+    }
+
     @Test func `external status change clears previous mutation error`() async throws {
         let manager = FakeLoginItems()
         let model = try AppSession(options: LaunchOptions(arguments: ["--fixture", "finite"]),

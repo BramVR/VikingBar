@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preserve missing login-service records as a distinct status; accept them only in fresh task-owned installation proof and retain strict registration cleanup.
 - Add local installation with ad-hoc bundle sealing, saved used/remaining card display and refresh interval, wake refresh, and launch-at-login controls with actual macOS status and restoration-aware installed proof.
 - Allow fresh local installation when unrelated process origins are unavailable; preserve conservative update refusal and prevent overwriting a destination created during the build.
 - Publish install receipts exclusively and preserve external receipt files during rollback.

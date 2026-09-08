@@ -62,6 +62,8 @@ Open **Settings** and turn on **Launch at login**. Read the status beneath the c
 
 Use the Login Items settings action when approval is required. The app rereads the system state when you return. It does not store a separate enabled preference that could disagree with macOS.
 
+**Not found** means macOS has no service record for this app path. It remains distinct from **Unavailable**, which also covers an invalid application bundle or an unknown service status. A missing record at one path does not establish whether another copy has login registration.
+
 To stop automatic launch, turn the control off and confirm **Off**. A successful registration and manual relaunch do not prove that macOS has executed the app at a later login.
 
 ## Log out of the account
@@ -92,7 +94,7 @@ Require `status` to report `notRegistered`. These commands operate on login regi
 
 Read [installed-app verification](../.agents/skills/verify-vikingbar/features/installed-app.md). The required commands are `make smoke-installed-app` and `make proof-live CHECK=installed-balance`. Both require an explicit reviewed `INSTALL_TARGET` and the coordinator's runtime slots.
 
-The smoke installs a fresh production-identity bundle at an unused task-owned path. It changes only an isolated settings file, requires login registration to start at `notRegistered`, and restores that state automatically. It retains the installed bundle and private evidence after stopping its own processes. It must not replace a user's bundle or alter an existing login registration.
+The smoke installs a fresh production-identity bundle at an unused task-owned path. It changes only an isolated settings file. For that fresh path, initial login status may be `notRegistered` or the distinct `notFound` result observed when macOS has no record yet. It records the candidate and installed states and rechecks the exact installed path immediately before registration. Generic `unavailable`, existing registration, and approval-required states fail. This path-specific check does not establish global absence of another copy's registration. After attempting registration, cleanup still requires `notRegistered`. The smoke retains the installed bundle and private evidence after stopping its own processes. It must not replace a user's bundle or alter an existing login registration.
 
 The live gate uses the installed bundle and its bundled CLI with the existing stored session. It compares API, snapshot, and visible card values, refreshes, and verifies relaunch. Missing Keychain access, native visibility, account data, or successful restoration fails the gate. Fixture proof alone does not complete installed live-balance verification.
 

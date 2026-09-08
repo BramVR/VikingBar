@@ -299,6 +299,9 @@ class InstalledProofTests(unittest.TestCase):
         self.proof.preferences_restored = True
         self.proof.settings_file = self.root / "settings.json"
         self.proof.registration_intent = False
+        self.proof.check = "smoke"
+        self.proof.fresh_install = True
+        self.proof.login_baselines = {}
         self.proof.launches, self.proof.workers = [], []
 
     def test_missing_slots_and_target_fail_before_native_boundary(self):
@@ -308,6 +311,83 @@ class InstalledProofTests(unittest.TestCase):
                 with self.assertRaises(PROOF.UIFailure):
                     PROOF.InstalledProof(environment, "smoke")
             run.assert_not_called()
+
+    def test_constructor_proves_absent_target_and_receipt_before_enabling_fresh_policy(self):
+        home = self.root.resolve()
+        target = home / "Applications/proof/VikingBar.app"
+        target.parent.mkdir(parents=True)
+        peekaboo = home / "synthetic-peekaboo"
+        peekaboo.write_bytes(b"synthetic")
+        environment = {"VIKINGBAR_UI_SLOT": "held", "VIKINGBAR_CREDENTIAL_SLOT": "held",
+                       "INSTALL_TARGET": str(target), "PEEKABOO_BIN": str(peekaboo)}
+        with patch.object(Path, "home", return_value=home), patch.object(PROOF, "ROOT", home):
+            fresh = PROOF.InstalledProof(environment, "smoke")
+            self.assertTrue(fresh.fresh_install)
+            existing = PROOF.InstalledProof(environment, "installed-balance")
+            self.assertFalse(existing.fresh_install)
+            INSTALL.receipt_path(target).write_bytes(b"external")
+            with self.assertRaisesRegex(PROOF.UIFailure, "fresh-absent-target"):
+                PROOF.InstalledProof(environment, "smoke")
+
+    def test_not_found_baseline_requires_fresh_scope_and_retains_actual_state(self):
+        p = self.proof
+        for state in ("notFound", "notRegistered"):
+            p.record_login_baseline("candidate", p.bundle, state)
+            self.assertEqual(json.loads((self.root / "login-baselines.json").read_text())["candidate"],
+                             {"path": str(p.bundle), "status": state})
+        for state in ("enabled", "requiresApproval", "unavailable", "unknown"):
+            with self.assertRaisesRegex(PROOF.UIFailure, "fresh-login-item-baseline"):
+                p.record_login_baseline("installed", p.bundle, state)
+        p.fresh_install = False
+        with self.assertRaises(PROOF.UIFailure):
+            p.record_login_baseline("installed", p.bundle, "notFound")
+        p.fresh_install = True
+        p.check = "installed-balance"
+        with self.assertRaises(PROOF.UIFailure):
+            p.record_login_baseline("installed", p.bundle, "notFound")
+
+    def test_not_found_candidate_passes_only_inside_fresh_install_callback(self):
+        p = self.proof
+        p.bundle = self.root.resolve() / "destination/VikingBar.app"
+        candidate = p.bundle.parent / ".vikingbar-install-synthetic/VikingBar.app"
+        p.run = Mock(return_value={"passed": True, "schema_version": 1, "status": "notFound"})
+        with patch.object(PROOF.INSTALL, "artifact", return_value={"sourceDirty": False, "commit": "a" * 40}), \
+                patch.object(PROOF.subprocess, "check_output", return_value="a" * 40):
+            p.before_install(candidate)
+            p.run.assert_called_once()
+            p.run.reset_mock()
+            p.bundle.mkdir(parents=True)
+            with self.assertRaisesRegex(PROOF.UIFailure, "fresh-task-owned-install"):
+                p.before_install(candidate)
+            p.run.assert_not_called()
+        self.assertFalse(p.registration_intent)
+
+    def test_changed_published_baseline_blocks_toggle_and_never_unregisters(self):
+        p = self.proof
+        p.login = Mock(side_effect=["notFound", "enabled"])
+        p.launch = Mock()
+        p.settings = Mock(return_value={"elements": [
+            {"AXIdentifier": "vikingbar.showRemainingGB", "AXValue": "0"},
+            {"AXIdentifier": "vikingbar.dataDisplayMode", "AXValue": "Remaining"},
+            {"AXIdentifier": "vikingbar.refreshInterval", "AXValue": "Every 15 minutes"}]})
+        p.apply_preferences = Mock()
+        p.press = Mock()
+        with self.assertRaisesRegex(PROOF.UIFailure, "fresh-login-item-baseline"):
+            p.perform_smoke()
+        self.assertFalse(p.registration_intent)
+        p.press.assert_not_called()
+        p.cleanup()
+        self.assertEqual([call.args[0] for call in p.login.call_args_list], ["status", "status"])
+        states = json.loads((self.root / "login-baselines.json").read_text())
+        self.assertEqual(states["installed"]["status"], "notFound")
+        self.assertEqual(states["beforeToggle"]["status"], "enabled")
+
+    def test_attempted_registration_still_requires_not_registered_cleanup(self):
+        p = self.proof
+        p.registration_intent = True
+        p.login = Mock(return_value="notFound")
+        with self.assertRaisesRegex(PROOF.UIFailure, "login-registration-restoration-failed"):
+            p.cleanup()
 
     def test_proof_requires_false_dirty_flag_and_exact_head(self):
         with patch.object(PROOF.subprocess, "check_output", return_value="a" * 40 + "\n"):
@@ -323,6 +403,7 @@ class InstalledProofTests(unittest.TestCase):
     def test_dirty_candidate_never_executes_status_or_publishes_install(self):
         self.proof.run = Mock()
         target = self.root.resolve() / "destination/VikingBar.app"
+        self.proof.bundle = target
         with patch.object(PROOF.subprocess, "check_output", return_value="a" * 40), \
                 patch.object(PROOF.INSTALL, "artifact", return_value={"sourceDirty": True, "commit": "a" * 40}):
             with self.assertRaisesRegex(PROOF.UIFailure, "clean-current"):
@@ -477,7 +558,7 @@ class InstalledProofTests(unittest.TestCase):
 
     def test_smoke_approval_required_is_failure_with_restoration_intent(self):
         p = self.proof
-        p.login = Mock(side_effect=["notRegistered", "requiresApproval", "requiresApproval"])
+        p.login = Mock(side_effect=["notRegistered", "notRegistered", "requiresApproval", "requiresApproval"])
         p.launch = Mock()
         p.settings = Mock(return_value={"elements": [
             {"AXIdentifier": "vikingbar.showRemainingGB", "AXValue": "0"},
