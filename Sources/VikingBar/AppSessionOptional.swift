@@ -35,6 +35,10 @@ extension AppSession {
     var isLoadingInvoices: Bool {
         self.activeOptional?.isInvoice == true || self.pendingOptional.contains(where: \.isInvoice)
     }
+
+    var canLoadInvoices: Bool {
+        self.canSelectAccountData && self.client != nil
+    }
 }
 
 extension AppSession {
@@ -55,7 +59,7 @@ extension AppSession {
     }
 
     func openInvoice(_ id: String) {
-        guard self.canSelectAccountData, !self.isLoadingInvoices,
+        guard self.canLoadInvoices, !self.isLoadingInvoices,
               self.liveState.invoices?.invoices.contains(where: { $0.id == id }) == true else { return }
         self.invoiceError = nil
         self.enqueueOptional(.pdf(id))
@@ -135,11 +139,9 @@ extension AppSession {
                 } else {
                     self.invoiceError = "Could not load bills. Try again."
                 }
+                self.client = nil
                 self.onPresentationChange?()
-                if optional != .history {
-                    self.client = nil
-                    await client.shutdown()
-                }
+                await client.shutdown()
             }
         }
     }

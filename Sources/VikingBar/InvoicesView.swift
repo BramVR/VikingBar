@@ -16,7 +16,7 @@ struct InvoicesView: View {
                 Button(self.session.isLoadingInvoices ? "Loading bills…" : "Load bills") {
                     self.session.loadInvoices()
                 }
-                .disabled(!self.session.canSelectAccountData || self.session.isLoadingInvoices)
+                .disabled(!self.session.canLoadInvoices || self.session.isLoadingInvoices)
                 .accessibilityIdentifier("vikingbar.invoices.load")
                 if let error = self.session.invoiceError {
                     Text(error).foregroundStyle(.red)
@@ -34,7 +34,7 @@ struct InvoicesView: View {
                             Text("Linked invoice: \(linked)").font(.caption)
                         }
                         Button("Open PDF") { self.session.openInvoice(row.id) }
-                            .disabled(!self.session.canSelectAccountData || self.session.isLoadingInvoices)
+                            .disabled(!self.session.canLoadInvoices || self.session.isLoadingInvoices)
                             .accessibilityIdentifier("vikingbar.invoice.pdf")
                     }
                     .accessibilityElement(children: .contain)
@@ -43,7 +43,7 @@ struct InvoicesView: View {
                 }
             }
             .padding(20)
-            .task(id: self.session.canSelectAccountData) {
+            .task(id: self.session.canLoadInvoices) {
                 self.session.loadInvoices()
             }
         }

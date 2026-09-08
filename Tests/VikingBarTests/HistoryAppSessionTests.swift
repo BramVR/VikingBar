@@ -80,6 +80,53 @@ struct HistoryAppSessionTests {
         await model.stop()
     }
 
+    @Test(arguments: [false, true])
+    func `first refresh or SIM selection replaces a dead history worker without losing known data`(
+        selection: Bool,
+    ) async throws {
+        let failed = try HistoryModelClient()
+        let healthy = try HistoryModelClient()
+        healthy.state = failed.state
+        healthy.state.history = nil
+        var creations = 0
+        let sleeper = ModelTestSleeper()
+        let model = try AppSession(
+            options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
+            clientFactory: { creations += 1; return creations == 1 ? failed : healthy },
+            now: { LiveModelsTests.now }, sleepUntil: { try await sleeper.sleep(until: $0) },
+        )
+        model.start()
+        try await AppSessionTests.until { failed.pendingHistory != nil }
+        let known = model.liveState
+        failed.stopped = true
+        failed.pendingHistory?.resume(throwing: LiveBridgeFailure.stopped)
+        failed.pendingHistory = nil
+        try await AppSessionTests.until { !model.isHistoryLoading }
+        #expect(model.liveState == known)
+        #expect(model.canRefresh)
+        #expect(model.canSelectAccountData)
+        let oldRequests = failed.requests
+        if selection {
+            model.selectSubscription("sim-b")
+        } else {
+            model.refresh()
+        }
+        try await AppSessionTests.until { model.activity == .idle }
+        #expect(creations == 2)
+        #expect(failed.shutdowns == 1)
+        #expect(failed.requests == oldRequests)
+        #expect(healthy.requests.prefix(2) == ["restore", selection ? "selection" : "refresh"])
+        #expect(model.bridgeError == nil)
+        if selection {
+            #expect(model.liveState.selectedSubscriptionID == "sim-b")
+            #expect(model.liveState.history == nil)
+        } else {
+            #expect(model.snapshot == known.snapshot)
+            #expect(model.liveState.history == known.history)
+        }
+        await model.stop()
+    }
+
     private static func model(client: HistoryModelClient) throws -> AppSession {
         let sleeper = ModelTestSleeper()
         return try AppSession(
@@ -96,6 +143,8 @@ private final class HistoryModelClient: SessionClient {
     var requests: [String] = []
     var pendingHistory: CheckedContinuation<LiveSessionState, any Error>?
     var pendingCancel: CheckedContinuation<LiveSessionState, any Error>?
+    var stopped = false
+    var shutdowns = 0
 
     init() throws {
         var state = LiveSessionState()
@@ -110,6 +159,7 @@ private final class HistoryModelClient: SessionClient {
     }
 
     func request(_ request: SessionRequest) async throws -> LiveSessionState {
+        guard !self.stopped else { throw LiveBridgeFailure.stopped }
         switch request {
         case .restore: self.requests.append("restore")
         case .refresh: self.requests.append("refresh")
@@ -120,6 +170,11 @@ private final class HistoryModelClient: SessionClient {
         case .cancel:
             self.requests.append("cancel")
             return try await withCheckedThrowingContinuation { self.pendingCancel = $0 }
+        case let .selectSubscription(id):
+            self.requests.append("selection")
+            self.state.selectedSubscriptionID = id
+            self.state.historyRevision = UUID()
+            self.state.history = nil
         default: self.requests.append("selection")
         }
         return self.state
@@ -136,6 +191,8 @@ private final class HistoryModelClient: SessionClient {
     }
 
     func shutdown() async {
+        self.stopped = true
+        self.shutdowns += 1
         self.pendingHistory?.resume(throwing: CancellationError())
         self.pendingHistory = nil
         self.releaseCancel()
