@@ -76,6 +76,8 @@ The balance opens directly. Read the SIM and bundle selectors, remaining and tot
 
 For synthetic appearance proof, add `--fixture-appearance light`, `dark`, `high-contrast-light`, or `high-contrast-dark`. Add `--fixture-reduce-transparency` for the opaque fallback. Both options require `--fixture` and affect only this app instance.
 
+Normal launches inherit macOS appearance and native popover material. The fixture smoke's primary launch also inherits the current appearance; its later appearance overrides change no system preferences.
+
 The default **Example SIM** monthly bundle has 36 GB of 50 GB remaining. Its **Extra data** bundle has 4 GB of 5 GB. **Travel SIM** has 8 GB of 10 GB monthly and 1 GB of 2 GB extra. Switching SIMs selects its monthly bundle. Fixture Refresh preserves the selected scenario and amounts, shows a busy state, and advances the synthetic update timestamp. These controls never start the account worker.
 
 Issue22's redesigned native gate remains pending until fresh runtime captures and cleanup receipts pass. Existing proof for the former tab layout does not establish the new UI.
