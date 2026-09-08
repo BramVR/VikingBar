@@ -194,20 +194,26 @@ def run(environment):
     old_mask = os.umask(0o077)
     proof = None
     handlers = {}
+    cleanup_started = False
 
     def interrupted(_number, _frame):
-        raise UIFailure("history-proof-interrupted")
+        if cleanup_started:
+            return
+        if proof is not None and proof.launch_in_progress:
+            proof.termination_requested = True
+            return
+        raise UI.ProofTerminated()
 
     try:
         for number in (signal.SIGTERM, signal.SIGINT):
             handlers[number] = signal.signal(number, interrupted)
         proof = HistoryProof(environment)
         return proof.perform()
+    except UI.ProofTerminated:
+        raise UIFailure("history-proof-interrupted") from None
     finally:
+        cleanup_started = True
         try:
-            # A second cancellation must not interrupt owned-process cleanup.
-            for number in handlers:
-                signal.signal(number, signal.SIG_IGN)
             if proof is not None:
                 proof.cleanup()
         finally:

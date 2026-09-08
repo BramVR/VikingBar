@@ -23,6 +23,10 @@ class UIFailure(Exception):
     """Fixed public diagnostic."""
 
 
+class ProofTerminated(BaseException):
+    """Cancellation must escape ordinary proof retry handlers."""
+
+
 def private_write(path, value):
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
     with os.fdopen(os.open(path, flags, 0o600), "w") as stream:
@@ -188,6 +192,9 @@ def process_identity(pid):
 
 
 class NativeProof:
+    launch_in_progress = False
+    termination_requested = False
+
     def __init__(self, environment, *, stored_session=False):
         self.environment = environment
         self.peekaboo = environment.get("PEEKABOO_BIN")
@@ -266,25 +273,31 @@ class NativeProof:
             arguments += ["--credential-reference", self.reference]
         clean = {key: self.environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL")
                  if key in self.environment}
-        self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        label = label or ("initial" if first else "resumed")
-        self.launch_record = {
-            "pid": self.process.pid, "parentPID": os.getpid(), "arguments": arguments,
-            "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "executableSHA256": self.executable_hash, "workerOwnershipEstablished": False}
-        self.launches.append((self.process, self.launch_record))
-        identity = process_identity(self.process.pid)
-        if identity is None:
-            raise UIFailure("app-exited")
-        self.identity = identity["identity"]
-        self.launch_record.update(identity=self.identity, cli=str(self.cli),
-                                  cliSHA256=hashlib.sha256(self.cli.read_bytes()).hexdigest())
-        workers = self.capture_worker(self.process, self.launch_record, seconds=3)
-        if len(workers) != 1:
-            raise UIFailure("runtime-worker-identity-mismatch")
-        self.launch_record["workerOwnershipEstablished"] = True
-        private_write(self.directory / (label + "-process.json"), self.launch_record)
+        self.launch_in_progress = True
+        try:
+            self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            label = label or ("initial" if first else "resumed")
+            self.launch_record = {
+                "pid": self.process.pid, "parentPID": os.getpid(), "arguments": arguments,
+                "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "executableSHA256": self.executable_hash, "workerOwnershipEstablished": False}
+            self.launches.append((self.process, self.launch_record))
+            identity = process_identity(self.process.pid)
+            if identity is None:
+                raise UIFailure("app-exited")
+            self.identity = identity["identity"]
+            self.launch_record.update(identity=self.identity, cli=str(self.cli),
+                                      cliSHA256=hashlib.sha256(self.cli.read_bytes()).hexdigest())
+            workers = self.capture_worker(self.process, self.launch_record, seconds=3)
+            if len(workers) != 1:
+                raise UIFailure("runtime-worker-identity-mismatch")
+            self.launch_record["workerOwnershipEstablished"] = True
+            private_write(self.directory / (label + "-process.json"), self.launch_record)
+        finally:
+            self.launch_in_progress = False
+            if self.termination_requested:
+                raise ProofTerminated()
         tree = wait_for(self.inspect, lambda value: visible_status(value, self.screens), seconds=20)
         if tree.get("activationPolicy") != 1:
             raise UIFailure("accessory-policy-required")

@@ -223,6 +223,7 @@ cleanup_fails = sys.argv[3] == 'yes'
 handlers = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT)}
 mask = os.umask(0o027)
 class FakeProof:
+    launch_in_progress = False
     def __init__(self, environment): pass
     def perform(self):
         identity = subprocess.check_output(
@@ -255,6 +256,19 @@ sys.exit(code)
                     error = "history-proof-interrupted" if cleanup_fails == "no" else "history-proof-failed"
                     self.assertIn({"passed": False, "error": error}, events)
                     self.assertEqual(result.stderr, "")
+
+    def test_signals_escape_real_retry_and_defer_until_inert_launch_registration(self):
+        for mode in ("retry", "before-spawn", "registration"):
+            for number in ("SIGTERM", "SIGINT"):
+                with self.subTest(mode=mode, signal=number):
+                    directory = tempfile.mkdtemp(prefix="vikingbar-history-signal-")
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "Scripts/tests/history-signal-driver.py"),
+                         directory, mode, number], capture_output=True, text=True, timeout=15)
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    events = [json.loads(line) for line in result.stdout.splitlines()]
+                    self.assertIn({"passed": False, "error": "history-proof-interrupted"}, events)
+                    self.assertIn({"behavior_passed": True, "mode": mode}, events)
 
 
 class HistoryOracleTests(unittest.TestCase):
