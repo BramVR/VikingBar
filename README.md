@@ -1,52 +1,59 @@
+![VikingBar: Mobile Vikings usage in your Mac menu bar](docs/assets/vikingbar-header.png)
+
 # VikingBar
 
-Native macOS menu bar app for Mobile Vikings usage, allowances, Viking Points, and bills. Inspired by [CodexBar](https://github.com/steipete/CodexBar).
+VikingBar is a native macOS menu bar app for Mobile Vikings. It shows your remaining mobile data without opening My Viking.
 
-## Status
+## What it shows
 
-The native app opens a live account session by default. Connect through the approved 1Password helper to show a selected SIM's data bundle, expiry, and extra charges. See [account setup](docs/live-account.md). Explicit fixture launches remain isolated from account access.
+The helmet in the menu bar shows the selected data bundle's remaining allowance. The app includes:
 
-Native live proof covers API comparisons, refresh, stored-token recovery after relaunch and a release rebuild, and readable bundle selection. See [recorded coverage and limits](docs/live-proof.md#recorded-coverage).
+- Separate SIM and data bundle selection, with allowance, expiry, and extra charges in euros.
+- An optional remaining-GB label beside the helmet, controlled in **Settings**.
+- Customer-wide Viking Points, with separate available, pending, and blocked balances and recent transactions.
+- Manual refresh and stale-data indicators that keep the last successful balance visible when a request fails.
 
-The menu bar helmet shows the remaining allowance through its inset bar. Open **Settings** in the data card to enable **Show remaining GB in menu bar**. The saved choice defaults to off. The optional label uses decimal GB even when the card uses GiB.
+Each SIM keeps its own allowance. Viking Points belong to the whole account. Missing amounts stay unavailable rather than appearing as zero.
 
-The **Bills** tab shows the latest account invoice or credit note, including grouped scope, payment state, and amount due. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md). Live invoice verification remains pending.
+The **Bills** tab shows the latest account invoice or credit note, including grouped scope, payment state, and amount due. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md). Native invoice verification remains pending.
 
-## Planned behavior
+## Requirements and availability
 
-- Daily usage chart and an explicitly labeled cycle forecast.
-- Viking Points.
-- Launch at login.
+VikingBar currently targets Apple Silicon Macs with macOS 14 or later. Building from source requires Swift 6.2 or later and Python 3.
 
-## Build plan
+Development builds have no Developer ID signing or notarization. Public distribution and automatic updates are not configured. The [build download guide](docs/RELEASING.md#download-a-development-build) covers app and CLI artifacts from GitHub Actions.
 
-1. [Fixture menu app and shared core](https://github.com/BramVR/VikingBar/issues/1).
-2. [Automatic live API proof with 1Password](https://github.com/BramVR/VikingBar/issues/2).
-3. [CI checks, build artifacts, and draft releases](https://github.com/BramVR/VikingBar/issues/3).
-4. [Live bundle display](https://github.com/BramVR/VikingBar/issues/4).
-5. [Daily history and forecast](https://github.com/BramVR/VikingBar/issues/5).
-6. [Viking Points](https://github.com/BramVR/VikingBar/issues/6).
-7. [Latest bill](https://github.com/BramVR/VikingBar/issues/7).
-8. [Local installation and launch at login](https://github.com/BramVR/VikingBar/issues/8).
+Daily usage history, cycle forecasts, and launch at login remain planned. The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
 
-Issues contain dependencies and required proof. CI follows the first runnable fixture app; live API proof can be established independently.
+## Getting started
 
-## Development
+The [development guide](docs/development.md) covers source builds and a demo with synthetic data. `make package-app` creates `.build/app/VikingBar.app`. A launch with `--fixture finite` shows a sample allowance without account or Keychain access.
 
-Swift 6.2, SwiftPM, SwiftUI/AppKit, a shared core, and a small CLI. Initial target is macOS 14+, Apple Silicon. Run `make check`, `make package-app`, and `make smoke-app-fixture`. See [development commands](docs/development.md).
+The app has no Dock icon. Its helmet opens the data card. **Settings** contains **Show remaining GB in menu bar**, which defaults to off. That label uses decimal GB even when the card uses GiB.
 
-See [contribution checks](CONTRIBUTING.md) for CI parity and [build downloads and draft releases](docs/RELEASING.md) for development artifacts.
+For your own balance, the [account setup guide](docs/live-account.md) covers connection through **Connect with 1Password**. The current connection helper requires the 1Password CLI, tmux, `/usr/bin/python3`, and the service-account and credential-reference setup described in that guide.
 
-Start with [VISION.md](VISION.md), [CONTEXT.md](CONTEXT.md), [AGENTS.md](AGENTS.md), and the [docs index](docs/README.md).
+Opening the app without `--fixture` restores a live session or shows account setup. Subsequent refreshes use the stored token.
 
-## Credentials
+## Credentials and account data
 
-1Password holds the login credentials. The public OAuth client needs no client secret. The bundled CLI owns refresh tokens in macOS Keychain. The native app communicates with that CLI over private pipes. Never commit passwords, tokens, account responses, or private proof artifacts. See [authentication findings](CONTEXT.md#authentication).
+The connection helper reads the configured 1Password item once. The bundled CLI stores refresh tokens in macOS Keychain and communicates with the app over private pipes. The public OAuth client needs no client secret.
 
-## Attribution
+VikingBar restricts account requests to authentication and allowlisted data reads. Account changes and payments are outside its scope. Credentials, account responses, and private screenshots stay out of commits and hosted CI. The [live proof guide](docs/live-proof.md) documents request limits and verification coverage.
 
-CodexBar is the reference for app structure and contributor guidance. Preserve its MIT notices when copying code. VikingBar's own code license has not yet been selected.
+## Development and help
 
-## Local API proof
+VikingBar uses SwiftPM, SwiftUI, AppKit, a shared Swift core, and a diagnostic CLI. `make check` runs formatting, lint, compilation, tests, documentation checks, and CLI fixtures. The [development guide](docs/development.md) lists the required tools.
 
-See [local proof setup](docs/live-proof.md) for `make check-proof` and the credential-gated `make proof-live CHECK=auth-balance`. Ordinary fixture runs require no account access.
+Project resources:
+
+- [Contribution guide](CONTRIBUTING.md) for checks and pull request requirements.
+- [Documentation index](docs/README.md) for architecture, account setup, and verification.
+- [Changelog](CHANGELOG.md) for implemented changes.
+- [GitHub issues](https://github.com/BramVR/VikingBar/issues) for bug reports and feature requests.
+
+Maintained by [BramVR](https://github.com/BramVR).
+
+## License and attribution
+
+VikingBar's own code license has not yet been selected. [CodexBar](https://github.com/steipete/CodexBar) is the reference for app structure and contributor guidance. Copied CodexBar code retains its MIT attribution.
