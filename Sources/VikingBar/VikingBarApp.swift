@@ -42,12 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.popover.appearance = appearance
         }
         self.popover.behavior = .transient
-        self.popover.contentSize = NSSize(width: 360, height: 480)
-        self.popover.contentViewController = NSHostingController(rootView: PopoverView(
+        let hosting = NSHostingController(rootView: PopoverView(
             session: self.session,
             connect: self.connect,
             fixtureReduceTransparency: self.options.fixtureReduceTransparency,
         ))
+        hosting.sizingOptions = [.preferredContentSize]
+        self.popover.contentViewController = hosting
+        self.popover.contentSize = hosting.view.fittingSize
         self.session.start()
     }
 

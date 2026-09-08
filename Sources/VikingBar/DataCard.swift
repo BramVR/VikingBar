@@ -129,6 +129,7 @@ struct DataCard: View {
                     Text(self.session.extraChargesText).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("vikingbar.bundleDetails")
         }
     }
