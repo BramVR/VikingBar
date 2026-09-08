@@ -176,6 +176,24 @@ struct InvoiceTests {
         }
     }
 
+    @Test func `PDF download negotiates vendor response while metadata stays JSON authenticated`() async throws {
+        let transport = InvoiceTestTransport(pages: [Self.page([Self.item()])])
+        let api = LiveAPI(transport: InvoiceNegotiationTransport(base: transport), now: { LiveModelsTests.now })
+        let invoices = try await api.invoices(token: Self.token)
+        let invoice = try #require(invoices.invoices.first)
+        let pdf = try await api.invoicePDF(id: invoice.id, token: Self.token)
+        #expect(pdf == Self.pdf)
+        let requests = await transport.requests
+        #expect(requests.count == 2)
+        #expect(requests.first?.url?.absoluteString
+            == "https://uwa.mobilevikings.be/mv/invoices?page=1&per_page=20")
+        #expect(requests.first?.value(forHTTPHeaderField: "Accept") == "application/json")
+        #expect(requests.last?.url?.absoluteString == "https://uwa.mobilevikings.be/mv/invoices/inv-1/pdf")
+        #expect(requests.last?.value(forHTTPHeaderField: "Accept") == "*/*")
+        #expect(requests.allSatisfy { $0.httpMethod == "GET" })
+        #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-access" })
+    }
+
     @Test func `PDF rejects redirect html missing type truncated oversized and failed responses`() async throws {
         let pdf = Data("%PDF-1.7\nsynthetic\n%%EOF\n".utf8)
         let responses = [ProofHTTPResponse(statusCode: 302, data: pdf, contentType: "application/pdf"),
@@ -202,6 +220,18 @@ struct InvoiceTests {
                     .invoicePDF(id: "inv-1", token: Self.token)
             }
         }
+    }
+}
+
+private struct InvoiceNegotiationTransport: ProofHTTPTransport {
+    let base: InvoiceTestTransport
+
+    func send(_ request: URLRequest) async throws -> ProofHTTPResponse {
+        let acceptsPDF = request.value(forHTTPHeaderField: "Accept") == "*/*"
+        if request.url?.path.hasSuffix("/pdf") == true, !acceptsPDF {
+            return ProofHTTPResponse(statusCode: 406, data: Data())
+        }
+        return try await self.base.send(request)
     }
 }
 
