@@ -20,6 +20,22 @@ func elements(_ element: AXUIElement, depth: Int = 0) -> [AXUIElement] {
     return [element] + children(element).flatMap { elements($0, depth: depth + 1) }
 }
 
+func uniqueElement(_ matches: [AXUIElement]) -> AXUIElement? {
+    guard let first = matches.first, matches.dropFirst().allSatisfy({ CFEqual(first, $0) }) else { return nil }
+    return first
+}
+
+func fillDirectFields(
+    _ targets: [AXUIElement], values: [String],
+    focus: (AXUIElement) -> Bool, setValue: (AXUIElement, String) -> Bool
+) -> Bool {
+    guard let first = targets.first, targets.count == values.count else { return false }
+    for (target, value) in zip(targets, values) {
+        guard focus(target), setValue(target, value) else { return false }
+    }
+    return focus(first)
+}
+
 func record(_ element: AXUIElement, redactText: Bool = false) -> [String: Any] {
     var result: [String: Any] = [:]
     let keys = redactText
@@ -86,14 +102,18 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
         var targets: [AXUIElement] = []
         for (_, identifier) in fields {
             let matches = tree.filter { (attribute($0, "AXIdentifier") as? String) == "vikingbar.connect." + identifier }
-            guard matches.count == 1 else { exit(1) }
-            targets.append(matches[0])
+            guard let target = uniqueElement(matches) else { exit(1) }
+            targets.append(target)
         }
         guard (attribute(targets[2], "AXSubrole") as? String) == "AXSecureTextField" else { exit(1) }
-        for (index, field) in fields.enumerated() {
-            guard AXUIElementSetAttributeValue(targets[index], kAXValueAttribute as CFString,
-                                              payload[field.0]! as CFString) == .success else { exit(1) }
-        }
+        let filled = fillDirectFields(targets, values: fields.map { payload[$0.0]! }, focus: { target in
+            guard AXUIElementSetAttributeValue(target, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
+            else { return false }
+            return (attribute(target, kAXFocusedAttribute as String) as? Bool) == true
+        }, setValue: { target, value in
+            AXUIElementSetAttributeValue(target, kAXValueAttribute as CFString, value as CFString) == .success
+        })
+        guard filled else { exit(1) }
         print("{\"filled\":true}")
     } catch {
         exit(1)

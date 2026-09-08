@@ -186,6 +186,8 @@ def direct_connection_choices():
     for identifier in ('client-id', 'username', 'password', 'submit', 'cancel'):
         assert element(data, 'vikingbar.connect.' + identifier), 'Direct form control missing.'
     assert element(data, 'vikingbar.connect.password').get('AXSubrole') == 'AXSecureTextField'
+    assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    capture_card('direct-form-empty', fixture=False)
     press('vikingbar.connect.submit', 'direct-empty-submit')
     data = wait_for(lambda: inspect('direct-validation.json'), lambda d:
                     element(d, 'vikingbar.connect.error').get('messageCode') == 'required-fields')
