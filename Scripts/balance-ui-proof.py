@@ -53,6 +53,13 @@ def direct_configuration(environment, now=None):
                 or any(not isinstance(value[key], str) or not value[key].strip()
                        for key in ("tmux_session", "credential_slot", "mac_ui_slot"))):
             raise ValueError()
+        for key, variable in (("credential_slot", "VIKINGBAR_CREDENTIAL_SLOT"),
+                              ("mac_ui_slot", "VIKINGBAR_MAC_UI_SLOT")):
+            if (value[key].strip().upper() in {"INACTIVE", "DISABLED", "PENDING", "NONE"}
+                    or value[key] != environment.get(variable)):
+                raise ValueError()
+        if value["expires_at"] != environment.get("VIKINGBAR_SLOT_BINDINGS_EXPIRES_AT"):
+            raise ValueError()
         expires = datetime.datetime.fromisoformat(value["expires_at"].replace("Z", "+00:00"))
         now = now or datetime.datetime.now(datetime.timezone.utc)
         if not 0 < (expires - now).total_seconds() <= 3600:
@@ -79,6 +86,16 @@ def private_write(path, value):
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
     with os.fdopen(os.open(path, flags, 0o600), "w") as stream:
         json.dump(value, stream, sort_keys=True)
+
+
+def private_publish(path, value):
+    temporary = path.with_name(path.name + "." + uuid.uuid4().hex)
+    try:
+        with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as stream:
+            json.dump(value, stream, sort_keys=True)
+        os.link(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def frame(element):
@@ -225,7 +242,7 @@ def wait_for(operation, predicate, seconds=90):
 
 
 def process_identity(pid):
-    result = subprocess.run(["ps", "-p", str(pid), "-o", "pid=,ppid=,lstart=,command="],
+    result = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "pid=,ppid=,lstart=,command="],
                             capture_output=True, timeout=5, check=False,
                             env={"PATH": os.defpath, "LC_ALL": "C"})
     if result.returncode == 1 and not result.stdout.strip():
@@ -380,8 +397,8 @@ class NativeProof:
             current = process_identity(process.pid)
             if current is None or current["identity"].split() != launch.get("identity", "").split():
                 raise UIFailure("process-identity-changed")
-            children = subprocess.run(["pgrep", "-P", str(process.pid)], capture_output=True,
-                                      timeout=5, check=False)
+            children = subprocess.run(["/usr/bin/pgrep", "-P", str(process.pid)], capture_output=True,
+                                      timeout=5, check=False, env={"PATH": os.defpath, "LC_ALL": "C"})
             if children.returncode not in (0, 1) or (children.returncode == 1 and children.stdout.strip()):
                 raise UIFailure("runtime-worker-inspection-failed")
             pids = children.stdout.decode().split()
@@ -391,17 +408,56 @@ class NativeProof:
             for pid in pids:
                 worker = process_identity(int(pid))
                 if (worker is not None and worker["parentPID"] == process.pid
-                        and worker["command"] == launch["cli"] + " session"):
+                        and worker["command"] in (launch["cli"] + " session", launch["cli"] + " connect")):
                     worker["cliSHA256"] = launch["cliSHA256"]
                     if not any(saved["pid"] == worker["pid"] and saved["startTime"] == worker["startTime"]
                                for saved in self.workers):
                         self.workers.append(worker)
                         private_write(self.directory / "workers.json", self.workers)
-                    matches.append(worker)
+                    if worker["command"] == launch["cli"] + " session":
+                        matches.append(worker)
             if matches or time.monotonic() >= deadline:
                 return matches
             time.sleep(0.05)
         return []
+
+    def capture_direct_child(self, launch, *, acknowledge=False, seconds=0):
+        candidate_path = self.directory / "direct-connect-child.json"
+        try:
+            if seconds:
+                wait_for(lambda: candidate_path.is_file(), bool, seconds=seconds)
+            candidate = json.loads(candidate_path.read_bytes())
+            if (set(candidate) != {"schema_version", "pid", "parentPID"}
+                    or type(candidate["schema_version"]) is not int or candidate["schema_version"] != 1
+                    or any(type(candidate[key]) is not int or candidate[key] <= 1 for key in ("pid", "parentPID"))
+                    or candidate["parentPID"] != launch["pid"] or candidate_path.is_symlink()
+                    or candidate_path.stat().st_mode & 0o077):
+                raise ValueError()
+        except (OSError, ValueError, TypeError, KeyError):
+            raise UIFailure("direct-child-ownership-unverified") from None
+        matches = [worker for worker in self.workers if worker["pid"] == candidate["pid"]
+                   and worker["parentPID"] == launch["pid"] and worker["command"] == launch["cli"] + " connect"
+                   and worker["cliSHA256"] == launch["cliSHA256"]]
+        if not matches:
+            worker = process_identity(candidate["pid"])
+            if (worker is None or worker["parentPID"] != launch["pid"]
+                    or worker["command"] != launch["cli"] + " connect"
+                    or hashlib.sha256(Path(launch["cli"]).read_bytes()).hexdigest() != launch["cliSHA256"]):
+                raise UIFailure("direct-child-ownership-unverified")
+            worker["cliSHA256"] = launch["cliSHA256"]
+            self.workers.append(worker)
+            private_write(self.directory / "workers.json", self.workers)
+        elif len(matches) == 1:
+            worker = matches[0]
+        else:
+            raise UIFailure("direct-child-ownership-unverified")
+        if acknowledge and not self.worker_present(worker):
+            raise UIFailure("direct-child-exited-before-input")
+        launch["connectOwnershipEstablished"] = True
+        private_write(self.directory / "direct-connect-process.json", worker)
+        if acknowledge:
+            private_publish(self.directory / "direct-connect-child-ready.json", {"schema_version": 1, "pid": worker["pid"]})
+        return worker
 
     def verify_worker(self, label):
         self.verify_process()
@@ -456,7 +512,7 @@ class NativeProof:
         for _ in range(64):
             if ancestor == int(parts[1]):
                 break
-            parent = subprocess.run(["ps", "-p", str(ancestor), "-o", "ppid="], env=clean,
+            parent = subprocess.run(["/bin/ps", "-p", str(ancestor), "-o", "ppid="], env=clean,
                                     capture_output=True, timeout=5, check=False)
             if parent.returncode or not parent.stdout.strip().isdigit():
                 raise UIFailure("direct-proof-tmux-mismatch")
@@ -512,7 +568,11 @@ class NativeProof:
             del payload
             if result.returncode or result.stdout.strip() != b'{"filled":true}':
                 raise UIFailure("native-direct-fill-failed")
+            self.launch_record["connectOwnershipRequired"] = True
+            self.launch_record["connectOwnershipEstablished"] = False
+            private_write(self.directory / "direct-connect-launch.json", self.launch_record)
             self.press("vikingbar.connect.submit")
+            child = self.capture_direct_child(self.launch_record, acknowledge=True, seconds=10)
         except (OSError, subprocess.SubprocessError, CONNECT.ConnectFailure):
             raise UIFailure("native-direct-input-failed") from None
         finally:
@@ -520,6 +580,7 @@ class NativeProof:
         receipt_path = self.directory / "connect-result.json"
         wait_for(lambda: receipt_path.exists(), bool, seconds=170)
         validate_connect_receipt(json.loads(receipt_path.read_text()))
+        wait_for(lambda: self.worker_present(child), lambda present: not present, seconds=10)
         private_write(self.directory / "direct-input.json", {
             "credentialReads": 1, "privatePipe": True, "formCaptureSkipped": True,
             "appCredentialReference": False, "processExecRestricted": True})
@@ -617,6 +678,11 @@ class NativeProof:
     def cleanup(self):
         failures = []
         for process, launch in self.launches:
+            if launch.get("connectOwnershipRequired"):
+                try:
+                    self.capture_direct_child(launch)
+                except Exception as error:
+                    failures.append(error)
             if launch.get("workerOwnershipEstablished") is not True:
                 failures.append(UIFailure("cleanup-worker-ownership-unverified"))
             if process.poll() is not None:

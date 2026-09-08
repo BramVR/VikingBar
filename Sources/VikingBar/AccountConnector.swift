@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import VikingBarCore
 
@@ -43,12 +42,7 @@ actor AccountConnector: AccountConnecting {
         }
         self.child = child
         defer { self.child = nil }
-        let writer = Task.detached {
-            if let directCredentials {
-                try child.input.write(contentsOf: directCredentials.takePayload())
-                try child.input.close()
-            }
-        }
+        let writer = Task.detached { try await Self.sendCredentials(directCredentials, child: child, proof: resultURL) }
         let reader = Task.detached { try await Self.readReceipt(child: child) }
         let timeout = Task {
             do { try await Task.sleep(for: .seconds(190)) } catch { return }
@@ -64,7 +58,7 @@ actor AccountConnector: AccountConnecting {
             try Task.checkCancellation()
             try Self.validateReceipt(data, exitStatus: child.process.terminationStatus)
             if directCredentials != nil, let resultURL {
-                try Self.writeReceipt(data, to: resultURL)
+                try ConnectionProof.write(data, to: resultURL)
             }
         } catch {
             await child.stop(grace: .seconds(12))
@@ -75,6 +69,17 @@ actor AccountConnector: AccountConnecting {
             }
             throw error as? LiveBridgeFailure ?? .connectFailed
         }
+    }
+
+    private static func sendCredentials(
+        _ credentials: ConnectionCredentials?, child: OwnedProcess, proof: URL?,
+    ) async throws {
+        guard let credentials else { return }
+        if let proof {
+            try await ConnectionProof.register(child: child, resultURL: proof)
+        }
+        try child.input.write(contentsOf: credentials.takePayload())
+        try child.input.close()
     }
 
     private static func readReceipt(child: OwnedProcess) async throws -> Data {
@@ -129,18 +134,8 @@ actor AccountConnector: AccountConnecting {
         }
         struct Receipt: Encodable { let passed = false; let error: BootstrapFailure }
         if let data = try? JSONEncoder().encode(Receipt(error: failure)) {
-            try? Self.writeReceipt(data, to: url)
+            try? ConnectionProof.write(data, to: url)
         }
-    }
-
-    private static func writeReceipt(_ data: Data, to url: URL) throws {
-        let descriptor = Darwin.open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-        guard descriptor >= 0 else { throw LiveBridgeFailure.connectFailed }
-        let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        do {
-            try file.write(contentsOf: data)
-            try file.close()
-        } catch { throw LiveBridgeFailure.connectFailed }
     }
 
     func cancel() async {

@@ -21,7 +21,9 @@ struct DirectConnectionProcessTests {
             helperURL: fixture.directory.appending(path: "absent"),
         )
         let receipt = fixture.directory.appending(path: "receipt.json")
-        try await connector.connect(input: .credentials(credentials), resultURL: receipt)
+        let connecting = Task { try await connector.connect(input: .credentials(credentials), resultURL: receipt) }
+        try await fixture.acknowledgeDirectConnection()
+        try await connecting.value
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: receipt)) as? [String: Any]
         #expect(saved.map { Set($0.keys) } == ["schema_version", "check", "passed", "connected"])
         #expect(saved?["passed"] as? Bool == true)
@@ -41,8 +43,11 @@ struct DirectConnectionProcessTests {
         defer { fixture.cleanup() }
         let connector = AccountConnector(cliURL: fixture.executable, helperURL: fixture.executable)
         let receipt = fixture.directory.appending(path: "failure.json")
+        let credentials = try Self.credentials()
+        let connecting = Task { try await connector.connect(input: .credentials(credentials), resultURL: receipt) }
+        try await fixture.acknowledgeDirectConnection()
         do {
-            try await connector.connect(input: .credentials(Self.credentials()), resultURL: receipt)
+            try await connecting.value
             Issue.record("Expected a rejected sign-in")
         } catch let failure as LiveBridgeFailure {
             #expect(failure.message == LiveBridgeFailure.bootstrap(.tokenRejected).message)
