@@ -50,6 +50,14 @@ struct VikingBarCLI {
             await self.historyProof()
             return
         }
+        if arguments == ["proof", "invoices"] {
+            await self.invoiceProof()
+            return
+        }
+        if arguments == ["proof", "points-api"] {
+            await self.pointsProof()
+            return
+        }
         if arguments == ["proof", "balance-api"] {
             await self.balanceProof()
             return

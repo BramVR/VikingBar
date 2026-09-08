@@ -93,6 +93,10 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var subscriptions: [MobileSubscription] = []
     public internal(set) var selectedSubscriptionID: String?
     public internal(set) var balance: LiveBalance?
+    public internal(set) var invoices: InvoiceSnapshot?
+    public internal(set) var invoiceFailure: LiveFailure?
+    public internal(set) var invoiceDocument: InvoiceDocument?
+    public internal(set) var points: CustomerPoints?
     public internal(set) var selectedBundleIndex: Int?
     public internal(set) var historyRevision: UUID?
     public internal(set) var history: UsageHistory?
@@ -103,4 +107,17 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var scopeMismatch = false
 
     public init() {}
+}
+
+public extension LiveSessionState {
+    mutating func mergePoints(from state: LiveSessionState) {
+        guard self.connectionID == state.connectionID else { return }
+        self.points = state.points
+    }
+
+    mutating func mergeInvoices(from state: LiveSessionState) {
+        guard self.connectionID == state.connectionID else { return }
+        self.invoices = state.invoices
+        self.invoiceFailure = state.invoiceFailure
+    }
 }

@@ -52,7 +52,7 @@ class HistoryProofTests(unittest.TestCase):
                 element["frame"] = [[210, 100], [100, 20]]
         for element in self.tree["elements"][1:]:
             element["frame"] = [[210, 400], [300, 20]]
-        self.tree["elements"] += balance.tree["elements"]
+        self.tree["elements"] += [e for e in balance.tree["elements"] if e.get("AXRole") != "AXPopover"]
         self.tree["elements"].append({"AXRole": "AXPopover", "frame": [[180, 50], [360, 760]]})
 
     def test_receipt_requires_real_summary_mapping_and_forecast(self):

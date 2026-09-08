@@ -10,10 +10,21 @@ private actor SyntheticSession {
             FileHandle.standardError.write(Data("refresh-started\n".utf8))
             try await Task.sleep(for: .seconds(30))
             self.current.selectedSubscriptionID = "unexpected-completion"
+        case .refreshInvoices:
+            self.current.invoices = .empty(updatedAt: Date(timeIntervalSince1970: 0))
+        case .downloadInvoice:
+            self.current.invoiceDocument = InvoiceDocument(
+                invoiceID: command.id!, fileURL: URL(fileURLWithPath: "/synthetic/invoice.pdf"),
+            )
         case .selectBundle:
             self.current.selectedBundleIndex = command.index
         case .restore:
             self.current.selectedSubscriptionID = "restored"
+        case .refreshPoints:
+            if CommandLine.arguments.contains("--hold-points") {
+                FileHandle.standardError.write(Data("points-started\n".utf8))
+                try await Task.sleep(for: .seconds(30))
+            }
         case .selectSubscription:
             self.current.selectedSubscriptionID = command.id
         case .cancel, .shutdown:

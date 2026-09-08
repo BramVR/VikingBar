@@ -5,7 +5,6 @@ import datetime
 import hashlib
 import importlib.util
 import json
-import math
 import os
 from pathlib import Path
 import sys
@@ -55,32 +54,11 @@ def history_timestamp(report):
         raise UIFailure("history-live-report-invalid") from None
 
 
-def rectangle(frame):
-    try:
-        (x, y), (width, height) = frame
-        values = (x, y, width, height)
-        if (all(type(value) in (int, float) and math.isfinite(value) for value in values)
-                and width > 0 and height > 0 and math.isfinite(x + width) and math.isfinite(y + height)):
-            return values
-    except (TypeError, ValueError, OverflowError):
-        pass
-    raise UIFailure("native-history-frame-invalid")
-
-
-def in_bounds(frame, boundary):
-    try:
-        x, y, width, height = rectangle(frame)
-        bx, by, bw, bh = rectangle(boundary)
-        return x >= bx and y >= by and x + width <= bx + bw and y + height <= by + bh
-    except UIFailure:
-        return False
-
-
 def window_frame(window):
     try:
         bounds = window["kCGWindowBounds"]
         result = [[bounds["X"], bounds["Y"]], [bounds["Width"], bounds["Height"]]]
-        rectangle(result)
+        UI.frame({"frame": result})
         if type(window["kCGWindowNumber"]) is int and window["kCGWindowNumber"] > 0:
             return result
     except (KeyError, TypeError):
@@ -89,36 +67,24 @@ def window_frame(window):
 
 
 def same_frame(left, right):
-    return all(abs(a - b) < 1 for a, b in zip(rectangle(left), rectangle(right)))
+    return all(abs(a - b) < 1 for a, b in zip(UI.frame({"frame": left}), UI.frame({"frame": right})))
 
 
 def history_window(tree, screens):
     popovers = [element for element in tree.get("elements", []) if element.get("AXRole") == "AXPopover"]
     if len(popovers) != 1:
         raise UIFailure("native-history-popover-ambiguous")
-    frame = popovers[0].get("frame")
-    rectangle(frame)
-    displays = []
-    for screen in screens:
-        try:
-            bounds = screen["bounds"]
-            display = [[bounds["x"], bounds["y"]], [bounds["width"], bounds["height"]]]
-            rectangle(display)
-            displays.append(display)
-        except (KeyError, TypeError, UIFailure):
-            continue
     matches = []
     for window in tree.get("windows", []):
         try:
-            candidate = window_frame(window)
-            if same_frame(frame, candidate) and any(
-                    in_bounds(frame, display) and in_bounds(candidate, display) for display in displays):
-                matches.append(window)
+            window_frame(window)
+            boundary, matched = UI.popover_window({"elements": popovers, "windows": [window]}, screens)
+            matches.append((boundary["frame"], matched))
         except UIFailure:
             continue
     if len(matches) != 1:
         raise UIFailure("native-history-popover-not-visible")
-    return frame, matches[0]
+    return matches[0]
 
 
 def validate_capture(data, window, path):
@@ -149,14 +115,14 @@ def compare_history(tree, report, screens):
                               ("vikingbar.historyStatus", "statusText"),
                               ("vikingbar.historyScope", "scopeText")):
         matches = [element for element in elements if element.get("AXIdentifier") == identifier]
-        if (len(matches) != 1 or not in_bounds(matches[0].get("frame"), boundary)
-                or not in_bounds(matches[0].get("frame"), capture_boundary)
+        if (len(matches) != 1 or not UI.contained(matches[0], {"frame": boundary})
+                or not UI.contained(matches[0], {"frame": capture_boundary})
                 or presentation[field] not in
                 [matches[0].get(key) for key in ("AXTitle", "AXValue", "AXDescription")]):
             raise UIFailure("native-history-text-mismatch")
     charts = [element for element in elements if element.get("AXIdentifier") == "vikingbar.historyChart"]
-    if (len(charts) != 1 or not in_bounds(charts[0].get("frame"), boundary)
-            or not in_bounds(charts[0].get("frame"), capture_boundary)):
+    if (len(charts) != 1 or not UI.contained(charts[0], {"frame": boundary})
+            or not UI.contained(charts[0], {"frame": capture_boundary})):
         raise UIFailure("native-history-chart-not-visible")
     chart = charts[0]
     values = [chart.get(key, "") for key in ("AXTitle", "AXValue", "AXDescription")]
@@ -168,7 +134,7 @@ def compare_history(tree, report, screens):
 
 class HistoryProof(UI.NativeProof):
     def __init__(self, environment):
-        super().__init__(environment, require_reference=False)
+        super().__init__(environment, stored_session=True)
 
     def matched_history(self, label, after=None):
         def observe():

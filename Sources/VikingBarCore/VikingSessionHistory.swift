@@ -2,7 +2,6 @@ import Foundation
 
 extension VikingSession {
     public func refreshHistory(force: Bool = false) async throws -> LiveSessionState {
-        guard self.flight == nil else { throw LiveFailure.busy }
         guard let context = self.current.historyContext,
               self.current.selectedBundle?.isActive(at: self.api.now()) == true,
               self.current.failure == nil else { return self.current }
@@ -13,7 +12,7 @@ extension VikingSession {
                 return self.current
             }
         }
-        return try await self.run(kind: .history) { generation in
+        return try await self.runOptional(kind: .history) { generation in
             try await self.fetchHistory(context: context, generation: generation, force: force)
         }
     }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import VikingBarCore
@@ -25,12 +26,23 @@ final class AppSession {
     }
 
     private(set) var settingsError: String?
-    private(set) var liveState = LiveSessionState()
+    var liveState = LiveSessionState()
     private(set) var activity: Activity = .idle
-    private(set) var isHistoryLoading = false
-    private(set) var historyError: String?
+    var historyError: String?
     private var bridgeFailure: LiveBridgeFailure?
     private var allowanceExpired = false
+    var invoiceError: String?
+    var pendingOptional: [OptionalIntent] = []
+    var activeOptional: OptionalIntent?
+    @ObservationIgnored var optionalOperation: Task<Void, Never>?
+    @ObservationIgnored var optionalRevision = 0
+    @ObservationIgnored var optionalCancellation: Task<Void, Never>?
+
+    @ObservationIgnored let openDocument: (URL) -> Bool
+
+    var bridgeError: String? {
+        self.bridgeFailure?.message
+    }
 
     let timeZone: TimeZone
     let referenceDate: Date
@@ -40,10 +52,9 @@ final class AppSession {
     @ObservationIgnored private let connectorFactory: () throws -> any AccountConnecting
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let sleepUntil: @Sendable (Date) async throws -> Void
-    @ObservationIgnored private var client: (any SessionClient)?
+    @ObservationIgnored var client: (any SessionClient)?
     @ObservationIgnored private var connector: (any AccountConnecting)?
     @ObservationIgnored private var operation: Task<Void, Never>?
-    @ObservationIgnored private var historyOperation: Task<Void, Never>?
     @ObservationIgnored private var scheduledRefresh: Task<Void, Never>?
     @ObservationIgnored private var scheduledExpiry: Task<Void, Never>?
     @ObservationIgnored private var snapshotRevision = 0
@@ -57,6 +68,7 @@ final class AppSession {
         clientFactory: @escaping () throws -> any SessionClient = { throw LiveBridgeFailure.unavailable },
         connectorFactory: @escaping () throws -> any AccountConnecting = { throw LiveBridgeFailure.connectFailed },
         now: @escaping () -> Date = Date.init,
+        openDocument: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
         sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
             try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
         },
@@ -72,6 +84,7 @@ final class AppSession {
         self.clientFactory = clientFactory
         self.connectorFactory = connectorFactory
         self.now = now
+        self.openDocument = openDocument
         self.sleepUntil = sleepUntil
     }
 
@@ -103,31 +116,6 @@ final class AppSession {
             snapshot: self.snapshot, showRemainingGB: self.showRemainingGB,
             unit: self.unit, timeZone: self.timeZone,
         )
-    }
-
-    var activeBundleIndices: [Int] {
-        guard let balance = self.liveState.balance else { return [] }
-        return balance.bundles.indices.filter { balance.bundles[$0].isActive(at: self.now()) }
-    }
-
-    var canRefresh: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && (self.isConnected || self.canRestartWorker)
-    }
-
-    var canSelectAccountData: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && self.isConnected && self.client != nil
-    }
-
-    private var canRestartWorker: Bool {
-        if case .unavailable? = self.bridgeFailure {
-            return true
-        }
-        return false
-    }
-
-    private var isConnected: Bool {
-        self.liveState.connectionID != nil
-            && ![.notConnected, .reconnectRequired, .unauthorized].contains(self.liveState.failure)
     }
 
     func start() {
@@ -176,8 +164,6 @@ final class AppSession {
         self.onPresentationChange?()
         self.operation = Task {
             await previous?.shutdown()
-            await self.historyOperation?.value
-            self.historyOperation = nil
             guard self.isCurrent(intent) else { return }
             do {
                 let connector = try self.connectorFactory()
@@ -207,16 +193,13 @@ final class AppSession {
         await connector?.cancel()
         await client?.shutdown()
         await operation?.value
-        await self.historyOperation?.value
-        self.historyOperation = nil
         self.operation = nil
     }
 
     private func begin(_ activity: Activity) -> Int {
+        self.interruptOptional(clear: activity == .connecting || activity == .stopped)
         self.generation += 1
         self.operation?.cancel()
-        self.historyOperation?.cancel()
-        self.isHistoryLoading = false
         self.scheduledRefresh?.cancel()
         self.scheduledRefresh = nil
         self.activity = activity
@@ -248,22 +231,35 @@ final class AppSession {
     }
 
     private func perform(_ request: SessionRequest, intent: Int) async {
+        await self.optionalCancellation?.value
         guard self.isCurrent(intent) else { return }
+        self.optionalCancellation = nil
         do {
             guard let client = self.client else { throw LiveBridgeFailure.unavailable }
-            await self.drainHistory(client: client)
-            guard self.isCurrent(intent) else { return }
             let state = try await client.request(request)
             guard self.isCurrent(intent) else { return }
             self.publish(state)
+            if case .refresh = request, self.isConnected {
+                self.enqueueOptional(.points)
+            }
+            guard self.isCurrent(intent) else { return }
+            if self.liveState.historyContext != nil, self.liveState.failure == nil {
+                self.enqueueOptional(.history)
+            }
             self.finish()
-            self.startHistory(intent: intent)
         } catch {
             await self.failWorker(intent: intent)
         }
     }
 
     private func publish(_ state: LiveSessionState) {
+        var state = state
+        if state.connectionID == self.liveState.connectionID {
+            state.mergePoints(from: self.liveState)
+            state.mergeInvoices(from: self.liveState)
+        } else {
+            self.pendingOptional.removeAll()
+        }
         self.liveState = state
         self.bridgeFailure = nil
         self.scheduleExpiry()
@@ -283,46 +279,13 @@ final class AppSession {
 }
 
 extension AppSession {
-    var bridgeError: String? {
-        self.bridgeFailure?.message
-    }
-
-    var balanceDetails: LiveBalancePresentation {
-        LiveBalancePresentation(state: self.liveState)
-    }
-
-    var historyPresentation: HistoryPresentation {
-        HistoryPresentation(history: self.liveState.matchingHistory, unit: self.unit, now: self.now())
-    }
-
-    private func drainHistory(client: any SessionClient) async {
-        guard let pending = self.historyOperation else { return }
-        pending.cancel()
-        _ = try? await client.request(.cancel)
-        await pending.value
-        self.historyOperation = nil
-    }
-
-    private func startHistory(intent: Int) {
-        guard self.isCurrent(intent), self.liveState.historyContext != nil,
-              self.liveState.failure == nil, let client = self.client else { return }
-        self.isHistoryLoading = true
-        self.historyError = nil
-        self.historyOperation = Task {
-            do {
-                try Task.checkCancellation()
-                let state = try await client.request(.refreshHistory)
-                guard self.isCurrent(intent) else { return }
-                self.liveState.mergeHistory(from: state)
-            } catch {
-                guard self.isCurrent(intent) else { return }
-                self.historyError = "History unavailable. Refresh to try again."
-            }
-            guard self.isCurrent(intent) else { return }
-            self.isHistoryLoading = false
-            self.historyOperation = nil
-            self.onPresentationChange?()
+    var points: PointsPresentation {
+        var values = self.isFixtureLaunch
+            ? self.fixture?.points(referenceDate: self.referenceDate) : self.liveState.points(at: self.now())
+        if !self.isFixtureLaunch, self.bridgeFailure != nil {
+            values?.markUnavailable(.transport)
         }
+        return PointsPresentation(points: values, timeZone: self.timeZone)
     }
 
     private func cancelExpiry() {
@@ -349,12 +312,55 @@ extension AppSession {
         self.activity = .idle
         self.operation = nil
         self.onPresentationChange?()
-        guard self.isConnected, let deadline = self.liveState.nextRefreshAt else { return }
-        let intent = self.generation
-        self.scheduledRefresh = Task { [weak self, sleepUntil] in
-            do { try await sleepUntil(deadline) } catch { return }
-            guard let self, self.isCurrent(intent) else { return }
-            self.refresh()
+        if self.isConnected, let deadline = self.liveState.nextRefreshAt {
+            let intent = self.generation
+            self.scheduledRefresh = Task { [weak self, sleepUntil] in
+                do { try await sleepUntil(deadline) } catch { return }
+                guard let self, self.isCurrent(intent) else { return }
+                self.refresh()
+            }
         }
+        self.pumpOptional()
+    }
+}
+
+extension AppSession {
+    var balanceDetails: LiveBalancePresentation {
+        LiveBalancePresentation(state: self.liveState)
+    }
+
+    var activeBundleIndices: [Int] {
+        guard let balance = self.liveState.balance else { return [] }
+        return balance.bundles.indices.filter { balance.bundles[$0].isActive(at: self.now()) }
+    }
+}
+
+extension AppSession {
+    var canRefresh: Bool {
+        !self.isFixtureLaunch && self.activity == .idle && (self.isConnected || self.canRestartWorker)
+    }
+
+    var canSelectAccountData: Bool {
+        !self.isFixtureLaunch && self.activity == .idle && self.isConnected && self.client != nil
+    }
+}
+
+extension AppSession {
+    private var canRestartWorker: Bool {
+        if case .unavailable? = self.bridgeFailure {
+            return true
+        }
+        return false
+    }
+
+    var isConnected: Bool {
+        self.liveState.connectionID != nil
+            && ![.notConnected, .reconnectRequired, .unauthorized].contains(self.liveState.failure)
+    }
+}
+
+extension AppSession {
+    var historyPresentation: HistoryPresentation {
+        HistoryPresentation(history: self.liveState.matchingHistory, unit: self.unit, now: self.now())
     }
 }

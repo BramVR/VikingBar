@@ -49,6 +49,8 @@ The smoke's three launches must each exit through `vikingbar.quit` with code 0. 
 - `make proof-live CHECK=balance-ui` requires the authorized [live balance](features/live-balance.md) recipe and private evidence.
 - `make proof-live CHECK=history` requires a stored connection and fresh account/UI slots. Follow [daily SIM history](features/history.md); required live proof remains unrun.
 - `make proof-live CHECK=auth-balance` requires the authorized [auth/balance proof](features/auth-balance-proof.md) recipe.
+- `make proof-live CHECK=invoices` requires the authorized [invoice proof](features/invoices.md) recipe. It accesses the stored account and downloads a PDF only when an invoice exists; it never opens a PDF viewer.
+- `make proof-live CHECK=points` requires the authorized [Viking Points](features/points.md) recipe, stored session, and private native evidence.
 - `make smoke-app-fixture` runs `Scripts/smoke-app-fixture.py` end to end.
 - `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action.
 - `make package-app` builds the bundle for interactive checks.

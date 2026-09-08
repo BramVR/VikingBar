@@ -33,7 +33,7 @@ struct HistoryAppSessionTests {
         let old = client.state
         model.refresh()
         try await AppSessionTests.until { client.pendingCancel != nil }
-        #expect(client.requests == ["restore", "refresh", "refreshHistory", "cancel"])
+        #expect(client.requests == ["restore", "refresh", "refreshPoints", "refreshHistory", "cancel"])
         #expect(model.activity == .refreshing)
         client.state.historyRevision = UUID()
         client.state.history = nil
@@ -44,8 +44,16 @@ struct HistoryAppSessionTests {
         )
         client.releaseHistory(old)
         client.releaseCancel()
-        try await AppSessionTests.until { client.requests.count == 6 }
-        #expect(client.requests == ["restore", "refresh", "refreshHistory", "cancel", "refresh", "refreshHistory"])
+        try await AppSessionTests.until { client.requests.count == 7 }
+        #expect(client.requests == [
+            "restore",
+            "refresh",
+            "refreshPoints",
+            "refreshHistory",
+            "cancel",
+            "refresh",
+            "refreshHistory",
+        ])
         #expect(model.snapshot.subscriptionName == "Updated")
         #expect(model.liveState.history == nil)
         client.releaseHistory(old)
@@ -105,6 +113,7 @@ private final class HistoryModelClient: SessionClient {
         switch request {
         case .restore: self.requests.append("restore")
         case .refresh: self.requests.append("refresh")
+        case .refreshPoints: self.requests.append("refreshPoints")
         case .refreshHistory:
             self.requests.append("refreshHistory")
             return try await withCheckedThrowingContinuation { self.pendingHistory = $0 }

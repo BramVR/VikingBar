@@ -31,7 +31,7 @@ The card labels the result **Estimated SIM data this cycle**. It makes no renewa
 
 ## Session ownership
 
-Balance refresh returns before history starts. The app then sends `refreshHistory` to the existing CLI worker. Foreground refresh or selection cancels and drains that optional command through the ordered worker protocol. History publication checks connection, SIM, cycle, and revision. The app merges only history from the reply, never an older balance.
+Balance refresh returns before history starts. The app queues `refreshHistory` alongside Points and Bills on the existing CLI worker. Only one optional command runs at a time; pending metadata survives a foreground refresh. Foreground refresh or selection cancels and drains that optional command through the ordered worker protocol. History publication checks connection, SIM, cycle, and revision. The app merges only history from the reply, never an older balance.
 
 History uses the access token obtained by balance refresh. It does not bootstrap credentials or rotate the token independently. Expiry and optional failures leave the main balance available. The next balance refresh can obtain a usable token and retry history.
 
