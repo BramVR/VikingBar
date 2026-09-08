@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import VikingBarCore
@@ -46,10 +47,18 @@ final class AppSession {
     @ObservationIgnored private let loginItems: any LoginItemManaging
     @ObservationIgnored private var appliedInterval: RefreshInterval = .fiveMinutes
     private(set) var settingsError: String?
-    private(set) var liveState = LiveSessionState()
+    var liveState = LiveSessionState()
     private(set) var activity: Activity = .idle
-    private var bridgeFailure: LiveBridgeFailure?
+    private(set) var bridgeFailure: LiveBridgeFailure?
     private var allowanceExpired = false
+    var invoiceError: String?
+    var pendingOptional: [OptionalIntent] = []
+    var activeOptional: OptionalIntent?
+    @ObservationIgnored var optionalOperation: Task<Void, Never>?
+    @ObservationIgnored var optionalRevision = 0
+    @ObservationIgnored var optionalCancellation: Task<Void, Never>?
+
+    @ObservationIgnored let openDocument: (URL) -> Bool
 
     var bridgeError: String? {
         self.bridgeFailure?.message
@@ -61,9 +70,9 @@ final class AppSession {
     @ObservationIgnored private let preferences: MenuBarPreferences
     @ObservationIgnored private let clientFactory: () throws -> any SessionClient
     @ObservationIgnored private let connectorFactory: () throws -> any AccountConnecting
-    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored let now: () -> Date
     @ObservationIgnored private let sleepUntil: @Sendable (Date) async throws -> Void
-    @ObservationIgnored private var client: (any SessionClient)?
+    @ObservationIgnored var client: (any SessionClient)?
     @ObservationIgnored private var connector: (any AccountConnecting)?
     @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var scheduledRefresh: Task<Void, Never>?
@@ -79,6 +88,7 @@ final class AppSession {
         clientFactory: @escaping () throws -> any SessionClient = { throw LiveBridgeFailure.unavailable },
         connectorFactory: @escaping () throws -> any AccountConnecting = { throw LiveBridgeFailure.connectFailed },
         now: @escaping () -> Date = Date.init,
+        openDocument: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
         sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
             try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
         },
@@ -98,15 +108,12 @@ final class AppSession {
         self.clientFactory = clientFactory
         self.connectorFactory = connectorFactory
         self.now = now
+        self.openDocument = openDocument
         self.sleepUntil = sleepUntil
     }
 }
 
 extension AppSession {
-    var launchAtLogin: Bool {
-        self.loginItemStatus == .enabled || self.loginItemStatus == .requiresApproval
-    }
-
     func checkLoginItem() {
         let status = self.loginItems.status
         if status != self.loginItemStatus {
@@ -153,33 +160,6 @@ extension AppSession {
         )
     }
 
-    var activeBundleIndices: [Int] {
-        guard let balance = self.liveState.balance else { return [] }
-        return balance.bundles.indices.filter { balance.bundles[$0].isActive(at: self.now()) }
-    }
-
-    var canRefresh: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && (self.isConnected || self.canRestartWorker)
-    }
-
-    var canSelectAccountData: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && self.isConnected && self.client != nil
-    }
-
-    private var canRestartWorker: Bool {
-        if case .unavailable? = self.bridgeFailure {
-            return true
-        }
-        return false
-    }
-
-    private var isConnected: Bool {
-        self.liveState.connectionID != nil
-            && ![.notConnected, .reconnectRequired, .unauthorized].contains(self.liveState.failure)
-    }
-}
-
-extension AppSession {
     func start() {
         guard !self.isFixtureLaunch, !self.hasStarted, self.activity != .stopped else { return }
         self.hasStarted = true
@@ -259,6 +239,7 @@ extension AppSession {
     }
 
     private func begin(_ activity: Activity) -> Int {
+        self.interruptOptional(clear: activity == .connecting || activity == .stopped)
         self.generation += 1
         self.operation?.cancel()
         self.scheduledRefresh?.cancel()
@@ -295,7 +276,9 @@ extension AppSession {
     }
 
     private func perform(_ request: SessionRequest, intent: Int) async {
+        await self.optionalCancellation?.value
         guard self.isCurrent(intent) else { return }
+        self.optionalCancellation = nil
         do {
             guard let client = self.client else { throw LiveBridgeFailure.unavailable }
             let state = try await client.request(request)
@@ -303,6 +286,9 @@ extension AppSession {
             self.publish(state)
             try await self.applyInterval(client: client, intent: intent)
             guard self.isCurrent(intent) else { return }
+            if case .refresh = request, self.isConnected {
+                self.enqueueOptional(.points)
+            }
             self.finish()
         } catch {
             await self.failWorker(intent: intent)
@@ -320,6 +306,9 @@ extension AppSession {
               self.appliedInterval != self.refreshInterval else { return }
         let intent = self.begin(.configuring)
         self.operation = Task {
+            await self.optionalCancellation?.value
+            guard self.isCurrent(intent) else { return }
+            self.optionalCancellation = nil
             do {
                 guard let client = self.client else { return }
                 try await self.applyInterval(client: client, intent: intent)
@@ -335,11 +324,20 @@ extension AppSession {
             let state = try await client.request(.configure(desired))
             guard self.isCurrent(intent) else { return }
             self.appliedInterval = desired
-            self.publish(state)
+            if state.connectionID == self.liveState.connectionID {
+                self.publish(state)
+            }
         }
     }
 
     private func publish(_ state: LiveSessionState) {
+        var state = state
+        if state.connectionID == self.liveState.connectionID {
+            state.mergePoints(from: self.liveState)
+            state.mergeInvoices(from: self.liveState)
+        } else {
+            self.pendingOptional.removeAll()
+        }
         self.liveState = state
         self.bridgeFailure = nil
         self.scheduleExpiry()
@@ -356,9 +354,7 @@ extension AppSession {
         self.client = nil
         self.activity = .idle
     }
-}
 
-extension AppSession {
     private func cancelExpiry() {
         self.snapshotRevision += 1
         self.scheduledExpiry?.cancel()
@@ -389,12 +385,14 @@ extension AppSession {
                 return
             }
         }
-        guard self.isConnected, let deadline = self.liveState.nextRefreshAt else { return }
-        let intent = self.generation
-        self.scheduledRefresh = Task { [weak self, sleepUntil] in
-            do { try await sleepUntil(deadline) } catch { return }
-            guard let self, self.isCurrent(intent) else { return }
-            self.refresh()
+        if self.isConnected, let deadline = self.liveState.nextRefreshAt {
+            let intent = self.generation
+            self.scheduledRefresh = Task { [weak self, sleepUntil] in
+                do { try await sleepUntil(deadline) } catch { return }
+                guard let self, self.isCurrent(intent) else { return }
+                self.refresh()
+            }
         }
+        self.pumpOptional()
     }
 }

@@ -30,7 +30,7 @@ struct AppSettingsTests {
         #expect(client.shutdowns == 0)
         client.releaseRefresh(.success(client.state))
         try await AppSessionTests.until { model.activity == .idle }
-        #expect(client.requests == ["restore", "refresh", "configure-3600"])
+        #expect(client.requests.filter { $0 != "refreshPoints" } == ["restore", "refresh", "configure-3600"])
         await model.stop()
     }
 
@@ -56,12 +56,12 @@ struct AppSettingsTests {
         try await AppSessionTests.until { due.pendingRefresh != nil }
         active.didWake()
         active.didWake()
-        #expect(due.requests == ["restore", "refresh"])
+        #expect(due.requests.filter { $0 != "refreshPoints" } == ["restore", "refresh"])
         due.state.nextRefreshAt = LiveModelsTests.now.addingTimeInterval(300)
         due.releaseRefresh(.success(due.state))
         try await AppSessionTests.until { active.activity == .idle }
         active.didWake()
-        #expect(due.requests == ["restore", "refresh"])
+        #expect(due.requests.filter { $0 != "refreshPoints" } == ["restore", "refresh"])
         await active.stop()
     }
 

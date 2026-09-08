@@ -46,6 +46,14 @@ struct VikingBarCLI {
     }
 
     private static func proof(arguments: [String]) async {
+        if arguments == ["proof", "invoices"] {
+            await self.invoiceProof()
+            return
+        }
+        if arguments == ["proof", "points-api"] {
+            await self.pointsProof()
+            return
+        }
         if arguments == ["proof", "balance-api"] {
             await self.balanceProof()
             return

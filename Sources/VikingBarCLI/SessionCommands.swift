@@ -3,7 +3,8 @@ import VikingBarCore
 
 struct SessionCommand: Decodable, Sendable {
     enum Name: String, Decodable, Sendable {
-        case restore, refresh, selectSubscription, selectBundle, configure, cancel, shutdown
+        case restore, refresh, refreshPoints, refreshInvoices, downloadInvoice, selectSubscription, selectBundle,
+             configure, cancel, shutdown
     }
 
     let command: Name
@@ -12,10 +13,14 @@ struct SessionCommand: Decodable, Sendable {
     let refreshInterval: RefreshInterval?
 
     func execute(on session: VikingSession) async throws {
+        await session.clearInvoiceDocument()
         switch self.command {
         case .configure: _ = await session.configure(refreshInterval: self.refreshInterval!)
         case .restore: _ = try await session.restore()
         case .refresh: _ = try await session.refresh()
+        case .refreshInvoices: _ = try await session.refreshInvoices()
+        case .downloadInvoice: _ = try await session.downloadInvoice(id: self.id!)
+        case .refreshPoints: _ = try await session.refreshPoints()
         case .selectSubscription: _ = try await session.selectSubscription(id: self.id!)
         case .selectBundle: _ = try await session.selectBundle(index: self.index!)
         case .cancel, .shutdown: await session.cancel()
@@ -32,14 +37,16 @@ struct SessionCommand: Decodable, Sendable {
         case .configure:
             keys = ["command", "refreshInterval"]
             guard value.refreshInterval != nil else { throw ProofFailure.invalidInput }
-        case .selectSubscription:
+        case .downloadInvoice, .selectSubscription:
             keys = ["command", "id"]
             guard let id = value.id else { throw ProofFailure.invalidInput }
-            _ = try ProofEndpoint.balance(subscriptionID: id).request()
+            let endpoint: ProofEndpoint = value.command == .downloadInvoice
+                ? .invoicePDF(id: id) : .balance(subscriptionID: id)
+            _ = try endpoint.request()
         case .selectBundle:
             keys = ["command", "index"]
             guard let index = value.index, index >= 0 else { throw ProofFailure.invalidInput }
-        case .restore, .refresh, .cancel, .shutdown:
+        case .restore, .refresh, .refreshPoints, .refreshInvoices, .cancel, .shutdown:
             keys = ["command"]
         }
         guard Set(object.keys) == keys else { throw ProofFailure.invalidInput }

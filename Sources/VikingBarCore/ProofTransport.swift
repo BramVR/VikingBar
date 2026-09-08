@@ -13,10 +13,12 @@ public enum ProofFailure: String, Codable, Error, Sendable {
 public struct ProofHTTPResponse: Sendable {
     public let statusCode: Int
     public let data: Data
+    public let contentType: String?
 
-    public init(statusCode: Int, data: Data) {
+    public init(statusCode: Int, data: Data, contentType: String? = nil) {
         self.statusCode = statusCode
         self.data = data
+        self.contentType = contentType
     }
 }
 
@@ -24,21 +26,18 @@ public protocol ProofHTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> ProofHTTPResponse
 }
 
-/// The only allowed operations for the authentication and balance gate.
+/// Approved authentication and read-only account operations.
 public enum ProofEndpoint: Sendable {
     case token
     case subscriptions
     case balance(subscriptionID: String)
+    case pointsBalance
+    case pointsTransactions(page: Int)
+    case invoices(page: Int)
+    case invoicePDF(id: String)
 
     public func request() throws -> URLRequest {
-        let path: String
-        switch self {
-        case .token: path = "/oauth2/token/"
-        case .subscriptions: path = "/subscriptions"
-        case let .balance(subscriptionID):
-            guard Self.validIdentifier(subscriptionID) else { throw ProofFailure.requestDenied }
-            path = "/subscriptions/\(subscriptionID)/balance"
-        }
+        let path = try self.path()
         guard let url = URL(string: "https://uwa.mobilevikings.be/mv\(path)") else {
             throw ProofFailure.requestDenied
         }
@@ -49,7 +48,31 @@ public enum ProofEndpoint: Sendable {
             "GET"
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if case .invoicePDF = self {
+            // The PDF endpoint rejects application/pdf in Accept.
+            request.setValue("*/*", forHTTPHeaderField: "Accept")
+        }
         return request
+    }
+
+    private func path() throws -> String {
+        let path: String
+        switch self {
+        case .token: path = "/oauth2/token/"
+        case .subscriptions: path = "/subscriptions"
+        case .pointsBalance: path = "/loyalty-points/balance"
+        case let .pointsTransactions(page):
+            path = try Self.pagePath("/loyalty-points/transactions", page: page, limit: 3)
+        case let .invoices(page):
+            path = try Self.pagePath("/invoices", page: page, limit: 5)
+        case let .invoicePDF(id):
+            guard Self.validIdentifier(id) else { throw ProofFailure.requestDenied }
+            path = "/invoices/\(id)/pdf"
+        case let .balance(subscriptionID):
+            guard Self.validIdentifier(subscriptionID) else { throw ProofFailure.requestDenied }
+            path = "/subscriptions/\(subscriptionID)/balance"
+        }
+        return path
     }
 
     public static func validate(_ request: URLRequest) throws {
@@ -57,9 +80,16 @@ public enum ProofEndpoint: Sendable {
               let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               parts.scheme == "https", parts.host == "uwa.mobilevikings.be",
               parts.port == nil, parts.user == nil, parts.password == nil,
-              parts.query == nil, parts.fragment == nil
+              parts.fragment == nil
         else { throw ProofFailure.requestDenied }
         let path = parts.percentEncodedPath
+        if let query = parts.percentEncodedQuery {
+            try Self.validatePageQuery(path: path, query: query, method: request.httpMethod)
+            return
+        }
+        if request.httpMethod == "GET", path == "/mv/loyalty-points/balance" {
+            return
+        }
         if request.httpMethod == "POST", path == "/mv/oauth2/token/" {
             return
         }
@@ -68,8 +98,26 @@ public enum ProofEndpoint: Sendable {
         }
         let segments = path.split(separator: "/", omittingEmptySubsequences: false)
         guard request.httpMethod == "GET", segments.count == 5,
-              segments[0].isEmpty, segments[1] == "mv", segments[2] == "subscriptions",
-              Self.validIdentifier(String(segments[3])), segments[4] == "balance"
+              segments[0].isEmpty, segments[1] == "mv", Self.validIdentifier(String(segments[3]))
+        else { throw ProofFailure.requestDenied }
+        let allowed = (segments[2] == "subscriptions" && segments[4] == "balance")
+            || (segments[2] == "invoices" && segments[4] == "pdf")
+        guard allowed else { throw ProofFailure.requestDenied }
+    }
+
+    private static func pagePath(_ path: String, page: Int, limit: Int) throws -> String {
+        guard (1 ... limit).contains(page) else { throw ProofFailure.requestDenied }
+        return "\(path)?page=\(page)&per_page=20"
+    }
+
+    private static func validatePageQuery(path: String, query: String, method: String?) throws {
+        let limit: Int
+        switch path {
+        case "/mv/invoices": limit = 5
+        case "/mv/loyalty-points/transactions": limit = 3
+        default: throw ProofFailure.requestDenied
+        }
+        guard method == "GET", (1 ... limit).contains(where: { query == "page=\($0)&per_page=20" })
         else { throw ProofFailure.requestDenied }
     }
 
@@ -94,9 +142,20 @@ public final class EphemeralProofTransport: NSObject, ProofHTTPTransport, URLSes
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         do {
-            let (data, response) = try await session.data(for: request)
+            let (bytes, response) = try await session.bytes(for: request)
             guard let response = response as? HTTPURLResponse else { throw ProofFailure.transport }
-            return ProofHTTPResponse(statusCode: response.statusCode, data: data)
+            guard response.url == request.url else { throw ProofFailure.requestDenied }
+            let limit = request.url?.path.hasSuffix("/pdf") == true ? 10_485_760 : 2_097_152
+            guard response.expectedContentLength <= limit else { throw ProofFailure.malformedResponse }
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < limit else { throw ProofFailure.malformedResponse }
+                data.append(byte)
+            }
+            return ProofHTTPResponse(
+                statusCode: response.statusCode, data: data,
+                contentType: response.value(forHTTPHeaderField: "Content-Type"),
+            )
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as URLError where error.code == .cancelled {

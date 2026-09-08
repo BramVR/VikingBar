@@ -2,7 +2,8 @@ import Foundation
 import VikingBarCore
 
 enum SessionRequest: Encodable, Sendable {
-    case restore, refresh, cancel, shutdown
+    case restore, refresh, refreshPoints, refreshInvoices, cancel, shutdown
+    case downloadInvoice(String)
     case selectSubscription(String)
     case selectBundle(Int)
     case configure(RefreshInterval)
@@ -17,6 +18,11 @@ enum SessionRequest: Encodable, Sendable {
             try values.encode(interval, forKey: .refreshInterval)
         case .restore: try values.encode("restore", forKey: .command)
         case .refresh: try values.encode("refresh", forKey: .command)
+        case .refreshInvoices: try values.encode("refreshInvoices", forKey: .command)
+        case let .downloadInvoice(id):
+            try values.encode("downloadInvoice", forKey: .command)
+            try values.encode(id, forKey: .id)
+        case .refreshPoints: try values.encode("refreshPoints", forKey: .command)
         case .cancel: try values.encode("cancel", forKey: .command)
         case .shutdown: try values.encode("shutdown", forKey: .command)
         case let .selectSubscription(id):
