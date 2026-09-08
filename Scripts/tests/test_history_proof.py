@@ -1,8 +1,10 @@
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -204,6 +206,55 @@ class HistoryProofTests(unittest.TestCase):
             with self.assertRaisesRegex(HISTORY.UIFailure, "history-evidence-insufficient"):
                 HISTORY.run({})
             factory.return_value.cleanup.assert_called_once()
+
+    def test_termination_signals_cleanup_once_and_restore_process_state(self):
+        child = """
+import importlib.util
+import json
+import os
+import signal
+import subprocess
+import sys
+spec = importlib.util.spec_from_file_location('history_signal', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+received = getattr(signal, sys.argv[2])
+cleanup_fails = sys.argv[3] == 'yes'
+handlers = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT)}
+mask = os.umask(0o027)
+class FakeProof:
+    def __init__(self, environment): pass
+    def perform(self):
+        identity = subprocess.check_output(
+            ['ps', '-p', str(os.getpid()), '-o', 'pid=,ppid=,lstart=,command='], text=True).strip()
+        print(json.dumps({'phase': 'perform', 'identity': identity,
+                          'task': 'inert history signal regression'}), flush=True)
+        os.kill(os.getpid(), received)
+    def cleanup(self):
+        print(json.dumps({'phase': 'cleanup'}), flush=True)
+        os.kill(os.getpid(), signal.SIGTERM)
+        os.kill(os.getpid(), signal.SIGINT)
+        if cleanup_fails:
+            raise RuntimeError('synthetic cleanup failure')
+module.HistoryProof = FakeProof
+code = module.main()
+restored = all(signal.getsignal(number) == old for number, old in handlers.items())
+print(json.dumps({'phase': 'restored', 'handlers': restored, 'umask': os.umask(mask) == 0o027}))
+sys.exit(code)
+"""
+        for signal_name in ("SIGTERM", "SIGINT"):
+            for cleanup_fails in ("no", "yes"):
+                with self.subTest(signal=signal_name, cleanup_fails=cleanup_fails):
+                    result = subprocess.run(
+                        [sys.executable, "-c", child, str(ROOT / "Scripts/history-proof.py"),
+                         signal_name, cleanup_fails], capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    events = [json.loads(line) for line in result.stdout.splitlines()]
+                    self.assertEqual(sum(event.get("phase") == "cleanup" for event in events), 1)
+                    self.assertEqual(events[-1], {"phase": "restored", "handlers": True, "umask": True})
+                    error = "history-proof-interrupted" if cleanup_fails == "no" else "history-proof-failed"
+                    self.assertIn({"passed": False, "error": error}, events)
+                    self.assertEqual(result.stderr, "")
 
 
 class HistoryOracleTests(unittest.TestCase):

@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import signal
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -192,14 +193,26 @@ class HistoryProof(UI.NativeProof):
 def run(environment):
     old_mask = os.umask(0o077)
     proof = None
+    handlers = {}
+
+    def interrupted(_number, _frame):
+        raise UIFailure("history-proof-interrupted")
+
     try:
+        for number in (signal.SIGTERM, signal.SIGINT):
+            handlers[number] = signal.signal(number, interrupted)
         proof = HistoryProof(environment)
         return proof.perform()
     finally:
         try:
+            # A second cancellation must not interrupt owned-process cleanup.
+            for number in handlers:
+                signal.signal(number, signal.SIG_IGN)
             if proof is not None:
                 proof.cleanup()
         finally:
+            for number, handler in handlers.items():
+                signal.signal(number, handler)
             os.umask(old_mask)
 
 
