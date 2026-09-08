@@ -19,6 +19,14 @@ The app retains the last successful balance when a request fails and marks it st
 
 Open **Bills** for the latest account invoice or credit note. Grouped totals remain account-level amounts, with the selected SIM's known relationship shown separately. Invoice failures leave the data balance usable. **Open PDF** downloads the requested document and opens its private local file. See [invoice fields, download handling, and proof](invoices.md).
 
+## Viking Points
+
+The Points tab shows the customer's Viking Points once for the account. Available points are spendable. Pending and blocked points remain separate. Switching SIMs does not change the owner of the points or duplicate the customer balance.
+
+Expand recent transactions to inspect each amount and provider state. The list contains up to three pages of 20 transactions. A truncated list is labeled and cannot establish the available balance. The provider's balance endpoint supplies that figure directly.
+
+Usage refresh publishes before points refresh. Points balance and transaction history each retain their last successful data and report failures separately. A points failure does not clear a usable data allowance. **Refresh now** updates both usage and points through the existing account session.
+
 ## Inspect the same balance in the CLI
 
 Use the CLI embedded in the development bundle:

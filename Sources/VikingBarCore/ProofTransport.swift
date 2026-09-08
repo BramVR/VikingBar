@@ -26,11 +26,13 @@ public protocol ProofHTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> ProofHTTPResponse
 }
 
-/// The explicit read-only account request allowlist.
+/// Approved authentication and read-only account operations.
 public enum ProofEndpoint: Sendable {
     case token
     case subscriptions
     case balance(subscriptionID: String)
+    case pointsBalance
+    case pointsTransactions(page: Int)
     case invoices(page: Int)
     case invoicePDF(id: String)
 
@@ -57,9 +59,11 @@ public enum ProofEndpoint: Sendable {
         switch self {
         case .token: path = "/oauth2/token/"
         case .subscriptions: path = "/subscriptions"
+        case .pointsBalance: path = "/loyalty-points/balance"
+        case let .pointsTransactions(page):
+            path = try Self.pagePath("/loyalty-points/transactions", page: page, limit: 3)
         case let .invoices(page):
-            guard (1 ... 5).contains(page) else { throw ProofFailure.requestDenied }
-            path = "/invoices?page=\(page)&per_page=20"
+            path = try Self.pagePath("/invoices", page: page, limit: 5)
         case let .invoicePDF(id):
             guard Self.validIdentifier(id) else { throw ProofFailure.requestDenied }
             path = "/invoices/\(id)/pdf"
@@ -78,13 +82,13 @@ public enum ProofEndpoint: Sendable {
               parts.fragment == nil
         else { throw ProofFailure.requestDenied }
         let path = parts.percentEncodedPath
-        if request.httpMethod == "GET", path == "/mv/invoices", let query = parts.percentEncodedQuery {
-            guard (1 ... 5).contains(where: { query == "page=\($0)&per_page=20" }) else {
-                throw ProofFailure.requestDenied
-            }
+        if let query = parts.percentEncodedQuery {
+            try Self.validatePageQuery(path: path, query: query, method: request.httpMethod)
             return
         }
-        guard parts.query == nil else { throw ProofFailure.requestDenied }
+        if request.httpMethod == "GET", path == "/mv/loyalty-points/balance" {
+            return
+        }
         if request.httpMethod == "POST", path == "/mv/oauth2/token/" {
             return
         }
@@ -98,6 +102,22 @@ public enum ProofEndpoint: Sendable {
         let allowed = (segments[2] == "subscriptions" && segments[4] == "balance")
             || (segments[2] == "invoices" && segments[4] == "pdf")
         guard allowed else { throw ProofFailure.requestDenied }
+    }
+
+    private static func pagePath(_ path: String, page: Int, limit: Int) throws -> String {
+        guard (1 ... limit).contains(page) else { throw ProofFailure.requestDenied }
+        return "\(path)?page=\(page)&per_page=20"
+    }
+
+    private static func validatePageQuery(path: String, query: String, method: String?) throws {
+        let limit: Int
+        switch path {
+        case "/mv/invoices": limit = 5
+        case "/mv/loyalty-points/transactions": limit = 3
+        default: throw ProofFailure.requestDenied
+        }
+        guard method == "GET", (1 ... limit).contains(where: { query == "page=\($0)&per_page=20" })
+        else { throw ProofFailure.requestDenied }
     }
 
     private static func validIdentifier(_ identifier: String) -> Bool {

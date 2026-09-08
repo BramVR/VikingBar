@@ -110,7 +110,7 @@ struct LiveAPI: Sendable {
         } catch { throw LiveFailure.malformedResponse }
     }
 
-    private static func date(_ text: String) -> Date? {
+    static func date(_ text: String) -> Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = formatter.date(from: text) {

@@ -13,7 +13,7 @@ The account invoice list is necessary because the subscription invoice endpoint 
 
 Invoice total, unpaid amount, reduction, points applied, payment state, and date retain their separate meanings. VikingBar uses the provider's reported unpaid amount. It does not recompute debt by subtracting discounts or points again. Missing optional values remain unavailable. Zero unpaid amount does not override the reported payment state.
 
-Invoice requests are optional. A failed or inaccessible invoice request does not erase a successful data balance. An empty invoice response is different from unavailable invoice data. Metadata retrieval stops after five pages of 20 documents or 15 seconds. A limited result cannot prove that the account has no invoices. The menu shows the fetch time so cached details remain identifiable.
+Invoice and points requests share an optional queue. Opening Bills during a points request retains the invoice request until the worker is free. Data refresh takes priority and resumes pending metadata afterward. An interrupted PDF action requires another click. A failed or inaccessible invoice request does not erase a successful data balance. An empty invoice response is different from unavailable invoice data. Metadata retrieval stops after five pages of 20 documents or 15 seconds. A limited result cannot prove that the account has no invoices. The menu shows the fetch time so cached details remain identifiable.
 
 ## PDF handling
 

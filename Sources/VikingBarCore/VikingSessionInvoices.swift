@@ -2,22 +2,18 @@ import Foundation
 
 public extension VikingSession {
     func refreshInvoices() async throws -> LiveSessionState {
-        guard !self.hasBalanceOperation, self.optionalOperation == nil else { throw LiveFailure.busy }
-        let generation = self.generation
+        try await self.runOptional(kind: .invoices) { generation in
+            try await self.fetchInvoices(generation: generation)
+        }
+    }
+}
+
+extension VikingSession {
+    private func fetchInvoices(generation: UInt64) async throws -> LiveSessionState {
         let connectionID = self.current.connectionID
         do {
             guard let token = self.token, self.api.now() < token.expiresAt else { throw LiveFailure.tokenExpired }
-            let id = UUID()
-            let task = Task { try await self.api.invoices(token: token) }
-            self.optionalOperation = (id, { task.cancel() })
-            defer {
-                if self.optionalOperation?.id == id {
-                    self.optionalOperation = nil
-                }
-            }
-            let snapshot = try await withTaskCancellationHandler {
-                try await task.value
-            } onCancel: { task.cancel() }
+            let snapshot = try await self.api.invoices(token: token)
             try self.withConnectionLease(expected: connectionID) { _ in
                 try self.checkGeneration(generation)
                 self.current.invoices = snapshot
@@ -34,25 +30,19 @@ public extension VikingSession {
         return self.current
     }
 
-    func downloadInvoice(id: String) async throws -> LiveSessionState {
+    public func downloadInvoice(id: String) async throws -> LiveSessionState {
+        try await self.runOptional(kind: .invoicePDF(id)) { generation in
+            try await self.fetchInvoicePDF(id: id, generation: generation)
+        }
+    }
+
+    private func fetchInvoicePDF(id: String, generation: UInt64) async throws -> LiveSessionState {
         self.current.invoiceDocument = nil
-        guard !self.hasBalanceOperation, self.optionalOperation == nil,
-              self.current.invoices?.invoices.contains(where: { $0.id == id }) == true
+        guard self.current.invoices?.invoices.contains(where: { $0.id == id }) == true
         else { throw LiveFailure.invalidSelection }
-        let generation = self.generation
         let connectionID = self.current.connectionID
         guard let token = self.token, self.api.now() < token.expiresAt else { throw LiveFailure.tokenExpired }
-        let operationID = UUID()
-        let task = Task { try await self.api.invoicePDF(id: id, token: token) }
-        self.optionalOperation = (operationID, { task.cancel() })
-        defer {
-            if self.optionalOperation?.id == operationID {
-                self.optionalOperation = nil
-            }
-        }
-        let data = try await withTaskCancellationHandler {
-            try await task.value
-        } onCancel: { task.cancel() }
+        let data = try await self.api.invoicePDF(id: id, token: token)
         return try self.withConnectionLease(expected: connectionID) { _ in
             try self.checkGeneration(generation)
             self.current.invoiceDocument = try InvoiceDocument.write(data, invoiceID: id)
@@ -60,7 +50,7 @@ public extension VikingSession {
         }
     }
 
-    func clearInvoiceDocument() {
+    public func clearInvoiceDocument() {
         self.current.invoiceDocument = nil
     }
 }

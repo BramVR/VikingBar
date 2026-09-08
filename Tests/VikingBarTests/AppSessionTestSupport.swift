@@ -9,6 +9,8 @@ final class ModelTestClient: SessionClient {
     var requests: [String] = []
     var shutdowns = 0
     var holdRefresh = false
+    var holdPoints = false
+    var pendingPoints: CheckedContinuation<LiveSessionState, any Error>?
     var holdShutdown = false
     var pendingShutdown: CheckedContinuation<Void, Never>?
     var pendingRefresh: CheckedContinuation<LiveSessionState, any Error>?
@@ -20,6 +22,11 @@ final class ModelTestClient: SessionClient {
     func request(_ request: SessionRequest) async throws -> LiveSessionState {
         switch request {
         case .restore: self.requests.append("restore")
+        case .refreshPoints:
+            self.requests.append("refreshPoints")
+            if self.holdPoints {
+                return try await withCheckedThrowingContinuation { self.pendingPoints = $0 }
+            }
         case .refresh:
             self.requests.append("refresh")
             if self.holdRefresh {

@@ -75,11 +75,16 @@ public struct FixtureReport: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let snapshot: UsageSnapshot
     public let menu: MenuPresentation
+    public let points: PointsPresentation
 
     public init(options: LaunchOptions, referenceDate: Date) throws {
         guard let fixture = options.fixture else { throw ArgumentError.fixtureRequired }
         self.schemaVersion = 1
         self.snapshot = fixture.snapshot(referenceDate: referenceDate)
         self.menu = MenuPresentation(snapshot: self.snapshot, unit: options.unit, timeZone: options.timeZone)
+        self.points = PointsPresentation(
+            points: fixture.points(referenceDate: referenceDate),
+            timeZone: options.timeZone,
+        )
     }
 }

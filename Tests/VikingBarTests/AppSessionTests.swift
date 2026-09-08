@@ -71,7 +71,7 @@ struct AppSessionTests {
         #expect(sleeper.deadlines.contains(deadline))
         client.state.nextRefreshAt = nil
         sleeper.wake()
-        try await Self.until { client.requests == ["restore", "refresh"] && model.activity == .idle }
+        try await Self.until { client.requests == ["restore", "refresh", "refreshPoints"] && model.activity == .idle }
         #expect(sleeper.deadlines.filter { $0 == deadline }.count == 1)
         await model.stop()
     }
@@ -136,10 +136,10 @@ struct AppSessionTests {
         let reference = URL(fileURLWithPath: "/synthetic/reference")
         let result = URL(fileURLWithPath: "/synthetic/proof/connect-result.json")
         model.connect(reference: reference, resultURL: result)
-        try await Self.until { model.activity == .idle }
+        try await Self.until { model.activity == .idle && second.requests.last == "refreshPoints" }
         #expect(first.shutdowns == 1)
         #expect(creations == 2)
-        #expect(second.requests == ["restore", "refresh"])
+        #expect(second.requests == ["restore", "refresh", "refreshPoints"])
         #expect(connector.reference == reference)
         #expect(connector.resultURL == result)
         #expect(model.liveState.connectionID == second.state.connectionID)

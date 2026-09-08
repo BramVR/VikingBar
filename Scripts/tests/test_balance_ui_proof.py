@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("balance_ui_proof", ROOT / "Scripts/balance-ui-proof.py")
@@ -30,6 +31,108 @@ class BalanceUIProofTests(unittest.TestCase):
                                   {"AXIdentifier": "vikingbar.freshness", "AXValue": "Last updated today"}]
                                 + [{"AXValue": value} for value in self.menu.values()]
                                 + [{"AXValue": value} for value in self.report["balanceDetails"].values()]}
+        for element in self.tree["elements"][1:]:
+            element["frame"] = [[120, 100], [200, 20]]
+        self.tree["elements"].append({"AXRole": "AXPopover", "frame": [[100, 24], [500, 700]]})
+        self.tree["windows"] = [{"kCGWindowNumber": 42,
+                                 "kCGWindowBounds": {"X": 100, "Y": 24, "Width": 500, "Height": 700}}]
+
+    def test_offscreen_card_fails_with_visible_status(self):
+        for element in self.tree["elements"][1:]:
+            element["frame"][0][0] += 2000
+        self.tree["windows"][0]["kCGWindowBounds"]["X"] += 2000
+        self.assertTrue(UI.visible_status(self.tree, self.screens))
+        with self.assertRaises(UI.UIFailure):
+            UI.compare_menu(self.tree, self.report, self.screens)
+
+    def test_popover_match_required(self):
+        for change in ("ax", "cg", "mismatch"):
+            tree = copy.deepcopy(self.tree)
+            if change == "ax":
+                tree["elements"].pop()
+            elif change == "cg":
+                tree["windows"] = []
+            else:
+                tree["windows"][0]["kCGWindowBounds"]["Y"] += 2
+            with self.subTest(change=change), self.assertRaises(UI.UIFailure):
+                UI.compare_menu(tree, self.report, self.screens)
+
+    def test_card_text_requires_contained_valid_frames(self):
+        for identifier in ("vikingbar.remaining", "vikingbar.freshness", None):
+            for bad_frame in (None, [[2000, 100], [200, 20]], [[120, 100], [True, 20]],
+                              [[120, 100], [float("inf"), 20]], [["120", 100], [200, 20]]):
+                tree = copy.deepcopy(self.tree)
+                for element in tree["elements"]:
+                    if element.get("AXIdentifier") == identifier and element.get("AXRole") != "AXPopover":
+                        element["frame"] = bad_frame
+                with self.subTest(identifier=identifier, frame=bad_frame), self.assertRaises(UI.UIFailure):
+                    UI.compare_menu(tree, self.report, self.screens)
+
+    def test_invalid_popover_and_window_geometry_fails(self):
+        for target in ("ax", "cg"):
+            for index, key in enumerate(("X", "Y", "Width", "Height")):
+                for bad in (True, "100", None, float("nan"), float("inf"), float("-inf")):
+                    tree = copy.deepcopy(self.tree)
+                    if target == "ax":
+                        tree["elements"][-1]["frame"][index // 2][index % 2] = bad
+                    else:
+                        tree["windows"][0]["kCGWindowBounds"][key] = bad
+                    with self.subTest(target=target, key=key, bad=bad), self.assertRaises(UI.UIFailure):
+                        UI.compare_menu(tree, self.report, self.screens)
+
+    def test_missing_or_nonpositive_geometry_fails(self):
+        for target in ("ax", "cg", "display"):
+            for bad in (None, 0, -1):
+                tree, screens = copy.deepcopy(self.tree), copy.deepcopy(self.screens)
+                if target == "ax":
+                    if bad is None:
+                        del tree["elements"][-1]["frame"]
+                    else:
+                        tree["elements"][-1]["frame"][1][0] = bad
+                else:
+                    bounds = tree["windows"][0]["kCGWindowBounds"] if target == "cg" else screens[0]["bounds"]
+                    key = "Width" if target == "cg" else "width"
+                    if bad is None:
+                        del bounds[key]
+                    else:
+                        bounds[key] = bad
+                with self.subTest(target=target, bad=bad), self.assertRaises(UI.UIFailure):
+                    UI.compare_menu(tree, self.report, screens)
+
+    def test_hidden_status_label_cannot_match_visible_wrong_status(self):
+        hidden_status = copy.deepcopy(self.tree["elements"][0])
+        hidden_status["frame"][0][0] = 2000
+        self.tree["elements"][0]["AXDescription"] = "Wrong account"
+        self.tree["elements"].append(hidden_status)
+        with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
+            UI.compare_menu(self.tree, self.report, self.screens)
+
+    def test_invalid_display_cannot_make_offscreen_card_visible(self):
+        for key in ("x", "y", "width", "height"):
+            for bad in (True, "100", None, float("nan"), float("inf"), float("-inf")):
+                screen = {"bounds": {"x": 0, "y": 0, "width": 3000, "height": 3000}}
+                screen["bounds"][key] = bad
+                tree = copy.deepcopy(self.tree)
+                for element in tree["elements"][1:]:
+                    element["frame"][0][0] += 1500
+                    element["frame"][0][1] += 1000
+                tree["windows"][0]["kCGWindowBounds"]["X"] += 1500
+                tree["windows"][0]["kCGWindowBounds"]["Y"] += 1000
+                with self.subTest(key=key, bad=bad), self.assertRaises(UI.UIFailure):
+                    UI.compare_menu(tree, self.report, self.screens + [screen])
+
+    def test_balance_capture_uses_matched_popover_window(self):
+        self.tree["windows"].insert(0, {"kCGWindowNumber": 99,
+                                       "kCGWindowBounds": {"X": 0, "Y": 0, "Width": 900, "Height": 750}})
+        proof = object.__new__(UI.NativeProof)
+        proof.cli = "synthetic-cli"
+        proof.directory = Path("/synthetic")
+        proof.screens = self.screens
+        with patch.object(proof, "run", return_value=self.report), \
+                patch.object(proof, "inspect", return_value=self.tree), \
+                patch.object(proof, "verify_worker"), patch.object(proof, "peek") as peek:
+            proof.matched_balance("synthetic")
+        self.assertEqual(peek.call_args.args[0][2], "42")
 
     def test_visible_menu_matches_private_live_report(self):
         UI.compare_menu(self.tree, self.report, self.screens)

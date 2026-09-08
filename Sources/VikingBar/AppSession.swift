@@ -26,16 +26,18 @@ final class AppSession {
     }
 
     private(set) var settingsError: String?
-    private(set) var liveState = LiveSessionState()
+    var liveState = LiveSessionState()
     private(set) var activity: Activity = .idle
     private var bridgeFailure: LiveBridgeFailure?
     private var allowanceExpired = false
-    private(set) var isLoadingInvoices = false
-    private(set) var invoiceError: String?
-    @ObservationIgnored private var invoiceOperation: Task<Void, Never>?
-    @ObservationIgnored private var invoiceRevision = 0
-    @ObservationIgnored private var invoiceCancellation: Task<Void, Never>?
-    @ObservationIgnored private let openDocument: (URL) -> Bool
+    var invoiceError: String?
+    var pendingOptional: [OptionalIntent] = []
+    var activeOptional: OptionalIntent?
+    @ObservationIgnored var optionalOperation: Task<Void, Never>?
+    @ObservationIgnored var optionalRevision = 0
+    @ObservationIgnored var optionalCancellation: Task<Void, Never>?
+
+    @ObservationIgnored let openDocument: (URL) -> Bool
 
     var bridgeError: String? {
         self.bridgeFailure?.message
@@ -49,7 +51,7 @@ final class AppSession {
     @ObservationIgnored private let connectorFactory: () throws -> any AccountConnecting
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let sleepUntil: @Sendable (Date) async throws -> Void
-    @ObservationIgnored private var client: (any SessionClient)?
+    @ObservationIgnored var client: (any SessionClient)?
     @ObservationIgnored private var connector: (any AccountConnecting)?
     @ObservationIgnored private var operation: Task<Void, Never>?
     @ObservationIgnored private var scheduledRefresh: Task<Void, Never>?
@@ -113,18 +115,6 @@ final class AppSession {
             snapshot: self.snapshot, showRemainingGB: self.showRemainingGB,
             unit: self.unit, timeZone: self.timeZone,
         )
-    }
-
-    private var canRestartWorker: Bool {
-        if case .unavailable? = self.bridgeFailure {
-            return true
-        }
-        return false
-    }
-
-    private var isConnected: Bool {
-        self.liveState.connectionID != nil
-            && ![.notConnected, .reconnectRequired, .unauthorized].contains(self.liveState.failure)
     }
 
     func start() {
@@ -206,14 +196,7 @@ final class AppSession {
     }
 
     private func begin(_ activity: Activity) -> Int {
-        self.invoiceRevision += 1
-        self.invoiceOperation?.cancel()
-        self.invoiceOperation = nil
-        if self.isLoadingInvoices, let client = self.client {
-            self.invoiceCancellation = Task { _ = try? await client.request(.cancel) }
-        }
-        self.isLoadingInvoices = false
-        self.invoiceError = nil
+        self.interruptOptional(clear: activity == .connecting || activity == .stopped)
         self.generation += 1
         self.operation?.cancel()
         self.scheduledRefresh?.cancel()
@@ -247,14 +230,18 @@ final class AppSession {
     }
 
     private func perform(_ request: SessionRequest, intent: Int) async {
-        await self.invoiceCancellation?.value
-        self.invoiceCancellation = nil
+        await self.optionalCancellation?.value
         guard self.isCurrent(intent) else { return }
+        self.optionalCancellation = nil
         do {
             guard let client = self.client else { throw LiveBridgeFailure.unavailable }
             let state = try await client.request(request)
             guard self.isCurrent(intent) else { return }
             self.publish(state)
+            if case .refresh = request, self.isConnected {
+                self.enqueueOptional(.points)
+            }
+            guard self.isCurrent(intent) else { return }
             self.finish()
         } catch {
             await self.failWorker(intent: intent)
@@ -262,6 +249,13 @@ final class AppSession {
     }
 
     private func publish(_ state: LiveSessionState) {
+        var state = state
+        if state.connectionID == self.liveState.connectionID {
+            state.mergePoints(from: self.liveState)
+            state.mergeInvoices(from: self.liveState)
+        } else {
+            self.pendingOptional.removeAll()
+        }
         self.liveState = state
         self.bridgeFailure = nil
         self.scheduleExpiry()
@@ -281,6 +275,15 @@ final class AppSession {
 }
 
 extension AppSession {
+    var points: PointsPresentation {
+        var values = self.isFixtureLaunch
+            ? self.fixture?.points(referenceDate: self.referenceDate) : self.liveState.points(at: self.now())
+        if !self.isFixtureLaunch, self.bridgeFailure != nil {
+            values?.markUnavailable(.transport)
+        }
+        return PointsPresentation(points: values, timeZone: self.timeZone)
+    }
+
     private func cancelExpiry() {
         self.snapshotRevision += 1
         self.scheduledExpiry?.cancel()
@@ -305,68 +308,15 @@ extension AppSession {
         self.activity = .idle
         self.operation = nil
         self.onPresentationChange?()
-        guard self.isConnected, let deadline = self.liveState.nextRefreshAt else { return }
-        let intent = self.generation
-        self.scheduledRefresh = Task { [weak self, sleepUntil] in
-            do { try await sleepUntil(deadline) } catch { return }
-            guard let self, self.isCurrent(intent) else { return }
-            self.refresh()
-        }
-    }
-}
-
-extension AppSession {
-    var invoiceDetails: InvoicePresentation {
-        InvoicePresentation(
-            snapshot: self.liveState.invoices,
-            selectedSubscriptionID: self.liveState.selectedSubscriptionID,
-            timeZone: self.timeZone,
-        )
-    }
-
-    func loadInvoices() {
-        self.invoiceRequest(.refreshInvoices, requestedID: nil)
-    }
-
-    func openInvoice(_ id: String) {
-        guard self.liveState.invoices?.invoices.contains(where: { $0.id == id }) == true else { return }
-        self.invoiceRequest(.downloadInvoice(id), requestedID: id)
-    }
-
-    private func invoiceRequest(_ request: SessionRequest, requestedID: String?) {
-        guard self.canSelectAccountData, !self.isLoadingInvoices, let client else { return }
-        self.invoiceRevision += 1
-        let revision = self.invoiceRevision
-        let connection = self.liveState.connectionID
-        self.isLoadingInvoices = true
-        self.invoiceError = nil
-        self.invoiceOperation = Task {
-            defer {
-                if revision == self.invoiceRevision {
-                    self.isLoadingInvoices = false
-                    self.invoiceOperation = nil
-                }
-            }
-            do {
-                let state = try await client.request(request)
-                guard !Task.isCancelled, revision == self.invoiceRevision,
-                      connection == state.connectionID, connection == self.liveState.connectionID,
-                      self.activity != .stopped else { return }
-                if let requestedID {
-                    guard let document = state.invoiceDocument, document.invoiceID == requestedID,
-                          document.fileURL.isFileURL, self.openDocument(document.fileURL)
-                    else { self.invoiceError = "Could not open invoice PDF. Try again."; return }
-                } else {
-                    self.liveState = state
-                    if state.invoiceFailure == .tokenExpired {
-                        self.invoiceError = "Refresh data before loading bills again."
-                    }
-                }
-            } catch {
-                guard revision == self.invoiceRevision, !Task.isCancelled else { return }
-                self.invoiceError = "Could not load bills. Try again."
+        if self.isConnected, let deadline = self.liveState.nextRefreshAt {
+            let intent = self.generation
+            self.scheduledRefresh = Task { [weak self, sleepUntil] in
+                do { try await sleepUntil(deadline) } catch { return }
+                guard let self, self.isCurrent(intent) else { return }
+                self.refresh()
             }
         }
+        self.pumpOptional()
     }
 }
 
@@ -388,5 +338,19 @@ extension AppSession {
 
     var canSelectAccountData: Bool {
         !self.isFixtureLaunch && self.activity == .idle && self.isConnected && self.client != nil
+    }
+}
+
+extension AppSession {
+    private var canRestartWorker: Bool {
+        if case .unavailable? = self.bridgeFailure {
+            return true
+        }
+        return false
+    }
+
+    var isConnected: Bool {
+        self.liveState.connectionID != nil
+            && ![.notConnected, .reconnectRequired, .unauthorized].contains(self.liveState.failure)
     }
 }

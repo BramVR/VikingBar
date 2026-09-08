@@ -20,6 +20,11 @@ private actor SyntheticSession {
             self.current.selectedBundleIndex = command.index
         case .restore:
             self.current.selectedSubscriptionID = "restored"
+        case .refreshPoints:
+            if CommandLine.arguments.contains("--hold-points") {
+                FileHandle.standardError.write(Data("points-started\n".utf8))
+                try await Task.sleep(for: .seconds(30))
+            }
         case .selectSubscription:
             self.current.selectedSubscriptionID = command.id
         case .cancel, .shutdown:

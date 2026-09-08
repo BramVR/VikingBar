@@ -39,7 +39,14 @@ The approved profile supplies `BRAM_OP_SERVICE_ACCOUNT_TOKEN`. Do not print it. 
 
 ## Requests and auth limits
 
-The transport allows only `https://uwa.mobilevikings.be` with `POST /mv/oauth2/token/`, `GET /mv/subscriptions`, `GET /mv/subscriptions/{id}/balance`, the bounded account invoice list, and explicit invoice PDF reads. Invoice listing accepts only `GET /mv/invoices?page=N&per_page=20`, with N from 1 through 5. PDF requests use `GET /mv/invoices/{id}/pdf`. Identifiers must contain only ASCII letters, digits, hyphens, or underscores. The client rejects redirects and never follows provider pagination URLs. Requests use an ephemeral session without cookies or persistent caching. Authentication uses form-encoded password and refresh grants and honors `expires_in`.
+The transport allows only `https://uwa.mobilevikings.be` and these routes:
+
+- `POST /mv/oauth2/token/` for password and refresh grants.
+- `GET /mv/subscriptions` and `GET /mv/subscriptions/{id}/balance`.
+- `GET /mv/loyalty-points/balance` and `GET /mv/loyalty-points/transactions?page=N&per_page=20`, with N from 1 through 3.
+- `GET /mv/invoices?page=N&per_page=20`, with N from 1 through 5, and explicit `GET /mv/invoices/{id}/pdf` requests.
+
+Identifiers contain only ASCII letters, digits, hyphens, or underscores. The client rejects redirects and never follows provider pagination URLs. Requests use an ephemeral session without cookies or persistent caching. Authentication uses form-encoded grants and honors `expires_in`.
 
 The initial grant requests `scope=read`. Support described the public client as read-only, but the prior probe received `read write` on both token responses. The receipt records a boolean scope mismatch, without copying arbitrary provider text. The client request allowlist is the enforcement boundary. Never test server write permissions through an account mutation.
 
@@ -61,7 +68,7 @@ Keep receipts in a private directory outside version control, such as `proof-pri
 
 ## Extend a check
 
-Add a named check and its explicit request policy in the Swift core. Add synthetic success, malformed-response, and forbidden-request tests before running it live. Extend the Python receipt validation if the new check needs different non-secret assertions. Run through the same credential bootstrap; never turn arbitrary URLs or HTTP methods into user-configurable proof inputs. History, points, and bills need their own endpoint assertions and real proof.
+Add a named check and its explicit request policy in the Swift core. Add synthetic success, malformed-response, and forbidden-request tests before running it live. Extend the Python receipt validation if the new check needs different non-secret assertions. Reuse the authorized stored session when the feature supports it; use the approved bootstrap only when connection is required. Never turn arbitrary URLs or HTTP methods into user-configurable proof inputs. History, points, and bills need their own endpoint assertions and real proof.
 
 ## Native balance proof
 
@@ -120,3 +127,19 @@ If the account has an invoice, the command explicitly downloads the latest docum
 The strict receipt contains only `schema_version`, `check`, `passed`, `invoice_count`, `empty`, `truncated`, `metadata_matches`, `presentation_matches`, and `pdf_downloaded`. Empty and PDF-download flags must agree with the invoice count. Truncated results require the full 100-document bound. Unknown fields, failed comparisons, and nonzero CLI exits fail the wrapper. No invoice IDs, amounts, document paths, bearer tokens, or provider diagnostics appear in its output.
 
 Retain the receipt, source SHA, executable hash, UTC time, and exit status privately. Native Bills-tab and PDF-button coverage are separate and require the Mac UI slot. Opening a personal PDF requires an explicit request. Follow the [invoice feature map](../.agents/skills/verify-vikingbar/features/invoices.md).
+
+## Viking Points proof
+
+Hold fresh coordinator slots for account access and native UI driving. Use an existing connected session and the configured Peekaboo executable, then run:
+
+```sh
+make proof-live CHECK=points
+```
+
+`Scripts/points-proof.py` builds a fresh bundle, reads the real loyalty endpoints through `vikingbar proof points-api`, and compares API balances and transaction states with production models. It then compares the native points section and expanded recent transactions with the shared CLI presentation. Native Refresh must produce newer successful points timestamps while the usage card stays usable. The proof preserves connection identity and quits the task-owned app.
+
+This check reuses the stored session. It does not retrieve the password or connect an account. A missing connection, Keychain access failure, failed loyalty request, mismatched value, hidden UI, or failed cleanup fails the gate. Reconnection requires the coordinator's credential slot and approved account setup.
+
+Raw account output and captures stay private under `.build/proof/`. Retain the build hashes, API comparison, native action receipts, images, result, and cleanup receipt. Inspect the PNGs after the automated check. Synthetic tests cover states absent from the live account; do not claim that every state was observed live.
+
+The [points feature map](../.agents/skills/verify-vikingbar/features/points.md) records the earlier live gate and its coverage limits. The combined points and invoice refresh lifecycle requires new live proof on its final source head.

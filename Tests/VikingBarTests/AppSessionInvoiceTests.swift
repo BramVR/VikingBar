@@ -25,7 +25,7 @@ struct AppSessionInvoiceTests {
         let sleeper = ModelTestSleeper()
         let model = try Self.model(client, sleeper: sleeper)
         model.start()
-        try await AppSessionTests.until { model.activity == .idle && client.requests.count == 2 }
+        try await AppSessionTests.until { model.activity == .idle && client.requests.count == 3 }
         try await AppSessionTests.until { sleeper.deadlines.count >= 3 }
         let before = model.snapshot
         let deadlines = sleeper.deadlines
@@ -48,7 +48,7 @@ struct AppSessionInvoiceTests {
         let client = try InvoiceModelClient()
         let model = try Self.model(client)
         model.start()
-        try await AppSessionTests.until { model.activity == .idle && client.requests.count == 2 }
+        try await AppSessionTests.until { model.activity == .idle && client.requests.count == 3 }
         let old = client.state
         client.hold = true
         model.loadInvoices()
@@ -70,7 +70,7 @@ struct AppSessionInvoiceTests {
         var opened: [URL] = []
         let model = try Self.model(client, open: { opened.append($0); return true })
         model.start()
-        try await AppSessionTests.until { model.activity == .idle && client.requests.count == 2 }
+        try await AppSessionTests.until { model.activity == .idle && client.requests.count == 3 }
         model.loadInvoices()
         try await AppSessionTests.until { !model.isLoadingInvoices }
         #expect(opened.isEmpty)

@@ -9,9 +9,8 @@ public actor VikingSession {
     var token: LiveToken?
     private var tokenGeneration: UInt64?
     var generation: UInt64 = 0
-    private var flight: InFlight?
+    var flight: InFlight?
     private var failures = 0
-    var optionalOperation: (id: UUID, cancel: @Sendable () -> Void)?
 
     public init(
         transport: any ProofHTTPTransport, store: any SessionStore,
@@ -24,17 +23,13 @@ public actor VikingSession {
         self.cache = cache
     }
 
-    var hasBalanceOperation: Bool {
-        self.flight != nil
-    }
-
     public func state() -> LiveSessionState {
         self.current
     }
 
     public func bootstrapWithDiagnostics(credentials: ProofCredentials) async throws -> LiveSessionState {
         do {
-            guard self.flight == nil, self.optionalOperation == nil else { throw BootstrapFailure.sessionBusy }
+            guard self.flight == nil else { throw BootstrapFailure.sessionBusy }
             self.generation &+= 1
             self.token = nil
             self.current = LiveSessionState()
@@ -51,7 +46,7 @@ public actor VikingSession {
     }
 
     public func restore() throws -> LiveSessionState {
-        guard self.flight == nil, self.optionalOperation == nil else { throw LiveFailure.busy }
+        guard self.flight == nil else { throw LiveFailure.busy }
         let handle = try self.lease.acquire()
         defer { handle.release() }
         do {
@@ -74,6 +69,7 @@ public actor VikingSession {
                     self.current.markStaleSnapshot(failure: cached.failure, at: self.api.now())
                 }
                 self.current.revalidateBundle(at: self.api.now())
+                self.current.points?.revalidate(at: self.api.now())
             }
             guard !record.rotationPending else { throw LiveFailure.reconnectRequired }
             return self.current
@@ -87,11 +83,8 @@ public actor VikingSession {
     public func refresh(
         subscriptionID: String? = nil, forceTokenRefresh: Bool = false,
     ) async throws -> LiveSessionState {
-        if self.optionalOperation != nil {
-            self.cancel()
-        }
         let kind = OperationKind.refresh(subscriptionID: subscriptionID)
-        if let flight {
+        if let flight, !flight.kind.isOptional {
             guard flight.kind == kind else { throw LiveFailure.busy }
             var completed = try await flight.task.value
             try Task.checkCancellation()
@@ -105,22 +98,23 @@ public actor VikingSession {
         }
     }
 
+    public func refreshPoints(forceTokenRefresh: Bool = false) async throws -> LiveSessionState {
+        try await self.runOptional(kind: .points) { generation in
+            try await self.fetchPoints(generation: generation, forceTokenRefresh: forceTokenRefresh)
+        }
+    }
+
     public func selectSubscription(id: String) async throws -> LiveSessionState {
         guard self.current.subscriptions.contains(where: { $0.id == id }) else {
             throw LiveFailure.invalidSelection
         }
-        self.cancel()
-        let generation = self.generation
-        if let flight {
-            _ = try? await flight.task.value
+        return try await self.run(kind: .refresh(subscriptionID: id)) { generation in
+            try await self.fetch(subscriptionID: id, generation: generation, forceTokenRefresh: false)
         }
-        guard self.generation == generation else { throw CancellationError() }
-        self.flight = nil
-        return try await self.refresh(subscriptionID: id)
     }
 
     public func selectBundle(index: Int) throws -> LiveSessionState {
-        guard self.flight == nil, self.optionalOperation == nil else { throw LiveFailure.busy }
+        guard self.flight == nil else { throw LiveFailure.busy }
         return try self.withConnectionLease(expected: self.current.connectionID) { _ in
             try self.current.selectBundle(index: index, at: self.api.now())
             try? self.cache.save(self.current)
@@ -131,43 +125,10 @@ public actor VikingSession {
     public func cancel() {
         self.generation &+= 1
         self.flight?.task.cancel()
-        self.optionalOperation?.cancel()
-        self.optionalOperation = nil
     }
 }
 
 extension VikingSession {
-    private func run(
-        kind: OperationKind,
-        operation: @escaping @Sendable (UInt64) async throws -> LiveSessionState,
-    ) async throws -> LiveSessionState {
-        let id = UUID()
-        let generation = self.generation
-        self.current.isRefreshing = true
-        let task = Task { try await operation(generation) }
-        self.flight = InFlight(id: id, kind: kind, task: task)
-        defer {
-            if self.flight?.id == id {
-                self.flight = nil
-                self.current.isRefreshing = false
-            }
-        }
-        do {
-            _ = try await withTaskCancellationHandler {
-                try await task.value
-            } onCancel: { task.cancel() }
-            self.current.isRefreshing = false
-            return self.current
-        } catch {
-            if self.generation == generation {
-                let failure = error is CancellationError ? self.current.failure
-                    : ((error as? BootstrapFailure)?.liveFailure ?? error as? LiveFailure ?? .transport)
-                self.recordFailure(failure)
-            }
-            throw error
-        }
-    }
-
     private func connect(credentials: ProofCredentials, generation: UInt64) async throws -> LiveSessionState {
         do { try credentials.validate() } catch { throw BootstrapFailure.credentialInput }
         let handle: any SessionLeaseHandle
@@ -255,8 +216,8 @@ extension VikingSession {
         }
     }
 
-    private func authorize(
-        force: Bool, generation: UInt64, expectedConnectionID: ConnectionID? = nil,
+    func authorize(
+        force: Bool, generation: UInt64, expectedConnectionID: ConnectionID? = nil, preserveUsage: Bool = false,
     ) async throws -> LiveToken {
         let handle = try self.lease.acquire()
         defer { handle.release() }
@@ -279,12 +240,16 @@ extension VikingSession {
         try self.saveRecord(record)
         let received: LiveToken
         do {
-            received = try await self.api.token(fields: [
+            let fields = [
                 "client_id": record.clientID, "refresh_token": record.refreshToken, "grant_type": "refresh_token",
-            ])
+            ]
+            let exchange = Task { try await self.api.token(fields: fields) }
+            received = try await exchange.value
         } catch {
             self.token = nil
-            self.markStale(failure: .reconnectRequired)
+            if !preserveUsage {
+                self.markStale(failure: .reconnectRequired)
+            }
             if error is CancellationError {
                 throw CancellationError()
             }
@@ -298,10 +263,10 @@ extension VikingSession {
             self.token = nil
             throw LiveFailure.reconnectRequired
         }
-        try self.checkGeneration(generation)
         self.token = received
         self.tokenGeneration = record.generation
         self.current.scopeMismatch = received.scopeMismatch
+        try self.checkGeneration(generation)
         return received
     }
 }
@@ -324,7 +289,7 @@ extension VikingSession {
         return try operation(record)
     }
 
-    private func recordFailure(_ failure: LiveFailure?) {
+    func recordFailure(_ failure: LiveFailure?) {
         guard failure != .connectionChanged else {
             self.markStale(failure: failure)
             return
@@ -379,15 +344,4 @@ extension VikingSession {
     private func saveRecord(_ record: StoredSession) throws {
         do { try self.store.save(JSONEncoder().encode(record)) } catch { throw LiveFailure.storage }
     }
-}
-
-private struct InFlight {
-    let id: UUID
-    let kind: OperationKind
-    let task: Task<LiveSessionState, Error>
-}
-
-private enum OperationKind: Equatable {
-    case bootstrap
-    case refresh(subscriptionID: String?)
 }

@@ -23,8 +23,12 @@ struct InvoiceSessionTests {
         await rig.transport.pauseNext(path: "/mv/invoices")
         let old = Task { try await rig.session.refreshInvoices() }
         await rig.transport.waitUntilPaused()
-        let selected = try await rig.session.selectSubscription(id: "sim-b")
+        let selection = Task { try await rig.session.selectSubscription(id: "sim-b") }
+        while await !rig.session.state().isRefreshing {
+            await Task.yield()
+        }
         await rig.transport.resume()
+        let selected = try await selection.value
         await #expect(throws: CancellationError.self) { try await old.value }
         let final = await rig.session.state()
         #expect(final.selectedSubscriptionID == "sim-b")

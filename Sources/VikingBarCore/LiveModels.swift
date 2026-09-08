@@ -96,6 +96,7 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var invoices: InvoiceSnapshot?
     public internal(set) var invoiceFailure: LiveFailure?
     public internal(set) var invoiceDocument: InvoiceDocument?
+    public internal(set) var points: CustomerPoints?
     public internal(set) var selectedBundleIndex: Int?
     public internal(set) var snapshot: UsageSnapshot = .notConnected
     public internal(set) var failure: LiveFailure?
@@ -104,4 +105,17 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var scopeMismatch = false
 
     public init() {}
+}
+
+public extension LiveSessionState {
+    mutating func mergePoints(from state: LiveSessionState) {
+        guard self.connectionID == state.connectionID else { return }
+        self.points = state.points
+    }
+
+    mutating func mergeInvoices(from state: LiveSessionState) {
+        guard self.connectionID == state.connectionID else { return }
+        self.invoices = state.invoices
+        self.invoiceFailure = state.invoiceFailure
+    }
 }

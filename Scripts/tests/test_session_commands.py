@@ -19,7 +19,7 @@ class SessionCommandTests(unittest.TestCase):
         build = ROOT / ".build/debug"
         sources = [ROOT / "Scripts/tests/session-command-driver.swift"]
         sources.extend(ROOT / "Sources/VikingBarCLI" / name for name in (
-            "SessionCommands.swift", "LiveCommands.swift", "BalanceOracle.swift"))
+            "SessionCommands.swift", "LiveCommands.swift", "BalanceOracle.swift", "PointsOracle.swift"))
         objects = list((build / "VikingBarCore.build").glob("*.swift.o"))
         if not objects:
             raise AssertionError("Run swift build before session tests")
@@ -29,8 +29,8 @@ class SessionCommandTests(unittest.TestCase):
         if compiled.returncode:
             raise AssertionError(compiled.stderr)
 
-    def start(self):
-        process = subprocess.Popen([str(self.executable)], stdin=subprocess.PIPE,
+    def start(self, *arguments):
+        process = subprocess.Popen([str(self.executable), *arguments], stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
         self.addCleanup(self.stop, process)
         return process
@@ -152,6 +152,27 @@ class SessionCommandTests(unittest.TestCase):
         self.assertEqual([reply.get("error") for reply in replies],
                          ["session-command-failed", "session-command-failed", None])
         self.assertTrue(all("invoiceDocument" not in reply["state"] for reply in replies))
+        self.send(process, {"command": "shutdown"})
+        self.line(process.stdout)
+        self.assertEqual(process.wait(timeout=3), 0)
+
+    def test_cancel_drains_points_and_queued_invoice_commands_before_required_reply(self):
+        process = self.start("--hold-points")
+        self.send(process, {"command": "refreshPoints"})
+        self.assertEqual(self.line(process.stderr), b"points-started\n")
+        self.send(process, {"command": "refreshInvoices"})
+        self.send(process, {"command": "downloadInvoice", "id": "synthetic-1"})
+        self.send(process, {"command": "cancel"})
+        replies = [json.loads(self.line(process.stdout)) for _ in range(4)]
+        self.assertEqual([reply.get("error") for reply in replies],
+                         ["session-command-failed"] * 3 + [None])
+        self.assertTrue(all("invoiceDocument" not in reply["state"] for reply in replies))
+        self.send(process, {"command": "selectSubscription", "id": "sim-b"})
+        selected = json.loads(self.line(process.stdout))
+        self.assertEqual(selected["state"]["selectedSubscriptionID"], "sim-b")
+        self.send(process, {"command": "refreshInvoices"})
+        self.assertEqual(json.loads(self.line(process.stdout))["invoiceDetails"]["message"],
+                         "No invoices on this account.")
         self.send(process, {"command": "shutdown"})
         self.line(process.stdout)
         self.assertEqual(process.wait(timeout=3), 0)

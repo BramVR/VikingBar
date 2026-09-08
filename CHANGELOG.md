@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Add latest account invoice details with honest grouped-SIM relationships, separate payment amounts and credit notes, optional invoice refresh, and explicit authenticated private PDF downloads.
+- Add latest account invoice details with honest grouped-SIM relationships, separate payment amounts and credit notes, optional invoice refresh, and explicit authenticated private PDF downloads; queue points and bills without delaying data refresh or dropping pending metadata.
+- Show customer-wide Viking Points with separate available, pending, and blocked balances, expandable scrollable recent transactions that keep the balance visible, and independent stale or failed points states.
 - Show `Data bundle N` when a provider bundle title is blank, using its one-based position in the provider array without changing raw values.
 - Supply the OS username only to the private bootstrap tmux environment so the approved profile can select its service-account credential; keep the 1Password and CLI child environments unchanged.
 
