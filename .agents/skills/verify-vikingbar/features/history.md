@@ -30,7 +30,8 @@ For source-only checks, run `make check SWIFTFORMAT=/tmp/vikingbar-tools-issue1/
 ## Gotchas
 
 - The summary endpoint groups traffic over the requested interval, not by day. The client requests bounded Brussels days with inclusive start and exclusive end. Empty arrays do not establish zero.
+- Date queries require whole seconds and an escaped numeric UTC offset. Fractional seconds and `Z` produced HTTP 400 in the bounded live diagnostic; corrected aggregate and native proof still require a fresh slot.
 - Summary traffic spans the SIM's regions and bundles. The selected balance and history need not match. No call-detail endpoint or personal raw-response fixture is allowed.
 - Forecast proof needs three complete days plus continuous fresh elapsed-cycle evidence. Unavailable or truncated history is not a passing skip.
 - CLI and native session replies contain account data. Keep output and captures out of public PRs and CI.
-- Native history proof remains unrun. Source and synthetic results cannot establish visual or live API coverage. Record the exact verified head and private evidence after the coordinator grants the live slots.
+- Native history proof remains blocked before chart capture by the date-query failure. Source and synthetic results cannot establish visual or live API coverage. Record the exact verified head and private evidence after the coordinator grants the live slots.

@@ -133,7 +133,7 @@ struct HistorySessionTests {
         let requests = await rig.transport.recordedRequests().filter { $0.url?.path == Self.summaryPath }
         #expect(requests.count == observations.count)
         let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.formatOptions = [.withInternetDateTime]
         for (request, observation) in zip(requests, observations) {
             let url = try #require(request.url)
             let parts = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))

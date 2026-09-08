@@ -112,6 +112,7 @@ public enum ProofEndpoint: Sendable {
             return
         }
         guard segments[2] == "subscriptions", segments[4] == "usage-summary", request.httpBody == nil,
+              parts.percentEncodedQuery?.contains("+") == false,
               let query = parts.queryItems, query.count == 4,
               Set(query.map(\.name)) == ["traffic_type", "direction", "from_date", "until_date"],
               query.first(where: { $0.name == "traffic_type" })?.value == "data",
@@ -141,18 +142,20 @@ public enum ProofEndpoint: Sendable {
 
     private static func summaryRequest(subscriptionID: String, from: Date, until: Date) throws -> URLRequest {
         guard self.validIdentifier(subscriptionID), from < until,
+              from.timeIntervalSince1970.rounded(.down) == from.timeIntervalSince1970,
+              until.timeIntervalSince1970.rounded(.down) == until.timeIntervalSince1970,
               until.timeIntervalSince(from) <= 90000 else { throw ProofFailure.requestDenied }
         var parts =
             URLComponents(string: "https://uwa.mobilevikings.be/mv/subscriptions/\(subscriptionID)/usage-summary")!
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let formatter = Self.summaryFormatter()
         parts.queryItems = [
             URLQueryItem(name: "traffic_type", value: "data"),
             URLQueryItem(name: "direction", value: "outgoing"),
             URLQueryItem(name: "from_date", value: formatter.string(from: from)),
             URLQueryItem(name: "until_date", value: formatter.string(from: until)),
         ]
+        // The provider accepts numeric offsets and interprets an unescaped plus as a space.
+        parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         var request = URLRequest(url: parts.url!)
         request.httpMethod = "GET"
         request.timeoutInterval = 10
@@ -162,11 +165,20 @@ public enum ProofEndpoint: Sendable {
     }
 
     private static func summaryDate(_ text: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard text.hasSuffix("Z"), let date = formatter.date(from: text),
+        let formatter = Self.summaryFormatter()
+        guard text.hasSuffix("+0000"), let date = formatter.date(from: text),
               formatter.string(from: date) == text else { return nil }
         return date
+    }
+
+    private static func summaryFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+        formatter.isLenient = false
+        return formatter
     }
 
     private static func validIdentifier(_ identifier: String) -> Bool {

@@ -127,8 +127,10 @@ struct UsageHistoryTests {
         try ProofEndpoint.validate(request)
         let url = try #require(request.url)
         let parts = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-        #expect(parts.queryItems?.first(where: { $0.name == "from_date" })?.value == "2026-10-24T22:00:00.000Z")
-        #expect(parts.queryItems?.first(where: { $0.name == "until_date" })?.value == "2026-10-25T23:00:00.000Z")
+        #expect(parts.queryItems?.first(where: { $0.name == "from_date" })?.value == "2026-10-24T22:00:00+0000")
+        #expect(parts.queryItems?.first(where: { $0.name == "until_date" })?.value == "2026-10-25T23:00:00+0000")
+        #expect(parts.percentEncodedQuery?.contains("%2B0000") == true)
+        #expect(parts.percentEncodedQuery?.contains("+") == false)
         for suffix in ["&bundle=in", "&traffic_type=data", "&extra=value"] {
             var changed = request
             changed.url = try URL(string: #require(request.url?.absoluteString) + suffix)
@@ -151,6 +153,23 @@ struct UsageHistoryTests {
         #expect(throws: ProofFailure.requestDenied) { try ProofEndpoint.validate(detail) }
         #expect(throws: ProofFailure.requestDenied) {
             try ProofEndpoint.usageSummary(subscriptionID: "../x", from: interval.start, until: interval.end).request()
+        }
+    }
+
+    @Test func `summary rejects unsupported timestamps rather than shifting exact interval boundaries`() throws {
+        let start = Self.date("2026-09-01T00:00:00Z")
+        let end = start.addingTimeInterval(86400)
+        for (from, until) in [(start.addingTimeInterval(0.123), end), (start, end.addingTimeInterval(0.123))] {
+            #expect(throws: ProofFailure.requestDenied) {
+                try ProofEndpoint.usageSummary(subscriptionID: "sim-a", from: from, until: until).request()
+            }
+        }
+        let request = try ProofEndpoint.usageSummary(subscriptionID: "sim-a", from: start, until: end).request()
+        let url = try #require(request.url?.absoluteString)
+        for replacement in [".000Z", "Z", "+0000", "%2B0100", "%2B00:00", ""] {
+            var changed = request
+            changed.url = URL(string: url.replacingOccurrences(of: "%2B0000", with: replacement))
+            #expect(throws: ProofFailure.requestDenied) { try ProofEndpoint.validate(changed) }
         }
     }
 
