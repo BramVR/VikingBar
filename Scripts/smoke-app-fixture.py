@@ -103,26 +103,34 @@ def popover_window(data):
 
 
 def capture_card(name, fixture=True):
+    stability = UI.CapturePopoverStability()
+    settled = None
+
     def ready(data):
-        window = popover_window(data)
-        if window is None:
-            return False
-        if not fixture:
-            return True
-        boundary, _ = UI.popover_window(data, screens)
-        marker = element(data, 'vikingbar.fixtureMarker')
-        return (UI.contained(marker, boundary)
-                and marker['frame'][0][1] >= window['kCGWindowBounds']['Y'] + 20)
+        nonlocal settled
+
+        def qualifies(boundary, window):
+            if not fixture:
+                return True
+            marker = element(data, 'vikingbar.fixtureMarker')
+            return (UI.contained(marker, boundary)
+                    and marker['frame'][0][1] >= window['kCGWindowBounds']['Y'] + 20)
+
+        settled = stability.observe(data, screens, process.pid, qualifies)
+        return settled is not None
+
     data = wait_for(lambda: inspect(f'{name}-capture.json'), ready)
-    window = popover_window(data)
+    boundary, window = settled
     if fixture:
         marker = element(data, 'vikingbar.fixtureMarker')
         assert marker, 'Fixture marker missing.'
-        boundary, _ = UI.popover_window(data, screens)
         assert UI.contained(marker, boundary), 'Fixture marker is clipped.'
         assert marker['frame'][0][1] >= window['kCGWindowBounds']['Y'] + 20, 'Fixture header is clipped.'
-    peek(['see', '--window-id', str(window['kCGWindowNumber']), '--no-elements', '--no-remote',
-          '--path', str(PROOF / f'{name}.png')], f'{name}-image.json')
+
+    def invoke(arguments):
+        return json.loads(run(arguments, f'{name}-image.json'))
+
+    UI.capture_exact_window(PB, process.pid, window['kCGWindowNumber'], PROOF / f'{name}.png', invoke)
 
 
 def check_status(state, amount, name):
