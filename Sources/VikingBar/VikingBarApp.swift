@@ -1,4 +1,5 @@
 import AppKit
+import Dispatch
 import SwiftUI
 import VikingBarCore
 
@@ -137,17 +138,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct VikingBarApp {
     @MainActor
-    static func main() async {
+    static func main() {
         do {
             let arguments = Array(CommandLine.arguments.dropFirst())
             if let command = try LoginItemCommand.parse(arguments) {
-                let report = await command.run(manager: SystemLoginItemManager())
-                let data = try JSONEncoder().encode(report)
-                FileHandle.standardOutput.write(data + Data("\n".utf8))
-                if !report.passed {
-                    exit(1)
+                Task { @MainActor in
+                    do {
+                        let report = await command.run(manager: SystemLoginItemManager())
+                        let data = try JSONEncoder().encode(report)
+                        FileHandle.standardOutput.write(data + Data("\n".utf8))
+                        exit(report.passed ? 0 : 1)
+                    } catch {
+                        FileHandle.standardError.write(Data("VikingBar: \(error)\n".utf8))
+                        exit(2)
+                    }
                 }
-                return
+                dispatchMain()
             }
             try self.runApplication(arguments: arguments)
         } catch {
