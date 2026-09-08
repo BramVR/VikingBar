@@ -289,9 +289,15 @@ class NativeProof:
                    str(self.directory / (label + "-before.png"))], label + "-before.json")
         self.press("vikingbar.status")
         return wait_for(self.inspect, lambda value: any(
-            item.get("AXIdentifier") == "vikingbar.remaining" for item in value.get("elements", [])))
+            item.get("AXIdentifier") in ("vikingbar.remaining", "vikingbar.connect")
+            for item in value.get("elements", [])))
 
     def matched_balance(self, label, after=None):
+        tree = self.inspect(label + "-details-before.json")
+        if (any(item.get("AXIdentifier") == "vikingbar.bundleDetails" for item in tree.get("elements", []))
+                and not any(item.get("AXIdentifier") == "vikingbar.bundleDescription"
+                            for item in tree.get("elements", []))):
+            self.press("vikingbar.bundleDetails")
         def observe():
             try:
                 report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
@@ -347,6 +353,9 @@ class NativeProof:
         private_write(self.directory / (label + "-worker.json"), matches[0])
 
     def quit(self):
+        self.press("vikingbar.settings")
+        wait_for(self.inspect, lambda tree: any(
+            item.get("AXIdentifier") == "vikingbar.quit" for item in tree.get("elements", [])))
         self.press("vikingbar.quit")
         self.process.wait(timeout=10)
         if self.process.returncode != 0:

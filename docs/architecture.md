@@ -46,7 +46,7 @@ The core owns immutable allowance snapshots and their menu presentation. The CLI
 
 The app draws one fixed native template helmet. Its inset bar drains from right to left as the remaining fraction decreases. Unlimited and unavailable balances use distinct internal marks. A zero total has no fraction, and stale data keeps its known fill. The tooltip and accessibility label expose allowance, subscription, freshness, and fixture provenance. The card retains its visible fixture marker. No-argument launch restores a live session and refreshes it when connected. Without a stored connection, it shows account setup.
 
-The session owns status updates, so changing a fixture or the display preference updates AppKit independently of the mounted SwiftUI tab. The Settings tab binds to the default-off **Show remaining GB in menu bar** preference. The app stores that preference in a new settings file with no migration from other applications. Fixture launches use memory unless an explicit isolated settings file is supplied for relaunch proof. Tests inject their persistence inputs and never discover real user state.
+The session owns status updates, so changing a fixture or the display preference updates AppKit independently of the mounted SwiftUI view. The Settings destination binds to the default-off **Show remaining GB in menu bar** preference. The app stores that preference in a new settings file with no migration from other applications. Fixture launches use memory unless an explicit isolated settings file is supplied for relaunch proof. Tests inject their persistence inputs and never discover real user state.
 
 ## Live session ownership
 

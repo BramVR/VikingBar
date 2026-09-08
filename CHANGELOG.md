@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Replace the tabbed popover with a compact native bundle layout, remaining allowance beside total, SIM and bundle selectors, details, refresh, and footer Settings; keep Points reachable and move units, fixture controls, and Quit into Settings.
+
 - Show customer-wide Viking Points with separate available, pending, and blocked balances, expandable scrollable recent transactions that keep the balance visible, and independent stale or failed points states.
 - Show `Data bundle N` when a provider bundle title is blank, using its one-based position in the provider array without changing raw values.
 - Supply the OS username only to the private bootstrap tmux environment so the approved profile can select its service-account credential; keep the 1Password and CLI child environments unchanged.

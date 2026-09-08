@@ -19,12 +19,12 @@ PB = os.environ.get('PEEKABOO_BIN') or shutil.which('peekaboo')
 if not PB:
     raise SystemExit('Peekaboo 4 is required. See docs/development.md.')
 STATES = {
-    'Finite': ('36 GB', ['36.00 GB', '14.00 GB used', '28% used', 'Expires', 'Last updated']),
+    'Finite': ('36 GB', ['36.00 GB', '14.00 GB used', '72% remaining', 'Expires', 'Last updated']),
     'Unlimited': ('Unlimited', ['Unlimited allowance', 'Last updated']),
-    'Exhausted': ('0 GB', ['Data exhausted', '0.00 GB', '100% used', 'Last updated']),
+    'Exhausted': ('0 GB', ['Data exhausted', '0.00 GB', '0% remaining', 'Last updated']),
     'Stale': ('36 GB', ['36.00 GB', 'Showing an older balance', 'Stale', 'Last updated']),
     'Error': ('Unavailable', ['Unavailable', 'Could not load the example balance', 'No successful update']),
-    'Not connected': ('Unavailable', ['No account connected', 'Unavailable', 'Not connected']),
+    'Not connected': ('Unavailable', ['No account connected', 'Not connected']),
 }
 process = None
 app_log = None
@@ -162,24 +162,37 @@ def open_card(name):
 
 
 def select_state(state, amount, name):
+    open_settings(name)
     choose_popup('vikingbar.fixturePicker', state, name)
+    back_to_balance(name)
     expected = STATES[state][1]
     data = wait_for(lambda: inspect(f'{name}-card.json'),
                     lambda d: all(label in json.dumps(d) for label in expected)
                     and ('Not connected' in json.dumps(element(d, 'vikingbar.source'))
                          if state == 'Not connected' else
                          f'FIXTURE · {state} · Synthetic data' in json.dumps(element(d, 'vikingbar.source'), ensure_ascii=False)))
-    if state == 'Not connected':
-        assert not element(data, 'vikingbar.fixtureMarker'), 'Not connected retains fixture marker.'
+    assert element(data, 'vikingbar.fixtureMarker'), 'Synthetic launch provenance missing.'
     check_status(state, amount, name)
-    capture_card(name, fixture=state != 'Not connected')
+    capture_card(name)
     if name == 'icon-finite':
         shutil.copyfile(PROOF / f'{name}.png', PROOF / 'card.png')
     coverage.append({'state': state, 'mode': 'amount' if amount else 'iconOnly', 'capture': f'{name}-status.png'})
 
 
+def open_settings(name):
+    press('vikingbar.settings', f'{name}-settings')
+    wait_for(lambda: inspect(f'{name}-settings-ready.json'),
+             lambda d: bool(element(d, 'vikingbar.showRemainingGB')))
+
+
+def back_to_balance(name):
+    press('vikingbar.back', f'{name}-back')
+    return wait_for(lambda: inspect(f'{name}-balance-ready.json'),
+                    lambda d: bool(element(d, 'vikingbar.settings')))
+
+
 def settings_toggle(expected, name, change=False):
-    press('Settings', f'{name}-settings-tab')
+    open_settings(name)
     data = wait_for(lambda: inspect(f'{name}-settings.json'), lambda d: bool(element(d, 'vikingbar.showRemainingGB')))
     expected_before = not expected if change else expected
     assert element(data, 'vikingbar.showRemainingGB').get('AXValue') == str(int(expected_before))
@@ -193,16 +206,79 @@ def settings_toggle(expected, name, change=False):
     check_status('Finite', expected, name)
     assert 'FIXTURE' in json.dumps(element(data, 'vikingbar.fixtureMarker')), 'Settings lacks fixture provenance.'
     capture_card(f'{name}-settings')
-    press('Data', f'{name}-data-tab')
-    wait_for(lambda: inspect(f'{name}-data.json'), lambda d: bool(element(d, 'vikingbar.remaining')))
+    back_to_balance(name)
 
 
-def launch(name):
+def check_layout(name):
+    data = inspect(f'{name}-layout.json')
+    identifiers = [e.get('AXIdentifier') for e in data['elements']]
+    assert identifiers.count('vikingbar.settings') == 1, 'Balance needs exactly one Settings entry.'
+    assert 'vikingbar.fixturePicker' not in identifiers, 'Fixture picker belongs in Settings.'
+    assert 'vikingbar.units' not in identifiers, 'Data units belong in Settings.'
+    assert not any(e.get('AXRole') == 'AXTabGroup' for e in data['elements']), 'Old tab shell remains.'
+    window = popover_window(data)
+    assert window, 'Balance popover missing.'
+    bounds = window['kCGWindowBounds']
+    previous_y = bounds['Y']
+    for identifier in ['vikingbar.subscriptionPicker', 'vikingbar.bundlePicker', 'vikingbar.remaining',
+                       'vikingbar.bundleDetails', 'vikingbar.refresh', 'vikingbar.openMyViking',
+                       'vikingbar.settings']:
+        item = element(data, identifier)
+        assert item, f'Missing balance control {identifier}.'
+        (x, y), (width, height) = item['frame']
+        assert y >= previous_y, f'Approved order violated at {identifier}.'
+        assert x >= bounds['X'] and y >= bounds['Y'] and width > 0 and height > 0
+        assert x + width <= bounds['X'] + bounds['Width'] + 1
+        assert y + height <= bounds['Y'] + bounds['Height'] + 1, f'Clipped control {identifier}.'
+        previous_y = y
+
+
+def selection_and_refresh():
+    for selector, value, amount, total in [
+        ('vikingbar.bundlePicker', 'Extra data', '4.00 GB', '5.00 GB'),
+        ('vikingbar.subscriptionPicker', 'Travel SIM', '8.00 GB', '10.00 GB'),
+        ('vikingbar.bundlePicker', 'Extra data', '1.00 GB', '2.00 GB'),
+        ('vikingbar.subscriptionPicker', 'Example SIM', '36.00 GB', '50.00 GB'),
+    ]:
+        name = f'selection-{value.lower().replace(" ", "-")}-{amount.split(".")[0]}'
+        choose_popup(selector, value, name)
+        data = wait_for(lambda: inspect(f'{name}.json'), lambda d:
+                        amount in json.dumps(element(d, 'vikingbar.remaining')) and total in json.dumps(d))
+        assert value in json.dumps(data), 'Selection identity missing.'
+        capture_card(name)
+        open_settings(name)
+        back_to_balance(name)
+        assert amount in json.dumps(element(inspect(f'{name}-return.json'), 'vikingbar.remaining'))
+    press('vikingbar.bundleDetails', 'details-expand')
+    wait_for(lambda: inspect('details.json'), lambda d: 'Extra charges' in json.dumps(d))
+    capture_card('bundle-details')
+    press('vikingbar.bundleDetails', 'details-collapse')
+    before = json.dumps(element(inspect('refresh-before.json'), 'vikingbar.freshness'))
+    press('vikingbar.refresh', 'refresh')
+    refreshing = wait_for(lambda: inspect('refreshing.json'), lambda d: 'Refreshing' in json.dumps(d))
+    assert element(refreshing, 'vikingbar.refresh').get('AXEnabled') in (False, 'false', '0', 0)
+    assert element(refreshing, 'vikingbar.subscriptionPicker').get('AXEnabled') in (False, 'false', '0', 0)
+    capture_card('refreshing')
+    wait_for(lambda: inspect('refreshed.json'), lambda d:
+             'Refreshing' not in json.dumps(d)
+             and json.dumps(element(d, 'vikingbar.freshness')) != before)
+    capture_card('refreshed')
+    press('vikingbar.points', 'points-open')
+    wait_for(lambda: inspect('points.json'), lambda d: bool(element(d, 'vikingbar.points.customerLabel')))
+    capture_card('points', fixture=False)
+    back_to_balance('points')
+    coverage.append({'scenario': 'SIM and bundle selection, Settings return, refresh, details, Points'})
+
+
+def launch(name, appearance='light', reduce_transparency=False):
     global process, app_log
     assert process is None or process.poll() is not None, 'Previous task-owned app is still running.'
     process = None
     executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
-    arguments = ['--fixture', 'finite', '--settings-file', str(SETTINGS)]
+    arguments = ['--fixture', 'finite', '--settings-file', str(SETTINGS),
+                 '--fixture-appearance', appearance]
+    if reduce_transparency:
+        arguments.append('--fixture-reduce-transparency')
     app_log = (PROOF / f'{name}-app.log').open('w')
     process = subprocess.Popen([str(executable), *arguments], cwd=ROOT, stdout=app_log, stderr=subprocess.STDOUT)
     receipt = {'launch': name, 'pid': process.pid, 'parentPID': os.getpid(), 'bundle': str(bundle),
@@ -216,12 +292,15 @@ def launch(name):
     assert str(executable) in identity and identity.split()[:2] == [str(process.pid), str(os.getpid())]
     check_status('Finite', name == 'persist-on', name)
     open_card(name)
+    check_layout(name)
+    capture_card(f'{name}-balance')
     if name == 'default':
         shutil.copyfile(PROOF / 'default-before.png', PROOF / 'before.png')
         shutil.copyfile(PROOF / 'default-click.json', PROOF / 'click.json')
 
 
 def quit_app(name):
+    open_settings(f'{name}-quit')
     press('vikingbar.quit', f'{name}-quit')
     assert process.wait(timeout=10) == 0, 'Quit did not exit successfully.'
     launches[-1].update(exited=True, returncode=process.returncode, quitVerified=True)
@@ -256,21 +335,34 @@ try:
     select_state('Finite', True, 'amount-return-finite')
     for current, target, expected in [('GB', 'GiB', ['33.53 GiB', '13.04 GiB used', 'GiB uses binary units']),
                                       ('GiB', 'GB', ['36.00 GB', '14.00 GB used', 'GB uses decimal units'])]:
-        choose_popup(current, target, f'units-{target}')
-        data = wait_for(lambda: inspect(f'units-{target}.json'), lambda d: all(s in json.dumps(d) for s in expected))
+        open_settings(f'units-{target}')
+        choose_popup('vikingbar.units', target, f'units-{target}')
+        wait_for(lambda: inspect(f'units-{target}-settings.json'),
+                 lambda d: expected[-1] in json.dumps(d))
+        capture_card(f'units-{target}-settings')
+        back_to_balance(f'units-{target}')
+        data = wait_for(lambda: inspect(f'units-{target}.json'), lambda d: all(s in json.dumps(d) for s in expected[:-1]))
         status = element(data, 'vikingbar.status')
         assert status.get('AXTitle') == '36 GB', 'Menu amount must remain decimal GB.'
         capture_status(data, f'units-{target}-status')
         capture_card(f'units-{target}')
+    selection_and_refresh()
     assert SETTINGS.is_file(), 'Settings were not saved to the isolated store.'
     quit_app('default')
-    launch('persist-on')
+    launch('persist-on', appearance='dark')
     settings_toggle(True, 'persist-on')
+    select_state('Error', True, 'dark-error')
+    select_state('Finite', True, 'dark-finite')
     settings_toggle(False, 'disable', change=True)
     quit_app('persist-on')
-    launch('persist-off')
+    launch('persist-off', appearance='high-contrast-light')
     settings_toggle(False, 'persist-off')
     quit_app('persist-off')
+    launch('contrast-dark', appearance='high-contrast-dark', reduce_transparency=True)
+    settings_toggle(False, 'contrast-dark')
+    select_state('Error', False, 'contrast-dark-error')
+    select_state('Finite', False, 'contrast-dark-finite')
+    quit_app('contrast-dark')
 finally:
     if process is not None:
         if process.poll() is None:
@@ -289,10 +381,12 @@ finally:
                                                    'processes': launches}, indent=2))
     print(f'Proof retained at {PROOF}')
 
-assert len(launches) == 3 and all(p.get('quitVerified') for p in launches)
+assert len(launches) == 4 and all(p.get('quitVerified') for p in launches)
 (PROOF / 'result.json').write_text(json.dumps({
     'passed': True, 'features': ['data card', 'five fixture states', 'Not connected', 'Settings toggle',
-                               'GB/GiB units', 'Quit', 'isolated persistence', 'status captures'],
+                               'GB/GiB units', 'Quit', 'isolated persistence', 'status captures',
+                               'SIM and bundle selection', 'refresh', 'details', 'Points navigation',
+                               'light and dark', 'high contrast', 'reduced transparency'],
     'modes': ['iconOnly', 'amount'], 'coverage': coverage, 'iconOnlyWidth': icon_width,
     'persistence': {'default': False, 'relaunchOn': True, 'relaunchOff': False, 'settingsFile': str(SETTINGS)},
     'visualInspection': 'Status crops retained for native appearance inspection; no raster comparison performed.',

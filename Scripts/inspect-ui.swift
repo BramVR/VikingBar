@@ -22,7 +22,7 @@ func elements(_ element: AXUIElement, depth: Int = 0) -> [AXUIElement] {
 
 func record(_ element: AXUIElement) -> [String: Any] {
     var result: [String: Any] = [:]
-    for key in ["AXRole", "AXTitle", "AXDescription", "AXHelp", "AXValue", "AXIdentifier"] {
+    for key in ["AXRole", "AXTitle", "AXDescription", "AXHelp", "AXValue", "AXIdentifier", "AXEnabled"] {
         if let value = attribute(element, key) { result[key] = String(describing: value) }
     }
     var point = CGPoint.zero

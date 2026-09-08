@@ -40,10 +40,8 @@ struct PointsCard: View {
                 .accessibilityIdentifier("vikingbar.points.transactionsScroll")
             }
             .accessibilityIdentifier("vikingbar.points.transactionsToggle")
-            Spacer(minLength: 0)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func transaction(_ row: PointsTransactionPresentation, index: Int) -> some View {
