@@ -22,7 +22,7 @@ Use Swift 6.2 and target macOS 14+ initially. Begin with Apple Silicon. Availabi
 
 Keep HTTP, credential storage, time, and persistence injectable. A serial auth owner coordinates refresh and token rotation. Optional points, history, or invoice failures must not discard a successful data balance.
 
-Use 1Password to bootstrap authentication and Keychain for refresh tokens. Never embed the 1Password service-account token in the app. Fixture mode must never read real credentials or masquerade as live data.
+Use direct credential entry or optional 1Password to bootstrap authentication, and Keychain for refresh tokens. Never embed the 1Password service-account token in the app. Fixture mode must never read real credentials or masquerade as live data.
 
 ## Why
 
@@ -52,7 +52,9 @@ The session owns status updates, so changing a fixture or the display preference
 
 `AppSession` restores live state, schedules refresh, and publishes presentation changes. `SessionProcessClient` sends JSON-lines commands to the bundled `vikingbar session` process over private pipes. The CLI owns `VikingSession`, the token store, and the account cache. The app never reads the token directly.
 
-`AccountConnector` starts the packaged `connect-account.py` helper. The helper creates one private named tmux session, sources the approved profile there, and reads one approved 1Password item. It passes the three credential fields to the same bundled CLI's `connect` command through stdin. Only the 1Password child receives the service-account token. Passwords are released before balance retrieval.
+`AccountConnector` accepts either direct credentials or a 1Password reference. Direct credentials go through stdin to the bundled `vikingbar connect` command. The native form owns temporary input and clears its password on submission or dismissal. Both methods return to the same session restoration and refresh lifecycle. This preserves one token store, one connection identity model, and one request allowlist.
+
+For the optional 1Password method, `AccountConnector` starts the packaged `connect-account.py` helper. The helper creates one private named tmux session, sources the approved profile there, and reads one approved 1Password item. It passes the three credential fields to the same bundled CLI's `connect` command through stdin. Only the 1Password child receives the service-account token. Passwords are released before balance retrieval.
 
 Each successful connection receives a new connection ID. Cached subscription state belongs to that connection, and each SIM retains its own bundles. The selected active data bundle supplies the helmet and allowance card. Applicability, expiry, and extra charges remain separate display values. Missing amounts stay unavailable.
 

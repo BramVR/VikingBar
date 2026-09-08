@@ -33,13 +33,13 @@ The app has no Dock icon. Its helmet opens the data card. **Settings** contains 
 
 The [website](https://bramvr.github.io/VikingBar/) explains setup and includes an interactive sample menu. See the [website development guide](website/README.md) for its separate build and checks.
 
-For your own balance, the [account setup guide](docs/live-account.md) covers connection through **Connect with 1Password**. The current connection helper requires the 1Password CLI, tmux, `/usr/bin/python3`, and the service-account and credential-reference setup described in that guide.
+For your own balance, the [account setup guide](docs/live-account.md) covers default direct sign-in and optional **Connect with 1Password**. Direct sign-in needs approved public-client details and your account credentials. The optional 1Password helper requires the 1Password CLI, tmux, `/usr/bin/python3`, and the service-account and credential-reference setup described in that guide.
 
 Opening the app without `--fixture` restores a live session or shows account setup. Subsequent refreshes use the stored token.
 
 ## Credentials and account data
 
-The connection helper reads the configured 1Password item once. The bundled CLI stores refresh tokens in macOS Keychain and communicates with the app over private pipes. The public OAuth client needs no client secret.
+Direct sign-in passes credentials to the bundled CLI over stdin. The optional connection helper reads the configured 1Password item once. The bundled CLI stores refresh tokens in macOS Keychain and communicates with the app over private pipes. The public OAuth client needs no client secret.
 
 VikingBar restricts account requests to authentication and allowlisted data reads. Account changes and payments are outside its scope. Credentials, account responses, and private screenshots stay out of commits and hosted CI. The [live proof guide](docs/live-proof.md) documents request limits and verification coverage.
 

@@ -178,6 +178,46 @@ def select_state(state, amount, name):
     coverage.append({'state': state, 'mode': 'amount' if amount else 'iconOnly', 'capture': f'{name}-status.png'})
 
 
+def direct_connection_choices():
+    select_state('Not connected', False, 'direct-disconnected')
+    press('vikingbar.connect.direct', 'direct-open')
+    data = wait_for(lambda: inspect('direct-form.json'),
+                    lambda d: bool(element(d, 'vikingbar.connect.password')))
+    for identifier in ('client-id', 'username', 'password', 'submit', 'cancel'):
+        assert element(data, 'vikingbar.connect.' + identifier), 'Direct form control missing.'
+    assert element(data, 'vikingbar.connect.password').get('AXSubrole') == 'AXSecureTextField'
+    press('vikingbar.connect.submit', 'direct-empty-submit')
+    data = wait_for(lambda: inspect('direct-validation.json'), lambda d:
+                    element(d, 'vikingbar.connect.error').get('messageCode') == 'required-fields')
+    assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    payload = json.dumps({'client_id': 'synthetic-public-client', 'username': 'synthetic@example.invalid',
+                          'password': 'synthetic-only'}).encode()
+    result = subprocess.run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'fill-direct'],
+                            input=payload, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10, check=False)
+    assert result.returncode == 0 and result.stdout.strip() == b'{"filled":true}', 'Synthetic form fill failed.'
+    press('vikingbar.connect.submit', 'direct-fixture-submit')
+    wait_for(lambda: inspect('direct-fixture-rejected.json'), lambda d:
+             element(d, 'vikingbar.connect.error').get('messageCode') == 'fixture-direct'
+             and element(d, 'vikingbar.connect.password').get('valueEmpty') is True)
+    press('vikingbar.connect', 'optional-one-password')
+    wait_for(lambda: inspect('optional-fixture-rejected.json'), lambda d:
+             element(d, 'vikingbar.connect.error').get('messageCode') == 'fixture-one-password')
+    result = subprocess.run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'fill-direct'],
+                            input=payload, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10, check=False)
+    assert result.returncode == 0 and result.stdout.strip() == b'{"filled":true}', 'Synthetic form refill failed.'
+    wait_for(lambda: inspect('direct-before-cancel.json'), lambda d:
+             element(d, 'vikingbar.connect.password').get('valueEmpty') is False)
+    press('vikingbar.connect.cancel', 'direct-cancel')
+    wait_for(lambda: inspect('direct-cancelled.json'), lambda d: not element(d, 'vikingbar.connect.password'))
+    press('vikingbar.connect.direct', 'direct-reopen')
+    data = wait_for(lambda: inspect('direct-reopened.json'), lambda d: bool(element(d, 'vikingbar.connect.password')))
+    assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    press('vikingbar.connect.cancel', 'direct-recancel')
+    children = subprocess.run(['pgrep', '-P', str(process.pid)], capture_output=True, timeout=5, check=False)
+    assert children.returncode == 1 and not children.stdout.strip(), 'Fixture connection launched a child process.'
+    select_state('Finite', False, 'direct-return-finite')
+
+
 def settings_toggle(expected, name, change=False):
     press('Settings', f'{name}-settings-tab')
     data = wait_for(lambda: inspect(f'{name}-settings.json'), lambda d: bool(element(d, 'vikingbar.showRemainingGB')))
@@ -247,6 +287,7 @@ try:
     assert not SETTINGS.exists(), 'Default proof requires a new isolated store.'
     launch('default')
     settings_toggle(False, 'default')
+    direct_connection_choices()
     for state in STATES:
         select_state(state, False, f'icon-{state.lower().replace(" ", "-")}')
     select_state('Finite', False, 'icon-return-finite')
@@ -292,7 +333,8 @@ finally:
 assert len(launches) == 3 and all(p.get('quitVerified') for p in launches)
 (PROOF / 'result.json').write_text(json.dumps({
     'passed': True, 'features': ['data card', 'five fixture states', 'Not connected', 'Settings toggle',
-                               'GB/GiB units', 'Quit', 'isolated persistence', 'status captures'],
+                               'GB/GiB units', 'Quit', 'isolated persistence', 'status captures',
+                               'direct form validation and cancellation', 'optional 1Password fixture rejection'],
     'modes': ['iconOnly', 'amount'], 'coverage': coverage, 'iconOnlyWidth': icon_width,
     'persistence': {'default': False, 'relaunchOn': True, 'relaunchOff': False, 'settingsFile': str(SETTINGS)},
     'visualInspection': 'Status crops retained for native appearance inspection; no raster comparison performed.',

@@ -6,8 +6,23 @@ struct DataCard: View {
     @Bindable var session: AppSession
 
     var connect: () -> Void = {}
+    var connectResultURL: URL?
+    @State private var showsConnectionForm = false
 
     var body: some View {
+        if self.showsConnectionForm {
+            ConnectionForm(
+                session: self.session, resultURL: self.connectResultURL,
+                reference: self.connect, dismiss: { self.showsConnectionForm = false },
+            )
+        } else if self.session.isFixtureLaunch {
+            self.card
+        } else {
+            ScrollView { self.card }
+        }
+    }
+
+    @ViewBuilder private var card: some View {
         let menu = self.session.menu
         VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -74,6 +89,7 @@ struct DataCard: View {
                         }
                     }
                     .accessibilityIdentifier("vikingbar.fixturePicker")
+                    self.directConnect
                 } else {
                     self.liveActions
                 }
@@ -137,6 +153,12 @@ struct DataCard: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
+    private var directConnect: some View {
+        Button("Connect account") { self.showsConnectionForm = true }
+            .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
+            .accessibilityIdentifier("vikingbar.connect.direct")
+    }
+
     private var liveActions: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button(self.session.activity == .refreshing ? "Refreshing…" : "Refresh now") {
@@ -144,6 +166,7 @@ struct DataCard: View {
             }
             .disabled(!self.session.canRefresh)
             .accessibilityIdentifier("vikingbar.refresh")
+            self.directConnect
             Button(self.session.activity == .connecting ? "Connecting…" : "Connect with 1Password") {
                 self.connect()
             }

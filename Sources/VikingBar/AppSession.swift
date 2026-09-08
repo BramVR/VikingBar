@@ -152,34 +152,6 @@ final class AppSession {
         self.operation = Task { await self.perform(request, intent: intent) }
     }
 
-    func connect(reference: URL, resultURL: URL?) {
-        guard !self.isFixtureLaunch, self.activity != .stopped, self.activity != .connecting else { return }
-        let intent = self.begin(.connecting)
-        let previous = self.client
-        self.client = nil
-        self.liveState = LiveSessionState()
-        self.bridgeFailure = nil
-        self.scheduleExpiry()
-        self.onPresentationChange?()
-        self.operation = Task {
-            await previous?.shutdown()
-            guard self.isCurrent(intent) else { return }
-            do {
-                let connector = try self.connectorFactory()
-                self.connector = connector
-                try await connector.connect(reference: reference, resultURL: resultURL)
-                guard self.isCurrent(intent) else { return }
-                self.connector = nil
-                await self.restoreAndRefresh(intent: intent)
-            } catch {
-                guard self.isCurrent(intent) else { return }
-                self.connector = nil
-                self.bridgeFailure = .connectFailed
-                self.finish()
-            }
-        }
-    }
-
     func stop() async {
         guard self.activity != .stopped else { return }
         let operation = self.operation
@@ -352,5 +324,61 @@ extension AppSession {
     var isConnected: Bool {
         self.liveState.connectionID != nil
             && ![.notConnected, .reconnectRequired, .unauthorized].contains(self.liveState.failure)
+    }
+}
+
+extension AppSession {
+    func connect(input: AccountConnectionInput, resultURL: URL?) {
+        guard !self.isFixtureLaunch, self.activity != .stopped, self.activity != .connecting else {
+            if case let .credentials(credentials) = input {
+                credentials.discard()
+            }
+            return
+        }
+        let intent = self.begin(.connecting)
+        let previous = self.client
+        self.client = nil
+        self.liveState = LiveSessionState()
+        self.bridgeFailure = nil
+        self.scheduleExpiry()
+        self.onPresentationChange?()
+        self.operation = Task {
+            defer {
+                if case let .credentials(credentials) = input {
+                    credentials.discard()
+                }
+            }
+            await previous?.shutdown()
+            guard self.isCurrent(intent) else { return }
+            do {
+                let connector = try self.connectorFactory()
+                self.connector = connector
+                try await connector.connect(input: input, resultURL: resultURL)
+                guard self.isCurrent(intent) else { return }
+                self.connector = nil
+                await self.restoreAndRefresh(intent: intent)
+            } catch {
+                guard self.isCurrent(intent) else { return }
+                self.connector = nil
+                self.bridgeFailure = error as? LiveBridgeFailure ?? .connectFailed
+                self.finish()
+            }
+        }
+    }
+
+    func cancelConnection() async {
+        guard self.activity == .connecting else { return }
+        let operation = self.operation
+        let intent = self.begin(.connecting)
+        let connector = self.connector
+        let client = self.client
+        self.client = nil
+        await connector?.cancel()
+        await client?.shutdown()
+        await operation?.value
+        guard self.isCurrent(intent) else { return }
+        self.connector = nil
+        self.bridgeFailure = nil
+        self.finish()
     }
 }

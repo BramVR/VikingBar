@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add default native direct sign-in for approved public-client accounts, retain optional 1Password connection, and reuse the CLI-owned Keychain session; required direct-form live proof remains pending.
+
 - Add latest account invoice details with honest grouped-SIM relationships, separate payment amounts and credit notes, optional invoice refresh, and explicit authenticated private PDF downloads; queue points and bills without delaying data refresh or dropping pending metadata.
 - Show customer-wide Viking Points with separate available, pending, and blocked balances, expandable scrollable recent transactions that keep the balance visible, and independent stale or failed points states.
 - Publish a searchable GitHub Pages website with a rounded Three.js helmet, draggable plus-sign stars, a full-to-empty/refill animation, an interactive native menu demo matching issue #22, Mobile Vikings-inspired styling, API-access and 1Password setup requirements, an expandable FAQ, development-build links, and a source reference panel.

@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.popover.contentViewController = NSHostingController(rootView: PopoverView(
             session: self.session,
             connect: self.connect,
+            connectResultURL: self.options.proofDirectory?.appending(path: "connect-result.json"),
         ))
         self.session.start()
     }
@@ -53,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func connect() {
+        guard !self.session.isFixtureLaunch else { return }
         if let reference = self.options.credentialReference {
             self.connect(reference: reference)
             return
@@ -70,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func connect(reference: URL) {
         self.session.connect(
-            reference: reference,
+            input: .reference(reference),
             resultURL: self.options.proofDirectory?.appending(path: "connect-result.json"),
         )
     }

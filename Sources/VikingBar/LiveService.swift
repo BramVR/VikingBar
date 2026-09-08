@@ -36,17 +36,36 @@ protocol SessionClient: Sendable {
     func shutdown() async
 }
 
+enum AccountConnectionInput: Sendable {
+    case credentials(ConnectionCredentials)
+    case reference(URL)
+}
+
 protocol AccountConnecting: Sendable {
-    func connect(reference: URL, resultURL: URL?) async throws
+    func connect(input: AccountConnectionInput, resultURL: URL?) async throws
     func cancel() async
 }
 
 enum LiveBridgeFailure: Error, Sendable {
     case unavailable, invalidReply, stopped, connectFailed
+    case bootstrap(BootstrapFailure)
 
     var message: String {
         switch self {
-        case .connectFailed: "Could not connect. Check the approved credential setup and try again."
+        case .connectFailed: "Could not connect. Check your sign-in details and try again."
+        case let .bootstrap(failure):
+            switch failure {
+            case .credentialInput: "Enter your public client ID, username, and password."
+            case .tokenRejected: "Sign-in was rejected. Check your credentials and API access approval."
+            case .tokenNetwork: "Could not reach Mobile Vikings. Check your connection and try again."
+            case .tokenRateLimited: "Too many sign-in attempts. Wait before trying again."
+            case .tokenServer: "Mobile Vikings is unavailable. Try again later."
+            case .keychainWrite: "Could not save the connection in Keychain. Check access and try again."
+            case .sessionBusy: "Another account operation is running. Try again when it finishes."
+            case .connectCancelled: "Connection cancelled."
+            case .localFilesystem: "Could not save the account locally. Check file access and try again."
+            case .tokenResponse, .connectFailed: "Could not complete sign-in. Try again later."
+            }
         case .unavailable, .invalidReply, .stopped: "The account worker stopped. Refresh to try again."
         }
     }

@@ -11,13 +11,15 @@ read_when:
 
 A Mobile Vikings account does not automatically include API access. Request it by emailing `api@mobilevikings.be`, including your name, the brand (Mobile Vikings), the application name (VikingBar), and its purpose (viewing your own balance). Wait for approval and client details before attempting to connect. See the provider's [API access instructions](https://docs.uwa.mobilevikings.be/).
 
-The current development app requires the configured 1Password helper described below. It has no supported manual sign-in form yet. Owning a 1Password account alone is not sufficient: the CLI and authorized helper configuration are also required.
+Direct sign-in is the default connection method. Enter the approved public client ID, account username, and password in the native app. 1Password remains optional. Native live verification of the new direct form is pending; see [the proof prerequisite](live-proof.md#direct-sign-in-proof).
 
 VikingBar's verified integration uses the support-approved public client with no client secret. The generic API documentation also describes confidential clients; confirm that Mobile Vikings approves a compatible public-client setup for your use. Do not put a client secret into the public-client ID field. See [authentication context](../CONTEXT.md#authentication).
 
 ## Connect the development app
 
-Build the development app with `make package-app`, then open `.build/app/VikingBar.app`. Open the helmet in the menu bar and choose **Connect with 1Password**. Select your approved credential reference file if prompted. The reference contains the vault, item ID, and field labels described in [local proof setup](live-proof.md#setup). It contains no credential values.
+Build the development app with `make package-app`, then open `.build/app/VikingBar.app`. Open the helmet in the menu bar and choose **Connect account**. Enter your public client ID and username, then enter your password in the masked field. Submit the form to connect. Cancel dismisses the form and clears its password. The app passes credentials through a private pipe to the bundled CLI and clears the form password when you submit. It never saves the password in settings or files. This route requires no 1Password, tmux, Python helper, service account, or credential-reference file.
+
+For the optional method, choose **Connect with 1Password**. Select your approved credential reference file if prompted. The reference contains the vault, item ID, and field labels described in [local proof setup](live-proof.md#setup). It contains no credential values.
 
 The packaged connection helper uses `/usr/bin/python3` and requires tmux, the 1Password CLI, and the authorized service-account setup in `~/.profile`. It sources that profile inside one private named tmux session and reads the configured item once. The helper supplies the OS username as `USER` only to tmux so the profile can select its service-account credential. The 1Password and CLI child environments remain restricted. The app never receives the service-account token. The initial password exchange releases the password before balance retrieval begins.
 
@@ -60,7 +62,7 @@ For an automated native connection, pass `--credential-reference /absolute/priva
 
 ## Recover a connection
 
-If the app asks you to reconnect, choose **Connect with 1Password** again. Each successful connection creates a new local connection identity. Cached subscriptions from the previous connection cannot supply the new connection's balance.
+If the app asks you to reconnect, use direct sign-in or **Connect with 1Password** again. Each successful connection creates a new local connection identity. Cached subscriptions from the previous connection cannot supply the new connection's balance.
 
 The bundled `vikingbar` executable owns the refresh session in macOS Keychain under service `be.bram.vikingbar.oauth` and account `mobile-vikings`. The native app sends commands to that executable over private pipes. It never reads the token directly. Bootstrap and refresh use the same executable identity, and separate CLI processes share a lease around token rotation.
 

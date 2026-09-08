@@ -143,3 +143,17 @@ This check reuses the stored session. It does not retrieve the password or conne
 Raw account output and captures stay private under `.build/proof/`. Retain the build hashes, API comparison, native action receipts, images, result, and cleanup receipt. Inspect the PNGs after the automated check. Synthetic tests cover states absent from the live account; do not claim that every state was observed live.
 
 The [points feature map](../.agents/skills/verify-vikingbar/features/points.md) records live coverage and its limits.
+
+## Direct sign-in proof
+
+`make proof-live CHECK=direct-connect-ui` extends the native balance proof. This new entry method requires explicit approval of its concrete private proof configuration, plus the coordinator's credential and Mac UI slots. Existing retry authorization does not approve this new configuration. The direct native gate has not yet passed.
+
+The private configuration identifies the reviewed source digest, the approved credential-reference digest, one named tmux session, slot owners, and a short expiry. `VIKINGBAR_DIRECT_CONNECT_CONFIG` names that file outside the checkout. `VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256` acknowledges its exact contents. These checks bind an operator's run to the reviewed proposal; setting variables does not grant authorization.
+
+After approval, the external proof process runs inside the configured tmux session. It reads the exact approved 1Password item once and passes the three selected fields through a private pipe to `inspect-ui fill-direct`. That helper fills the actual native fields through Accessibility. It accepts no password argument or file, requires a secure password field, and emits a fixed receipt. This external credential source belongs to the proof process. The app's direct route has no 1Password or tmux dependency.
+
+During direct proof, a process-execution policy permits the app and bundled CLI only. The runner checks the restriction before reading credentials. The app receives neither the credential reference nor the service-account token. It submits the form to the existing CLI `connect` command through private stdin. The CLI continues to own the refresh session in Keychain.
+
+The helper suppresses form text in accessibility output. The runner captures no screenshot while entering credentials, and all child errors remain fixed diagnostics. Credentials remain briefly in process memory; clearing references does not guarantee erasure of immutable runtime strings. No password belongs in arguments, environment, settings, files, logs, clipboard, or proof receipts.
+
+The gate requires a real API comparison, native refresh, stored-session relaunch, release rebuild and another stored-session relaunch. It preserves the balance proof's identity and cleanup checks. The optional method still requires a separate `make proof-live CHECK=balance-ui` result under its existing authorization policy. Missing or skipped proof keeps issue 26 incomplete and blocks website availability claims.

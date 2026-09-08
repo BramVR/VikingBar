@@ -20,10 +20,27 @@ func elements(_ element: AXUIElement, depth: Int = 0) -> [AXUIElement] {
     return [element] + children(element).flatMap { elements($0, depth: depth + 1) }
 }
 
-func record(_ element: AXUIElement) -> [String: Any] {
+func record(_ element: AXUIElement, redactText: Bool = false) -> [String: Any] {
     var result: [String: Any] = [:]
-    for key in ["AXRole", "AXTitle", "AXDescription", "AXHelp", "AXValue", "AXIdentifier"] {
+    let keys = redactText
+        ? ["AXRole", "AXSubrole", "AXIdentifier", "AXEnabled"]
+        : ["AXRole", "AXSubrole", "AXTitle", "AXDescription", "AXHelp", "AXValue", "AXIdentifier", "AXEnabled"]
+    for key in keys {
         if let value = attribute(element, key) { result[key] = String(describing: value) }
+    }
+    if redactText, let identifier = attribute(element, "AXIdentifier") as? String,
+       ["vikingbar.connect.client-id", "vikingbar.connect.username", "vikingbar.connect.password"].contains(identifier) {
+        result["valueEmpty"] = (attribute(element, "AXValue") as? String)?.isEmpty == true
+    }
+    if redactText, (attribute(element, "AXIdentifier") as? String) == "vikingbar.connect.error" {
+        let codes = ["Enter all three fields.": "required-fields",
+                     "Fixture mode does not connect to an account.": "fixture-direct",
+                     "Fixture mode does not read 1Password.": "fixture-one-password"]
+        for key in ["AXValue", "AXTitle", "AXDescription"] {
+            if let text = attribute(element, key) as? String, let code = codes[text] {
+                result["messageCode"] = code
+            }
+        }
     }
     var point = CGPoint.zero
     var size = CGSize.zero
@@ -50,7 +67,38 @@ while runningApp?.bundleIdentifier == nil, ProcessInfo.processInfo.systemUptime 
 guard let app = runningApp, app.bundleIdentifier == "be.bram.vikingbar"
 else { fatalError("Require a registered VikingBar application.") }
 let tree = elements(AXUIElementCreateApplication(pid))
-if arguments.count == 3, arguments[1] == "press" {
+if arguments.count == 2, arguments[1] == "fill-direct" {
+    var inputInfo = stat()
+    guard fstat(STDIN_FILENO, &inputInfo) == 0, inputInfo.st_mode & S_IFMT == S_IFIFO else { exit(1) }
+    do {
+        var data = Data()
+        while data.count <= 16384 {
+            let chunk = try FileHandle.standardInput.read(upToCount: 16385 - data.count) ?? Data()
+            if chunk.isEmpty { break }
+            data.append(chunk)
+        }
+        guard data.count <= 16384,
+              let payload = try JSONSerialization.jsonObject(with: data) as? [String: String],
+              Set(payload.keys) == Set(["client_id", "username", "password"])
+        else { exit(1) }
+        data.resetBytes(in: 0..<data.count)
+        let fields = [("client_id", "client-id"), ("username", "username"), ("password", "password")]
+        var targets: [AXUIElement] = []
+        for (_, identifier) in fields {
+            let matches = tree.filter { (attribute($0, "AXIdentifier") as? String) == "vikingbar.connect." + identifier }
+            guard matches.count == 1 else { exit(1) }
+            targets.append(matches[0])
+        }
+        guard (attribute(targets[2], "AXSubrole") as? String) == "AXSecureTextField" else { exit(1) }
+        for (index, field) in fields.enumerated() {
+            guard AXUIElementSetAttributeValue(targets[index], kAXValueAttribute as CFString,
+                                              payload[field.0]! as CFString) == .success else { exit(1) }
+        }
+        print("{\"filled\":true}")
+    } catch {
+        exit(1)
+    }
+} else if arguments.count == 3, arguments[1] == "press" {
     let menuItem = tree.first(where: {
         (attribute($0, "AXRole") as? String) == "AXMenuItem"
             && (attribute($0, "AXTitle") as? String) == arguments[2]
@@ -80,8 +128,12 @@ if arguments.count == 3, arguments[1] == "press" {
 } else {
     let windows = (CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? [])
         .filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }
+    let formVisible = tree.contains { (attribute($0, "AXIdentifier") as? String) == "vikingbar.connect.password" }
+    let safeWindows = windows.map { window in
+        formVisible ? window.filter { $0.key != kCGWindowName as String } : window
+    }
     let result: [String: Any] = ["pid": pid, "activationPolicy": app.activationPolicy.rawValue,
-                               "elements": tree.map(record), "windows": windows]
+                               "elements": tree.map { record($0, redactText: formVisible) }, "windows": safeWindows]
     let data = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
     FileHandle.standardOutput.write(data)
 }

@@ -82,10 +82,10 @@ struct NativeProcessTests {
             defer { fixture.cleanup() }
             let connector = AccountConnector(cliURL: fixture.executable, helperURL: fixture.executable)
             if extra.isEmpty {
-                try await connector.connect(reference: fixture.executable, resultURL: nil)
+                try await connector.connect(input: .reference(fixture.executable), resultURL: nil)
             } else {
                 await #expect(throws: LiveBridgeFailure.self) {
-                    try await connector.connect(reference: fixture.executable, resultURL: nil)
+                    try await connector.connect(input: .reference(fixture.executable), resultURL: nil)
                 }
             }
         }
@@ -96,7 +96,7 @@ struct NativeProcessTests {
         """)
         defer { fixture.cleanup() }
         let connector = AccountConnector(cliURL: fixture.executable, helperURL: fixture.executable)
-        let connecting = Task { try await connector.connect(reference: fixture.executable, resultURL: nil) }
+        let connecting = Task { try await connector.connect(input: .reference(fixture.executable), resultURL: nil) }
         try await fixture.waitUntilStarted()
         await connector.cancel()
         await #expect(throws: LiveBridgeFailure.self) { try await connecting.value }
@@ -127,7 +127,7 @@ struct NativeProcessTests {
         """)
         defer { fixture.cleanup() }
         let connector = AccountConnector(cliURL: fixture.executable, helperURL: fixture.executable)
-        let connecting = Task { try await connector.connect(reference: fixture.executable, resultURL: nil) }
+        let connecting = Task { try await connector.connect(input: .reference(fixture.executable), resultURL: nil) }
         try await fixture.waitUntilStarted()
         connecting.cancel()
         try await fixture.waitUntilStarted(suffix: "terminating")
@@ -144,7 +144,7 @@ struct NativeProcessTests {
     }
 }
 
-private struct NativeProcessFixture {
+struct NativeProcessFixture {
     let directory: URL
     let executable: URL
 

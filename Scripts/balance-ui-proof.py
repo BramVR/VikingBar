@@ -6,7 +6,9 @@ import importlib.util
 import json
 import math
 import os
+import resource
 import signal
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -21,6 +23,56 @@ CONNECT_SPEC.loader.exec_module(CONNECT)
 
 class UIFailure(Exception):
     """Fixed public diagnostic."""
+
+
+def source_digest(root=ROOT):
+    digest = hashlib.sha256()
+    paths = [root / "Package.swift"]
+    if (root / "Package.resolved").is_file():
+        paths.append(root / "Package.resolved")
+    for directory in ("Sources", "Scripts"):
+        paths.extend(path for path in (root / directory).rglob("*")
+                     if path.is_file() and (directory == "Sources" or path.suffix in {".swift", ".py", ".sh"}))
+    for path in sorted(paths):
+        digest.update(str(path.relative_to(root)).encode() + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def direct_configuration(environment, now=None):
+    try:
+        path = Path(environment["VIKINGBAR_DIRECT_CONNECT_CONFIG"])
+        raw = path.read_bytes()
+        if (path.resolve().is_relative_to(ROOT) or path.stat().st_mode & 0o077
+                or hashlib.sha256(raw).hexdigest() != environment["VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256"]):
+            raise ValueError()
+        value = json.loads(raw)
+        if (set(value) != {"schema_version", "check", "source_sha256", "credential_reference_sha256",
+                           "expires_at", "tmux_session", "credential_slot", "mac_ui_slot"}
+                or type(value["schema_version"]) is not int or value["schema_version"] != 1
+                or value["check"] != "direct-connect-ui" or value["source_sha256"] != source_digest()
+                or any(not isinstance(value[key], str) or not value[key].strip()
+                       for key in ("tmux_session", "credential_slot", "mac_ui_slot"))):
+            raise ValueError()
+        expires = datetime.datetime.fromisoformat(value["expires_at"].replace("Z", "+00:00"))
+        now = now or datetime.datetime.now(datetime.timezone.utc)
+        if not 0 < (expires - now).total_seconds() <= 3600:
+            raise ValueError()
+        reference = Path(environment["VIKINGBAR_CREDENTIAL_REFERENCE"])
+        if (reference.resolve().is_relative_to(ROOT)
+                or hashlib.sha256(reference.read_bytes()).hexdigest() != value["credential_reference_sha256"]):
+            raise ValueError()
+        CONNECT.reference_at(reference)
+        if not environment.get("TMUX") or not environment.get("BRAM_OP_SERVICE_ACCOUNT_TOKEN"):
+            raise ValueError()
+        return value
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, CONNECT.ConnectFailure):
+        raise UIFailure("direct-proof-configuration-required") from None
+
+
+def direct_sandbox(executable, cli):
+    return ('(version 1)(allow default)(deny process-exec)'
+            '(allow process-exec (literal ' + json.dumps(str(executable)) + ')'
+            ' (literal ' + json.dumps(str(cli)) + '))')
 
 
 def private_write(path, value):
@@ -188,7 +240,10 @@ def process_identity(pid):
 
 
 class NativeProof:
-    def __init__(self, environment, *, stored_session=False):
+    direct = None
+
+    def __init__(self, environment, *, stored_session=False, direct_connect=False):
+        self.direct = direct_configuration(environment) if direct_connect else None
         self.environment = environment
         self.peekaboo = environment.get("PEEKABOO_BIN")
         if not self.peekaboo or not Path(self.peekaboo).is_file():
@@ -259,8 +314,11 @@ class NativeProof:
 
     def launch(self, first, label=None):
         arguments = [str(self.executable), "--proof-directory", str(self.directory)]
-        if first:
+        if first and self.direct is None:
             arguments += ["--credential-reference", self.reference]
+        if self.direct is not None:
+            direct_configuration(self.environment)
+            arguments = ["/usr/bin/sandbox-exec", "-p", direct_sandbox(self.executable, self.cli), *arguments]
         clean = {key: self.environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL")
                  if key in self.environment}
         self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
@@ -272,6 +330,9 @@ class NativeProof:
             "executableSHA256": self.executable_hash, "workerOwnershipEstablished": False}
         self.launches.append((self.process, self.launch_record))
         identity = process_identity(self.process.pid)
+        if self.direct is not None:
+            identity = wait_for(lambda: process_identity(self.process.pid), lambda value:
+                                value is not None and value["command"].startswith(str(self.executable) + " "), seconds=5)
         if identity is None:
             raise UIFailure("app-exited")
         self.identity = identity["identity"]
@@ -305,6 +366,9 @@ class NativeProof:
                 return None
         report, tree = wait_for(observe, lambda value: value is not None)
         self.verify_worker(label)
+        if self.direct is not None and any(item.get("AXIdentifier") == "vikingbar.connect.password"
+                                           for item in tree.get("elements", [])):
+            raise UIFailure("direct-form-capture-forbidden")
         _, window = popover_window(tree, self.screens)
         self.peek(["see", "--window-id", str(window["kCGWindowNumber"]), "--no-elements", "--no-remote",
                    "--path", str(self.directory / (label + "-card.png"))], label + "-image.json")
@@ -353,22 +417,13 @@ class NativeProof:
             raise UIFailure("native-quit-failed")
         self.process = None
 
-    def perform(self):
-        self.peek(["permissions", "status", "--all-sources"], "permissions.json")
-        apps = self.peek(["app", "list", "--include-hidden", "--include-background"], "apps-before.json")
-        if "be.bram.vikingbar" in json.dumps(apps):
-            raise UIFailure("existing-app-must-be-quit")
-        self.run(["./Scripts/package-app.sh"], timeout=300)
-        self.run(["swiftc", "Scripts/inspect-ui.swift", "-o", ".build/inspect-ui"], timeout=120)
-        self.executable_hash = hashlib.sha256(self.executable.read_bytes()).hexdigest()
-        initial_cli_hash = hashlib.sha256(self.cli.read_bytes()).hexdigest()
-        self.screens = self.peek(["screen", "list"], "screens.json")["screens"]
-        tree = self.launch(first=True)
+    def connect_with_one_password(self, tree, receipt_path):
         if not any(item.get("AXIdentifier") == "vikingbar.connect" for item in tree["elements"]):
-            raise UIFailure("native-connect-missing")
+            self.press("vikingbar.connect.direct")
+            tree = wait_for(self.inspect, lambda value: any(
+                item.get("AXIdentifier") == "vikingbar.connect" for item in value.get("elements", [])))
         self.press("vikingbar.connect")
         self.capture_worker(self.process, self.launch_record)
-        receipt_path = self.directory / "connect-result.json"
         wait_for(lambda: receipt_path.exists(), bool, seconds=170)
         connect_receipt = json.loads(receipt_path.read_text())
         self.capture_worker(self.process, self.launch_record)
@@ -379,10 +434,114 @@ class NativeProof:
                        for key in ("helperPID", "serverPID", "panePID"))
                 or not ownership.get("session", "").startswith("vikingbar-connect-")
                 or ownership.get("cleanupAttempted") is not True
-                or ownership.get("cliSHA256") != initial_cli_hash
+                or ownership.get("cliSHA256") != hashlib.sha256(self.cli.read_bytes()).hexdigest()
                 or ownership.get("helperSHA256") != hashlib.sha256(
                     (self.bundle / "Contents/Resources/connect-account.py").read_bytes()).hexdigest()):
             raise UIFailure("connect-ownership-invalid")
+
+    def prepare_direct(self):
+        config = direct_configuration(self.environment)
+        tmux = shutil.which("tmux", path=self.environment.get("PATH"))
+        if not tmux or not Path("/usr/bin/sandbox-exec").is_file():
+            raise UIFailure("direct-proof-dependency-required")
+        clean = CONNECT.child_environment(self.environment)
+        clean["TMUX"] = self.environment["TMUX"]
+        session = subprocess.run([tmux, "display-message", "-p", "#{session_name} #{pane_pid}"], env=clean,
+                                 capture_output=True, timeout=5, check=False)
+        parts = session.stdout.decode().strip().split()
+        if (session.returncode or len(parts) != 2 or parts[0] != config["tmux_session"]
+                or not parts[1].isdigit() or int(parts[1]) <= 1):
+            raise UIFailure("direct-proof-tmux-mismatch")
+        ancestor = os.getpid()
+        for _ in range(64):
+            if ancestor == int(parts[1]):
+                break
+            parent = subprocess.run(["ps", "-p", str(ancestor), "-o", "ppid="], env=clean,
+                                    capture_output=True, timeout=5, check=False)
+            if parent.returncode or not parent.stdout.strip().isdigit():
+                raise UIFailure("direct-proof-tmux-mismatch")
+            ancestor = int(parent.stdout.strip())
+            if ancestor <= 1:
+                raise UIFailure("direct-proof-tmux-mismatch")
+        else:
+            raise UIFailure("direct-proof-tmux-mismatch")
+        policy = direct_sandbox(self.executable, self.cli)
+        denied = subprocess.run(["/usr/bin/sandbox-exec", "-p", policy, "/usr/bin/true"],
+                                env=CONNECT.child_environment(self.environment), capture_output=True,
+                                timeout=10, check=False)
+        if denied.returncode == 0:
+            raise UIFailure("direct-proof-exec-restriction-failed")
+        self.run(["/usr/bin/sandbox-exec", "-p", policy, str(self.cli), "--fixture", "finite"])
+        private_write(self.directory / "direct-configuration.json", {
+            "sourceSHA256": config["source_sha256"],
+            "configurationSHA256": self.environment["VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256"],
+            "sandboxSHA256": hashlib.sha256(policy.encode()).hexdigest(), "processExecRestricted": True})
+
+    def connect_direct(self, tree):
+        if not any(item.get("AXIdentifier") == "vikingbar.connect.direct" for item in tree["elements"]):
+            raise UIFailure("native-direct-connect-missing")
+        self.press("vikingbar.connect.direct")
+        form = wait_for(self.inspect, lambda value: any(
+            item.get("AXIdentifier") == "vikingbar.connect.password" for item in value.get("elements", [])))
+        boundary, _ = popover_window(form, self.screens)
+        for identifier in ("client-id", "username", "password", "submit", "cancel"):
+            if not any(item.get("AXIdentifier") == "vikingbar.connect." + identifier
+                       and contained(item, boundary) for item in form.get("elements", [])):
+                raise UIFailure("native-direct-form-not-visible")
+        direct_configuration(self.environment)
+        selector = CONNECT.reference_at(self.reference)
+        op = shutil.which("op", path=self.environment.get("PATH"))
+        if not op:
+            raise UIFailure("direct-proof-dependency-required")
+        clean = CONNECT.child_environment(self.environment)
+        op_environment = dict(clean, OP_SERVICE_ACCOUNT_TOKEN=self.environment["BRAM_OP_SERVICE_ACCOUNT_TOKEN"])
+        try:
+            item = subprocess.run([op, "item", "get", selector["item_id"], "--vault", selector["vault"],
+                                   "--format", "json"], env=op_environment, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                  timeout=60, check=False)
+            if item.returncode:
+                raise UIFailure("direct-credential-read-failed")
+            credentials = CONNECT.credentials_from(item.stdout)
+            del item
+            payload = json.dumps(credentials).encode()
+            del credentials
+            self.verify_process()
+            result = subprocess.run([str(ROOT / ".build/inspect-ui"), str(self.process.pid), "fill-direct"],
+                                    input=payload, env=clean, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                    timeout=10, check=False)
+            del payload
+            if result.returncode or result.stdout.strip() != b'{"filled":true}':
+                raise UIFailure("native-direct-fill-failed")
+            self.press("vikingbar.connect.submit")
+        except (OSError, subprocess.SubprocessError, CONNECT.ConnectFailure):
+            raise UIFailure("native-direct-input-failed") from None
+        finally:
+            del op_environment
+        receipt_path = self.directory / "connect-result.json"
+        wait_for(lambda: receipt_path.exists(), bool, seconds=170)
+        validate_connect_receipt(json.loads(receipt_path.read_text()))
+        private_write(self.directory / "direct-input.json", {
+            "credentialReads": 1, "privatePipe": True, "formCaptureSkipped": True,
+            "appCredentialReference": False, "processExecRestricted": True})
+
+    def perform(self):
+        self.peek(["permissions", "status", "--all-sources"], "permissions.json")
+        apps = self.peek(["app", "list", "--include-hidden", "--include-background"], "apps-before.json")
+        if "be.bram.vikingbar" in json.dumps(apps):
+            raise UIFailure("existing-app-must-be-quit")
+        self.run(["./Scripts/package-app.sh"], timeout=300)
+        self.run(["swiftc", "Scripts/inspect-ui.swift", "-o", ".build/inspect-ui"], timeout=120)
+        self.executable_hash = hashlib.sha256(self.executable.read_bytes()).hexdigest()
+        initial_cli_hash = hashlib.sha256(self.cli.read_bytes()).hexdigest()
+        self.screens = self.peek(["screen", "list"], "screens.json")["screens"]
+        if self.direct is not None:
+            self.prepare_direct()
+        tree = self.launch(first=True)
+        receipt_path = self.directory / "connect-result.json"
+        if self.direct is not None:
+            self.connect_direct(tree)
+        else:
+            self.connect_with_one_password(tree, receipt_path)
         initial = self.matched_balance("connected")
         def api_check():
             try:
@@ -422,7 +581,8 @@ class NativeProof:
                 or rebuilt["state"]["connectionID"] != initial["state"]["connectionID"]):
             raise UIFailure("rebuild-reconnected")
         self.quit()
-        receipt = {"schema_version": 1, "check": "balance-ui", "passed": True, "native_connect": True,
+        receipt = {"schema_version": 1, "check": "direct-connect-ui" if self.direct is not None else "balance-ui",
+                   "passed": True, "native_connect": True,
                    "api_matches": True, "native_refresh": True, "keychain_resume": True,
                    "keychain_rebuild": True, "visible_menu_matches": True}
         private_write(self.directory / "result.json", receipt)
@@ -518,11 +678,14 @@ class NativeProof:
             raise UIFailure("cleanup-process-still-running")
 
 
-def run(environment):
+def run(environment, *, direct_connect=False):
     old_mask = os.umask(0o077)
+    core_limit = resource.getrlimit(resource.RLIMIT_CORE)
     proof = None
     try:
-        proof = NativeProof(environment)
+        if direct_connect:
+            resource.setrlimit(resource.RLIMIT_CORE, (0, core_limit[1]))
+        proof = NativeProof(environment, direct_connect=direct_connect)
         return proof.perform()
     finally:
         try:
@@ -530,6 +693,8 @@ def run(environment):
                 proof.cleanup()
         finally:
             os.umask(old_mask)
+            if direct_connect:
+                resource.setrlimit(resource.RLIMIT_CORE, core_limit)
 
 
 def main():

@@ -176,7 +176,7 @@ struct OptionalAppTests {
         model.start()
         try await AppSessionTests.until { client.pending["points"] != nil }
         model.loadInvoices()
-        model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
+        model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         try await AppSessionTests.until { model.activity == .idle }
         #expect(model.liveState.connectionID == nil)
         #expect(model.liveState.points == nil)
