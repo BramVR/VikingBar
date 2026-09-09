@@ -353,15 +353,15 @@ class NativeProof:
         return remaining
 
     def bounded_process_identity(self, pid):
-        timeout = min(5, self.human_remaining()) if self.human_deadline is not None else 5
+        if self.human_deadline is None:
+            return process_identity(pid)
+        timeout = min(5, self.human_remaining())
         try:
             value = process_identity(pid, timeout=timeout)
         except subprocess.TimeoutExpired:
-            if self.human_deadline is not None:
-                self.human_remaining()
-            raise
-        if self.human_deadline is not None:
             self.human_remaining()
+            raise
+        self.human_remaining()
         return value
 
     def run(self, command, name=None, timeout=120):
