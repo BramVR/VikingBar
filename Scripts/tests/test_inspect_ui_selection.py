@@ -54,16 +54,17 @@ precondition(isExpectedProcessIdentity(
     packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: nil
 ))
 precondition(isExpectedProcessIdentity(
-    executablePath: expectedPath, expectedExecutablePath: expectedPath,
-    packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: expectedBundleID
+    executablePath: "/Applications/VikingBar.app/Contents/MacOS/VikingBarApp",
+    expectedExecutablePath: expectedPath,
+    packagedBundleIdentifier: nil, reportedBundleIdentifier: expectedBundleID
 ))
 precondition(!isExpectedProcessIdentity(
     executablePath: "/other/VikingBarApp", expectedExecutablePath: expectedPath,
-    packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: expectedBundleID
+    packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: nil
 ))
 precondition(!isExpectedProcessIdentity(
     executablePath: expectedPath, expectedExecutablePath: expectedPath,
-    packagedBundleIdentifier: "wrong.bundle", reportedBundleIdentifier: expectedBundleID
+    packagedBundleIdentifier: "wrong.bundle", reportedBundleIdentifier: nil
 ))
 precondition(!isExpectedProcessIdentity(
     executablePath: expectedPath, expectedExecutablePath: expectedPath,

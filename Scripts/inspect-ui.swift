@@ -12,10 +12,11 @@ func isExpectedProcessIdentity(
     executablePath: String?, expectedExecutablePath: String,
     packagedBundleIdentifier: String?, reportedBundleIdentifier: String?
 ) -> Bool {
-    guard executablePath == expectedExecutablePath,
-          packagedBundleIdentifier == expectedBundleIdentifier
-    else { return false }
-    return reportedBundleIdentifier == nil || reportedBundleIdentifier == expectedBundleIdentifier
+    if let reportedBundleIdentifier {
+        return reportedBundleIdentifier == expectedBundleIdentifier
+    }
+    return executablePath == expectedExecutablePath
+        && packagedBundleIdentifier == expectedBundleIdentifier
 }
 
 func processExecutablePath(_ pid: Int32) -> String? {
