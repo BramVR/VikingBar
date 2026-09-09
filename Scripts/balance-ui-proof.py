@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CONNECT_SPEC = importlib.util.spec_from_file_location("connect_account", ROOT / "Scripts/connect-account.py")
 CONNECT = importlib.util.module_from_spec(CONNECT_SPEC)
 CONNECT_SPEC.loader.exec_module(CONNECT)
+RESUME_SPEC = importlib.util.spec_from_file_location("direct_resume", ROOT / "Scripts/direct-resume.py")
+RESUME = importlib.util.module_from_spec(RESUME_SPEC)
+RESUME_SPEC.loader.exec_module(RESUME)
 
 
 class UIFailure(Exception):
@@ -177,8 +180,10 @@ def successful_timestamp(report):
     try:
         state = report["state"]
         snapshot = report["snapshot"]
+        connection_id = state.get("connectionID")
         if (report["schemaVersion"] != 1 or state["snapshot"] != snapshot
-                or not state.get("connectionID") or state.get("failure") or state.get("isRefreshing")
+                or type(connection_id) is not str or not connection_id.strip()
+                or state.get("failure") or state.get("isRefreshing")
                 or not state.get("balance") or "live" not in snapshot["source"]
                 or state.get("selectedSubscriptionID") is None or state.get("selectedBundleIndex") is None
                 or report.get("error")):
@@ -277,17 +282,27 @@ def process_identity(pid, *, timeout=5):
 
 class NativeProof:
     direct = None
+    resume = None
+    human_deadline = None
+    capture_suppressed = False
     launch_in_progress = False
     termination_requested = False
 
-    def __init__(self, environment, *, stored_session=False, direct_connect=False):
+    def __init__(self, environment, *, stored_session=False, direct_connect=False, direct_resume=False):
+        if direct_resume and direct_connect:
+            raise UIFailure("direct-resume-mode-invalid")
+        if direct_resume:
+            try:
+                self.resume = RESUME.validate(environment, ROOT)
+            except RESUME.ResumeFailure as error:
+                raise UIFailure(str(error)) from None
         self.direct = direct_configuration(environment) if direct_connect else None
         self.environment = environment
         self.peekaboo = environment.get("PEEKABOO_BIN")
         if not self.peekaboo or not Path(self.peekaboo).is_file():
             raise UIFailure("configured-peekaboo-required")
         self.reference = None
-        if not stored_session:
+        if not stored_session and self.resume is None:
             reference = environment.get("VIKINGBAR_CREDENTIAL_REFERENCE", "")
             if not Path(reference).is_file():
                 raise UIFailure("credential-reference-required")
@@ -304,10 +319,64 @@ class NativeProof:
         self.identity = None
         self.screens = []
 
+    def resume_configuration(self):
+        if self.resume is not None:
+            try:
+                current = RESUME.validate(self.environment, ROOT)
+                RESUME.require(current == self.resume)
+                RESUME.require(not os.path.lexists(self.directory / "connect-result.json"))
+            except RESUME.ResumeFailure as error:
+                raise UIFailure(str(error)) from None
+
+    def begin_human_window(self, stage):
+        if self.resume is not None:
+            self.resume_configuration()
+            now = datetime.datetime.now(datetime.timezone.utc)
+            slot_expires = datetime.datetime.fromisoformat(
+                self.resume["config"]["expires_at"].replace("Z", "+00:00"))
+            window_seconds = min(600, (slot_expires - now).total_seconds())
+            if window_seconds <= 0:
+                raise UIFailure("direct-resume-evidence-invalid")
+            window_expires = now + datetime.timedelta(seconds=window_seconds)
+            self.human_deadline = time.monotonic() + window_seconds
+            self.capture_suppressed = True
+            private_write(self.directory / (stage + "-readiness.json"), {
+                "schema_version": 1, "stage": stage, "readiness": "waiting-for-stored-session",
+                "configuration_sha256": self.environment["VIKINGBAR_DIRECT_RESUME_CONFIG_SHA256"],
+                "manifest_sha256": self.resume["config"]["manifest_sha256"],
+                "expires_at": window_expires.isoformat(), "capture_suppressed": True})
+
+    def human_remaining(self):
+        remaining = self.human_deadline - time.monotonic()
+        if remaining <= 0:
+            raise UIFailure("human-readiness-timeout")
+        return remaining
+
+    def bounded_process_identity(self, pid):
+        timeout = min(5, self.human_remaining()) if self.human_deadline is not None else 5
+        try:
+            value = process_identity(pid, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if self.human_deadline is not None:
+                self.human_remaining()
+            raise
+        if self.human_deadline is not None:
+            self.human_remaining()
+        return value
+
     def run(self, command, name=None, timeout=120):
+        if self.human_deadline is not None:
+            timeout = self.human_remaining()
         clean = {key: self.environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL")
                  if key in self.environment}
-        result = subprocess.run(command, cwd=ROOT, env=clean, capture_output=True, timeout=timeout, check=False)
+        try:
+            result = subprocess.run(command, cwd=ROOT, env=clean, capture_output=True, timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            if self.human_deadline is not None:
+                self.human_remaining()
+            raise
+        if self.human_deadline is not None:
+            self.human_remaining()
         if result.returncode:
             try:
                 failure = json.loads(result.stdout)
@@ -326,12 +395,15 @@ class NativeProof:
         return result.stdout
 
     def peek(self, command, name):
+        if self.capture_suppressed and "see" in command:
+            raise UIFailure("human-readiness-capture-forbidden")
         value = self.run([self.peekaboo, *command, "--json"], name)
         if value.get("success") is not True:
             raise UIFailure("peekaboo-failed")
         return value["data"]
 
     def inspect(self, name="card.json", *, deadline=None):
+        deadline = self.human_deadline if deadline is None else deadline
         if deadline is None:
             self.verify_process()
             timeout = 120
@@ -340,15 +412,21 @@ class NativeProof:
             timeout = deadline_remaining(deadline)
         return self.run([str(ROOT / ".build/inspect-ui"), str(self.process.pid)], name, timeout=timeout)
 
-    def press(self, identifier):
-        self.verify_process()
+    def press(self, identifier, *, deadline=None):
+        deadline = self.human_deadline if deadline is None else deadline
+        if deadline is None:
+            self.verify_process()
+            timeout = 120
+        else:
+            self.verify_process(deadline=deadline)
+            timeout = deadline_remaining(deadline)
         self.run([str(ROOT / ".build/inspect-ui"), str(self.process.pid), "press", identifier],
-                 "press-" + identifier + ".json")
+                 "press-" + identifier + ".json", timeout=timeout)
 
     def verify_process(self, *, deadline=None):
         if self.process is None or self.process.poll() is not None:
             raise UIFailure("app-exited")
-        identity = (process_identity(self.process.pid) if deadline is None else
+        identity = (self.bounded_process_identity(self.process.pid) if deadline is None else
                     process_identity(self.process.pid, timeout=min(5, deadline_remaining(deadline))))
         if (identity is None or identity["identity"].split() != self.identity.split()
                 or str(self.executable) not in identity["command"]):
@@ -358,10 +436,14 @@ class NativeProof:
 
     def launch(self, first, label=None):
         arguments = [str(self.executable), "--proof-directory", str(self.directory)]
-        if first and self.direct is None:
+        if first and self.direct is None and self.resume is None:
             arguments += ["--credential-reference", self.reference]
-        if self.direct is not None:
-            direct_configuration(self.environment)
+        label = label or ("initial" if first else "resumed")
+        if self.resume is not None:
+            self.begin_human_window(label)
+        if self.direct is not None or self.resume is not None:
+            if self.direct is not None:
+                direct_configuration(self.environment)
             arguments = ["/usr/bin/sandbox-exec", "-p", direct_sandbox(self.executable, self.cli), *arguments]
         clean = {key: self.environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL")
                  if key in self.environment}
@@ -375,10 +457,12 @@ class NativeProof:
                 "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "executableSHA256": self.executable_hash, "workerOwnershipEstablished": False}
             self.launches.append((self.process, self.launch_record))
-            identity = process_identity(self.process.pid)
-            if self.direct is not None:
-                identity = wait_for(lambda: process_identity(self.process.pid), lambda value:
-                                    value is not None and value["command"].startswith(str(self.executable) + " "), seconds=5)
+            identity = self.bounded_process_identity(self.process.pid)
+            if self.direct is not None or self.resume is not None:
+                seconds = min(5, self.human_remaining()) if self.human_deadline is not None else 5
+                identity = wait_for(lambda: self.bounded_process_identity(self.process.pid), lambda value:
+                                    value is not None and value["command"].startswith(str(self.executable) + " "),
+                                    seconds=seconds)
             if identity is None:
                 raise UIFailure("app-exited")
             self.identity = identity["identity"]
@@ -393,30 +477,78 @@ class NativeProof:
             self.launch_in_progress = False
             if self.termination_requested:
                 raise ProofTerminated()
-        tree = wait_for(self.inspect, lambda value: visible_status(value, self.screens), seconds=20)
+        tree = wait_for(self.inspect, lambda value: visible_status(value, self.screens),
+                        seconds=self.human_remaining() if self.human_deadline is not None else 20)
         if tree.get("activationPolicy") != 1:
             raise UIFailure("accessory-policy-required")
-        self.peek(["see", "--mode", "screen", "--no-elements", "--path",
-                   str(self.directory / (label + "-before.png"))], label + "-before.json")
+        if self.resume is None:
+            self.peek(["see", "--mode", "screen", "--no-elements", "--path",
+                       str(self.directory / (label + "-before.png"))], label + "-before.json")
+        if self.resume is not None:
+            return self.open_resume_popover()
         self.press("vikingbar.status")
         return wait_for(self.inspect, lambda value: any(
-            item.get("AXIdentifier") == "vikingbar.remaining" for item in value.get("elements", [])))
+            item.get("AXIdentifier") == "vikingbar.remaining" for item in value.get("elements", [])),
+            seconds=self.human_remaining() if self.human_deadline is not None else 90)
+
+    def open_resume_popover(self):
+        press_failure = None
+        while True:
+            self.human_remaining()
+            tree = self.inspect(deadline=self.human_deadline)
+            self.human_remaining()
+            if tree.get("activationPolicy") != 1 or not visible_status(tree, self.screens):
+                raise UIFailure("resume-status-not-ready")
+            # Menu-extra traversal can report the same physical button twice.
+            status_keys = ("AXRole", "AXSubrole", "AXIdentifier", "AXEnabled")
+            statuses = {(frame(item), json.dumps({key: item[key] for key in status_keys if key in item},
+                                                 sort_keys=True))
+                        for item in tree.get("elements", [])
+                        if visible_status({"elements": [item]}, self.screens)}
+            if len(statuses) != 1:
+                raise UIFailure("resume-status-ambiguous")
+            try:
+                boundary, _window = popover_window(tree, self.screens)
+            except UIFailure as error:
+                if str(error) != "native-popover-not-visible":
+                    raise
+                # A blocked press is retriable only after another owned inspection
+                # confirms the visible status item and absence of its popover.
+                press_failure = None
+                try:
+                    self.press("vikingbar.status", deadline=self.human_deadline)
+                except UIFailure as error:
+                    if str(error) != "proof-command-failed":
+                        raise
+                    press_failure = error
+            else:
+                if press_failure is not None:
+                    raise press_failure
+                if any(item.get("AXIdentifier") == "vikingbar.remaining" and contained(item, boundary)
+                       for item in tree.get("elements", [])):
+                    return tree
+            time.sleep(min(0.25, self.human_remaining()))
 
     def matched_balance(self, label, after=None):
         def observe():
             try:
-                report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
+                report = self.run([str(self.cli), "live", "--cached"], label + "-report.json",
+                                  timeout=600 if self.resume is not None else 120)
                 timestamp = successful_timestamp(report)
                 if after is not None and timestamp <= after:
                     return None
                 tree = self.inspect(label + "-card.json")
                 compare_menu(tree, report, self.screens)
                 return report, tree
-            except UIFailure:
+            except UIFailure as error:
+                if str(error) == "human-readiness-timeout":
+                    raise
                 return None
-        report, tree = wait_for(observe, lambda value: value is not None)
+        report, tree = wait_for(observe, lambda value: value is not None,
+                               seconds=self.human_remaining() if self.human_deadline is not None else 90)
+        self.capture_suppressed = False
         self.verify_worker(label)
-        if self.direct is not None and any(item.get("AXIdentifier") == "vikingbar.connect.password"
+        if (self.direct is not None or self.resume is not None) and any(item.get("AXIdentifier") == "vikingbar.connect.password"
                                            for item in tree.get("elements", [])):
             raise UIFailure("direct-form-capture-forbidden")
         _, window = popover_window(tree, self.screens)
@@ -427,11 +559,14 @@ class NativeProof:
     def capture_worker(self, process, launch, seconds=0):
         deadline = time.monotonic() + seconds
         while process.poll() is None:
-            current = process_identity(process.pid)
+            current = self.bounded_process_identity(process.pid)
             if current is None or current["identity"].split() != launch.get("identity", "").split():
                 raise UIFailure("process-identity-changed")
+            timeout = min(5, self.human_remaining()) if self.human_deadline is not None else 5
             children = subprocess.run(["/usr/bin/pgrep", "-P", str(process.pid)], capture_output=True,
-                                      timeout=5, check=False, env={"PATH": os.defpath, "LC_ALL": "C"})
+                                      timeout=timeout, check=False, env={"PATH": os.defpath, "LC_ALL": "C"})
+            if self.human_deadline is not None:
+                self.human_remaining()
             if children.returncode not in (0, 1) or (children.returncode == 1 and children.stdout.strip()):
                 raise UIFailure("runtime-worker-inspection-failed")
             pids = children.stdout.decode().split()
@@ -439,7 +574,7 @@ class NativeProof:
                 raise UIFailure("runtime-worker-inspection-failed")
             matches = []
             for pid in pids:
-                worker = process_identity(int(pid))
+                worker = self.bounded_process_identity(int(pid))
                 if (worker is not None and worker["parentPID"] == process.pid
                         and worker["command"] in (launch["cli"] + " session", launch["cli"] + " connect")):
                     worker["cliSHA256"] = launch["cliSHA256"]
@@ -472,7 +607,7 @@ class NativeProof:
                    and worker["parentPID"] == launch["pid"] and worker["command"] == launch["cli"] + " connect"
                    and worker["cliSHA256"] == launch["cliSHA256"]]
         if not matches:
-            worker = process_identity(candidate["pid"])
+            worker = self.bounded_process_identity(candidate["pid"])
             if (worker is None or worker["parentPID"] != launch["pid"]
                     or worker["command"] != launch["cli"] + " connect"
                     or hashlib.sha256(Path(launch["cli"]).read_bytes()).hexdigest() != launch["cliSHA256"]):
@@ -501,7 +636,15 @@ class NativeProof:
 
     def quit(self):
         self.press("vikingbar.quit")
-        self.process.wait(timeout=10)
+        timeout = min(10, self.human_remaining()) if self.human_deadline is not None else 10
+        try:
+            self.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if self.human_deadline is not None:
+                self.human_remaining()
+            raise
+        if self.human_deadline is not None:
+            self.human_remaining()
         if self.process.returncode != 0:
             raise UIFailure("native-quit-failed")
         self.process = None
@@ -554,6 +697,16 @@ class NativeProof:
                 raise UIFailure("direct-proof-tmux-mismatch")
         else:
             raise UIFailure("direct-proof-tmux-mismatch")
+        self.prepare_sandbox()
+        policy = direct_sandbox(self.executable, self.cli)
+        private_write(self.directory / "direct-configuration.json", {
+            "sourceSHA256": config["source_sha256"],
+            "configurationSHA256": self.environment["VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256"],
+            "sandboxSHA256": hashlib.sha256(policy.encode()).hexdigest(), "processExecRestricted": True})
+
+    def prepare_sandbox(self):
+        if not Path("/usr/bin/sandbox-exec").is_file():
+            raise UIFailure("direct-proof-dependency-required")
         policy = direct_sandbox(self.executable, self.cli)
         denied = subprocess.run(["/usr/bin/sandbox-exec", "-p", policy, "/usr/bin/true"],
                                 env=CONNECT.child_environment(self.environment), capture_output=True,
@@ -561,10 +714,6 @@ class NativeProof:
         if denied.returncode == 0:
             raise UIFailure("direct-proof-exec-restriction-failed")
         self.run(["/usr/bin/sandbox-exec", "-p", policy, str(self.cli), "--fixture", "finite"])
-        private_write(self.directory / "direct-configuration.json", {
-            "sourceSHA256": config["source_sha256"],
-            "configurationSHA256": self.environment["VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256"],
-            "sandboxSHA256": hashlib.sha256(policy.encode()).hexdigest(), "processExecRestricted": True})
 
     def wait_for_direct_form(self):
         deadline = time.monotonic() + 15
@@ -643,23 +792,33 @@ class NativeProof:
         apps = self.peek(["app", "list", "--include-hidden", "--include-background"], "apps-before.json")
         if "be.bram.vikingbar" in json.dumps(apps):
             raise UIFailure("existing-app-must-be-quit")
+        self.resume_configuration()
         self.run(["./Scripts/package-app.sh"], timeout=300)
         self.run(["swiftc", "Scripts/inspect-ui.swift", "-o", ".build/inspect-ui"], timeout=120)
         self.executable_hash = hashlib.sha256(self.executable.read_bytes()).hexdigest()
         initial_cli_hash = hashlib.sha256(self.cli.read_bytes()).hexdigest()
+        if self.resume is not None:
+            try:
+                RESUME.verify_debug(self.resume, self.executable, self.cli)
+            except RESUME.ResumeFailure as error:
+                raise UIFailure(str(error)) from None
         self.screens = self.peek(["screen", "list"], "screens.json")["screens"]
         if self.direct is not None:
             self.prepare_direct()
+        elif self.resume is not None:
+            self.prepare_sandbox()
         tree = self.launch(first=True)
         receipt_path = self.directory / "connect-result.json"
-        if self.direct is not None:
+        if self.resume is not None:
+            receipt_path = self.resume["directory"] / "connect-result.json"
+        elif self.direct is not None:
             self.connect_direct(tree)
         else:
             self.connect_with_one_password(tree, receipt_path)
         initial = self.matched_balance("connected")
         def api_check():
             try:
-                result = self.run([str(self.cli), "proof", "balance-api"], timeout=180)
+                result = self.run([str(self.cli), "proof", "balance-api"], timeout=600 if self.resume is not None else 180)
                 receipt = validate_api_receipt(json.loads(result))
                 private_write(self.directory / "api-result.json", receipt)
                 return receipt
@@ -667,15 +826,30 @@ class NativeProof:
                 if str(error) == "session-busy":
                     return None
                 raise
-        api = wait_for(api_check, lambda value: value is not None, seconds=30)
+        self.begin_human_window("api")
+        api = wait_for(api_check, lambda value: value is not None,
+                       seconds=self.human_remaining() if self.human_deadline is not None else 30)
         validate_api_receipt(api)
-        api_report = self.run([str(self.cli), "live", "--cached"], "after-api-report.json")
+        self.human_deadline = None
+        self.begin_human_window("after-api")
+        api_report = self.run([str(self.cli), "live", "--cached"], "after-api-report.json",
+                              timeout=600 if self.resume is not None else 120)
+        successful_timestamp(api_report)
+        self.human_deadline = None
         time.sleep(1.1)
-        self.press("vikingbar.refresh")
+        self.begin_human_window("refresh")
+        if self.human_deadline is not None:
+            self.press("vikingbar.refresh", deadline=self.human_deadline)
+        else:
+            self.press("vikingbar.refresh")
         refreshed = self.matched_balance("refreshed", successful_timestamp(api_report))
+        if self.resume is not None and any(report["state"]["connectionID"] != initial["state"]["connectionID"]
+                                           for report in (api_report, refreshed)):
+            raise UIFailure("resume-reconnected")
         receipt_bytes = receipt_path.read_bytes()
         receipt_modified = receipt_path.stat().st_mtime_ns
         self.quit()
+        self.human_deadline = None
         time.sleep(1.1)
         self.launch(first=False)
         resumed = self.matched_balance("resumed", successful_timestamp(refreshed))
@@ -683,8 +857,12 @@ class NativeProof:
                 or resumed["state"]["connectionID"] != initial["state"]["connectionID"]):
             raise UIFailure("resume-reconnected")
         self.quit()
+        self.human_deadline = None
+        self.resume_configuration()
+        self.begin_human_window("release-build")
         self.run(["python3", "Scripts/package-artifacts.py", "--app-only", "--configuration", "release",
                   "--output", str(self.bundle)], timeout=300)
+        self.human_deadline = None
         self.executable_hash = hashlib.sha256(self.executable.read_bytes()).hexdigest()
         if hashlib.sha256(self.cli.read_bytes()).hexdigest() == initial_cli_hash:
             raise UIFailure("rebuilt-cli-identity-unchanged")
@@ -695,15 +873,19 @@ class NativeProof:
                 or rebuilt["state"]["connectionID"] != initial["state"]["connectionID"]):
             raise UIFailure("rebuild-reconnected")
         self.quit()
-        receipt = {"schema_version": 1, "check": "direct-connect-ui" if self.direct is not None else "balance-ui",
+        self.human_deadline = None
+        receipt = {"schema_version": 1, "check": "direct-connect-ui" if self.direct is not None or self.resume is not None else "balance-ui",
                    "passed": True, "native_connect": True,
                    "api_matches": True, "native_refresh": True, "keychain_resume": True,
                    "keychain_rebuild": True, "visible_menu_matches": True}
+        if self.resume is not None:
+            self.resume_configuration()
+            receipt.update(credential_reads_total=1, resume_manifest_sha256=self.resume["config"]["manifest_sha256"])
         private_write(self.directory / "result.json", receipt)
         return receipt
 
     def worker_present(self, worker):
-        current = process_identity(worker["pid"])
+        current = self.bounded_process_identity(worker["pid"])
         if current is None or current["startTime"] != worker["startTime"]:
             return False
         if (current["command"] != worker["command"]
@@ -729,6 +911,8 @@ class NativeProof:
         raise UIFailure("cleanup-worker-still-running")
 
     def cleanup(self):
+        self.human_deadline = None
+        self.capture_suppressed = False
         failures = []
         for process, launch in self.launches:
             if launch.get("connectOwnershipRequired"):
@@ -797,7 +981,7 @@ class NativeProof:
             raise UIFailure("cleanup-process-still-running")
 
 
-def run(environment, *, direct_connect=False):
+def run(environment, *, direct_connect=False, direct_resume=False):
     old_mask = os.umask(0o077)
     core_limit = resource.getrlimit(resource.RLIMIT_CORE)
     previous_handler = signal.getsignal(signal.SIGTERM)
@@ -817,9 +1001,12 @@ def run(environment, *, direct_connect=False):
 
     try:
         signal.signal(signal.SIGTERM, terminate)
-        if direct_connect:
+        if direct_connect or direct_resume:
             resource.setrlimit(resource.RLIMIT_CORE, (0, core_limit[1]))
-        proof = NativeProof(environment, direct_connect=direct_connect)
+        if direct_resume:
+            proof = NativeProof(environment, direct_resume=True)
+        else:
+            proof = NativeProof(environment, direct_connect=direct_connect)
         return proof.perform()
     except ProofTerminated:
         raise UIFailure("native-proof-terminated") from None
@@ -831,7 +1018,7 @@ def run(environment, *, direct_connect=False):
         finally:
             try:
                 os.umask(old_mask)
-                if direct_connect:
+                if direct_connect or direct_resume:
                     resource.setrlimit(resource.RLIMIT_CORE, core_limit)
             finally:
                 signal.signal(signal.SIGTERM, previous_handler)

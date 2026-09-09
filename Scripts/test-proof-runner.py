@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.dont_write_bytecode = True
 
@@ -47,6 +47,16 @@ class ProofRunnerTests(unittest.TestCase):
         with patch.object(RUNNER.shutil, "which", return_value="/synthetic/bin/op"), \
                 patch.object(Path, "is_file", return_value=True):
             return RUNNER.run("auth-balance", self.environment, execute or self.execute)
+
+    def test_direct_resume_dispatch_has_no_credential_bootstrap(self):
+        module = Mock()
+        module.run.return_value = {"check": "direct-connect-ui", "passed": True, "credential_reads_total": 1}
+        module.UIFailure = RuntimeError
+        with patch.object(RUNNER.importlib.util, "spec_from_file_location", return_value=Mock()), \
+                patch.object(RUNNER.importlib.util, "module_from_spec", return_value=module), \
+                patch.object(RUNNER.shutil, "which", side_effect=AssertionError("credential executable lookup")):
+            self.assertEqual(RUNNER.run("direct-connect-ui-resume", {}), module.run.return_value)
+        module.run.assert_called_once_with({}, direct_resume=True)
 
     def test_one_targeted_read_and_stdin_only_credentials(self):
         self.assertEqual(self.run_proof(), self.receipt)
