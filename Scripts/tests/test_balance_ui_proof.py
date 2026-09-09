@@ -143,11 +143,11 @@ class BalanceUIProofTests(unittest.TestCase):
             else:
                 password["frame"][0][0] = 2000
             with self.subTest(change=change), patch.object(proof, "inspect", return_value=form) as observe, \
-                    patch.object(UI.time, "monotonic", side_effect=[0, 0, 15]), patch.object(UI.time, "sleep") as sleep:
+                    patch.object(UI.time, "monotonic", side_effect=[0, 0, 0, 14.75, 15]), patch.object(UI.time, "sleep") as sleep:
                 with self.assertRaisesRegex(UI.UIFailure, "^native-proof-timeout$"):
                     proof.wait_for_direct_form()
                 observe.assert_called_once_with(deadline=ANY)
-                sleep.assert_not_called()
+                sleep.assert_called_once_with(0.25)
 
     def test_direct_form_shares_one_deadline_across_sequential_subprocesses(self):
         with tempfile.TemporaryDirectory() as directory:
