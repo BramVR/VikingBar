@@ -35,7 +35,7 @@ The stored-session live gate passed on product commit `9481b3af40ba2c1cc992d9432
 
 Combined invoice and points coverage passed on `a2b87f3b22170b5c90ac4a6528d8d61d2ae3f55d`. Bills loading preserved points. The independent points API comparison passed, and native Refresh produced newer usage, points balance, and history timestamps on the same connection. Native summaries and the first expanded row matched the CLI; collapse and Quit with owned-process cleanup passed. Captures and receipts remain private.
 
-Those historical passes do not complete current post-merge or compact-navigation maintenance. Fresh combined Bills, Points, and balance proof remains pending an active display and coordinator slots.
+Fresh all-nine post-merge maintenance passed on main `e0f353dcfe2042932bf6e03e647782dc37b6aa99`. The current-build run covered combined Bills and Points, the independent Points API comparison, native Refresh, first-row expansion and collapse, and owned-process Quit cleanup; the separate auth CLI gate also passed. This closes the earlier inactive-display maintenance gap. Compact-navigation proof after issue 22 integration remains pending, and the main-revision captures do not establish that new route.
 
 This proves the fetched live history and the first visible row, not every row's onscreen rendering. Empty history, truncation, stale/error recovery, and provider states absent from the account remain covered by synthetic tests. Re-run the live gate after material product or proof changes; keep its private receipts bound to the tested source and executable hashes.
 
