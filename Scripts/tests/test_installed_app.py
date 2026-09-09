@@ -327,6 +327,60 @@ class InstalledProofTests(unittest.TestCase):
         with self.assertRaisesRegex(PROOF.UIFailure, "settings-values-missing"):
             PROOF.preferences(tree)
 
+    def test_choose_waits_for_selected_popup_value_and_dismissed_menu(self):
+        popup = "vikingbar.refreshInterval"
+        selected = "Every 30 minutes"
+        states = [
+            ("menu-visible", {"elements": [
+                {"AXIdentifier": popup, "AXRole": "AXPopUpButton", "AXValue": "Every 5 minutes"},
+                {"AXRole": "AXMenuItem", "AXTitle": selected},
+            ]}),
+            ("stale-popup", {"elements": [
+                {"AXIdentifier": popup, "AXRole": "AXPopUpButton", "AXValue": "Every 5 minutes"},
+            ]}),
+            ("selected-menu-visible", {"elements": [
+                {"AXIdentifier": popup, "AXRole": "AXPopUpButton", "AXValue": selected},
+                {"AXRole": "AXMenuItem", "AXTitle": selected},
+            ]}),
+            ("settled", {"elements": [
+                {"AXIdentifier": popup, "AXRole": "AXPopUpButton", "AXValue": selected},
+                {"AXIdentifier": "vikingbar.dataDisplayMode", "AXRole": "AXPopUpButton",
+                 "AXValue": "Remaining"},
+            ]}),
+        ]
+        events = []
+        self.proof.press = Mock(side_effect=lambda selector: events.append(("press", selector)))
+
+        def inspect():
+            label, tree = states.pop(0)
+            events.append(("inspect", label))
+            return tree
+
+        def wait_for(operation, predicate, **_kwargs):
+            while True:
+                value = operation()
+                if predicate(value):
+                    return value
+
+        self.proof.inspect = inspect
+        with patch.object(PROOF.UI, "wait_for", side_effect=wait_for):
+            self.proof.choose("refreshInterval", selected)
+        events.append(("returned", None))
+
+        self.assertEqual(self.proof.press.call_args_list, [
+            unittest.mock.call(popup), unittest.mock.call(selected),
+        ])
+        self.assertEqual(events, [
+            ("press", popup),
+            ("inspect", "menu-visible"),
+            ("press", selected),
+            ("inspect", "stale-popup"),
+            ("inspect", "selected-menu-visible"),
+            ("inspect", "settled"),
+            ("returned", None),
+        ])
+        self.assertEqual(states, [])
+
     def test_constructor_proves_absent_target_and_receipt_before_enabling_fresh_policy(self):
         home = self.root.resolve()
         target = home / "Applications/proof/VikingBar.app"

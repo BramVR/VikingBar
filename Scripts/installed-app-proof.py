@@ -195,10 +195,20 @@ class InstalledProof(UI.NativeProof):
             for item in tree.get("elements", [])))
 
     def choose(self, identifier, value):
-        self.press("vikingbar." + identifier)
+        accessibility_identifier = "vikingbar." + identifier
+        self.press(accessibility_identifier)
         UI.wait_for(self.inspect, lambda tree: any(item.get("AXRole") == "AXMenuItem"
                     and item.get("AXTitle") == value for item in tree.get("elements", [])))
         self.press(value)
+
+        def settled(tree):
+            elements = tree.get("elements", [])
+            matches = [item for item in elements if item.get("AXIdentifier") == accessibility_identifier]
+            return (len(matches) == 1 and matches[0].get("AXRole") == "AXPopUpButton"
+                    and matches[0].get("AXValue") == value
+                    and not any(item.get("AXRole") == "AXMenuItem" for item in elements))
+
+        UI.wait_for(self.inspect, settled)
 
     def apply_preferences(self, expected):
         current = preferences(self.settings())
