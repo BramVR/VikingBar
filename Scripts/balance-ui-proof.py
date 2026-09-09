@@ -145,6 +145,7 @@ def visible_status(tree, screens):
 
 def popover_window(tree, screens):
     displays = display_frames(screens)
+    matches = {}
     for element in tree.get("elements", []):
         if element.get("AXRole") != "AXPopover":
             continue
@@ -154,6 +155,9 @@ def popover_window(tree, screens):
             continue
         for window in tree.get("windows", []):
             try:
+                window_number = window["kCGWindowNumber"]
+                if type(window_number) is not int or window_number <= 0:
+                    continue
                 bounds = window["kCGWindowBounds"]
                 cg_element = {"frame": [[bounds["X"], bounds["Y"]], [bounds["Width"], bounds["Height"]]]}
                 cg_frame = frame(cg_element)
@@ -161,7 +165,11 @@ def popover_window(tree, screens):
                 continue
             if (all(abs(ax - cg) < 1 for ax, cg in zip(ax_frame, cg_frame))
                     and any(contained(element, display) and contained(cg_element, display) for display in displays)):
-                return element, window
+                matches.setdefault((ax_frame, cg_frame, window_number), (element, window))
+                if len(matches) > 1:
+                    raise UIFailure("native-popover-ambiguous")
+    if matches:
+        return next(iter(matches.values()))
     raise UIFailure("native-popover-not-visible")
 
 
@@ -245,9 +253,16 @@ def wait_for(operation, predicate, seconds=90):
         time.sleep(0.25)
 
 
-def process_identity(pid):
+def deadline_remaining(deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise UIFailure("native-proof-timeout")
+    return remaining
+
+
+def process_identity(pid, *, timeout=5):
     result = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "pid=,ppid=,lstart=,command="],
-                            capture_output=True, timeout=5, check=False,
+                            capture_output=True, timeout=timeout, check=False,
                             env={"PATH": os.defpath, "LC_ALL": "C"})
     if result.returncode == 1 and not result.stdout.strip():
         return None
@@ -316,19 +331,25 @@ class NativeProof:
             raise UIFailure("peekaboo-failed")
         return value["data"]
 
-    def inspect(self, name="card.json"):
-        self.verify_process()
-        return self.run([str(ROOT / ".build/inspect-ui"), str(self.process.pid)], name)
+    def inspect(self, name="card.json", *, deadline=None):
+        if deadline is None:
+            self.verify_process()
+            timeout = 120
+        else:
+            self.verify_process(deadline=deadline)
+            timeout = deadline_remaining(deadline)
+        return self.run([str(ROOT / ".build/inspect-ui"), str(self.process.pid)], name, timeout=timeout)
 
     def press(self, identifier):
         self.verify_process()
         self.run([str(ROOT / ".build/inspect-ui"), str(self.process.pid), "press", identifier],
                  "press-" + identifier + ".json")
 
-    def verify_process(self):
+    def verify_process(self, *, deadline=None):
         if self.process is None or self.process.poll() is not None:
             raise UIFailure("app-exited")
-        identity = process_identity(self.process.pid)
+        identity = (process_identity(self.process.pid) if deadline is None else
+                    process_identity(self.process.pid, timeout=min(5, deadline_remaining(deadline))))
         if (identity is None or identity["identity"].split() != self.identity.split()
                 or str(self.executable) not in identity["command"]):
             raise UIFailure("process-identity-changed")
@@ -545,13 +566,33 @@ class NativeProof:
             "configurationSHA256": self.environment["VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256"],
             "sandboxSHA256": hashlib.sha256(policy.encode()).hexdigest(), "processExecRestricted": True})
 
+    def wait_for_direct_form(self):
+        deadline = time.monotonic() + 15
+        while True:
+            deadline_remaining(deadline)
+            try:
+                form = self.inspect(deadline=deadline)
+            except subprocess.TimeoutExpired:
+                raise UIFailure("native-proof-timeout") from None
+            deadline_remaining(deadline)
+            try:
+                boundary, _ = popover_window(form, self.screens)
+            except UIFailure as error:
+                if str(error) != "native-popover-not-visible":
+                    raise
+            else:
+                if any(item.get("AXIdentifier") == "vikingbar.connect.password"
+                       and item.get("AXRole") == "AXTextField" and item.get("AXSubrole") == "AXSecureTextField"
+                       and contained(item, boundary) for item in form.get("elements", [])):
+                    deadline_remaining(deadline)
+                    return form, boundary
+            time.sleep(min(0.25, deadline_remaining(deadline)))
+
     def connect_direct(self, tree):
         if not any(item.get("AXIdentifier") == "vikingbar.connect.direct" for item in tree["elements"]):
             raise UIFailure("native-direct-connect-missing")
         self.press("vikingbar.connect.direct")
-        form = wait_for(self.inspect, lambda value: any(
-            item.get("AXIdentifier") == "vikingbar.connect.password" for item in value.get("elements", [])))
-        boundary, _ = popover_window(form, self.screens)
+        form, boundary = self.wait_for_direct_form()
         for identifier in ("client-id", "username", "password", "submit", "cancel"):
             if not any(item.get("AXIdentifier") == "vikingbar.connect." + identifier
                        and contained(item, boundary) for item in form.get("elements", [])):

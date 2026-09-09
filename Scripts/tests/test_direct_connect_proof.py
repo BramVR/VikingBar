@@ -120,7 +120,9 @@ class DirectInputTests(unittest.TestCase):
         self.form = {"elements": [{"AXRole": "AXPopover", "frame": [[100, 24], [500, 700]]}]
                      + [{"AXIdentifier": "vikingbar.connect." + key, "frame": [[120, 100], [200, 20]]}
                         for key in ("client-id", "username", "password", "submit", "cancel")],
-                     "windows": [{"kCGWindowBounds": {"X": 100, "Y": 24, "Width": 500, "Height": 700}}]}
+                     "windows": [{"kCGWindowNumber": 42,
+                                  "kCGWindowBounds": {"X": 100, "Y": 24, "Width": 500, "Height": 700}}]}
+        self.form["elements"][3].update(AXRole="AXTextField", AXSubrole="AXSecureTextField")
         self.tree = {"elements": [{"AXIdentifier": "vikingbar.connect.direct"}]}
         self.credential = {"client_id": "synthetic-client", "username": "synthetic-user", "password": "SECRET-SENTINEL"}
         self.receipt = {"schema_version": 1, "check": "connect", "passed": True, "connected": True}

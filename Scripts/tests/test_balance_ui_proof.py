@@ -1,11 +1,12 @@
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("balance_ui_proof", ROOT / "Scripts/balance-ui-proof.py")
@@ -36,6 +37,230 @@ class BalanceUIProofTests(unittest.TestCase):
         self.tree["elements"].append({"AXRole": "AXPopover", "frame": [[100, 24], [500, 700]]})
         self.tree["windows"] = [{"kCGWindowNumber": 42,
                                  "kCGWindowBounds": {"X": 100, "Y": 24, "Width": 500, "Height": 700}}]
+
+    def direct_form(self):
+        form = copy.deepcopy(self.tree)
+        form["elements"].extend({"AXIdentifier": "vikingbar.connect." + identifier,
+                                 "frame": [[120, 100], [200, 20]]}
+                                for identifier in ("client-id", "username", "password", "submit", "cancel"))
+        form["elements"][-3].update(AXRole="AXTextField", AXSubrole="AXSecureTextField")
+        return form
+
+    def test_direct_form_wait_observes_transient_mismatch_before_configuration(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.screens = self.screens
+        stable = self.direct_form()
+        transient = copy.deepcopy(stable)
+        transient["windows"][0]["kCGWindowBounds"]["Height"] += 2
+        observations = iter([transient, stable])
+        events = []
+        def inspect(*, deadline):
+            self.assertIsInstance(deadline, float)
+            events.append("observe")
+            return next(observations)
+        def configure(_environment):
+            events.append("configure")
+            raise UI.UIFailure("synthetic-stop-after-readiness")
+        proof.environment = {}
+        opening = {"elements": [{"AXIdentifier": "vikingbar.connect.direct"}]}
+        with patch.object(proof, "press", side_effect=lambda _identifier: events.append("press")) as press, \
+                patch.object(proof, "inspect", side_effect=inspect) as observe, \
+                patch.object(UI, "direct_configuration", side_effect=configure), \
+                patch.object(UI.CONNECT, "reference_at") as reference, \
+                patch.object(UI.subprocess, "run") as execute, patch.object(UI.time, "sleep") as sleep:
+            with self.assertRaisesRegex(UI.UIFailure, "^synthetic-stop-after-readiness$"):
+                proof.connect_direct(opening)
+        press.assert_called_once_with("vikingbar.connect.direct")
+        self.assertEqual(observe.call_count, 2)
+        self.assertEqual(events, ["press", "observe", "observe", "configure"])
+        sleep.assert_called_once_with(0.25)
+        reference.assert_not_called()
+        execute.assert_not_called()
+
+    def test_direct_form_wait_accepts_repeated_same_physical_match(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.screens = self.screens
+        form = self.direct_form()
+        original = next(element for element in form["elements"] if element.get("AXRole") == "AXPopover")
+        form["elements"].append(copy.deepcopy(original))
+        form["windows"].append(copy.deepcopy(form["windows"][0]))
+        with patch.object(proof, "inspect", return_value=form) as observe, patch.object(UI.time, "sleep") as sleep:
+            observed, boundary = proof.wait_for_direct_form()
+        self.assertIs(observed, form)
+        self.assertIs(boundary, original)
+        self.assertEqual(UI.popover_window(form, self.screens)[1]["kCGWindowNumber"], 42)
+        observe.assert_called_once_with(deadline=ANY)
+        sleep.assert_not_called()
+
+    def test_distinct_exact_window_matches_fail_without_retry_or_credentials(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.screens = self.screens
+        form = self.direct_form()
+        form["windows"].append(dict(form["windows"][0], kCGWindowNumber=43))
+        opening = {"elements": [{"AXIdentifier": "vikingbar.connect.direct"}]}
+        with patch.object(proof, "press") as press, \
+                patch.object(proof, "inspect", side_effect=[form, self.direct_form()]) as observe, \
+                patch.object(UI, "direct_configuration") as configure, \
+                patch.object(UI.CONNECT, "reference_at") as reference, \
+                patch.object(UI.subprocess, "run") as execute, patch.object(UI.time, "sleep") as sleep:
+            with self.assertRaisesRegex(UI.UIFailure, "^native-popover-ambiguous$"):
+                proof.connect_direct(opening)
+        press.assert_called_once_with("vikingbar.connect.direct")
+        observe.assert_called_once_with(deadline=ANY)
+        sleep.assert_not_called()
+        configure.assert_not_called()
+        reference.assert_not_called()
+        execute.assert_not_called()
+
+    def test_direct_form_wait_does_not_mask_unrelated_failures(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.screens = self.screens
+        for code in ("process-identity-changed", "native-popover-not-visible"):
+            with self.subTest(code=code), patch.object(proof, "inspect", side_effect=UI.UIFailure(code)) as observe, \
+                    patch.object(UI.time, "sleep") as sleep:
+                with self.assertRaisesRegex(UI.UIFailure, "^" + code + "$"):
+                    proof.wait_for_direct_form()
+                observe.assert_called_once_with(deadline=ANY)
+                sleep.assert_not_called()
+        with patch.object(proof, "inspect", return_value=self.direct_form()) as observe, \
+                patch.object(UI, "popover_window", side_effect=UI.UIFailure("synthetic-unrelated")), \
+                patch.object(UI.time, "sleep") as sleep:
+            with self.assertRaisesRegex(UI.UIFailure, "^synthetic-unrelated$"):
+                proof.wait_for_direct_form()
+            observe.assert_called_once_with(deadline=ANY)
+            sleep.assert_not_called()
+
+    def test_direct_form_wait_requires_secure_contained_control_and_stops_at_fifteen_seconds(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.screens = self.screens
+        for change in ("missing", "unmasked", "outside"):
+            form = self.direct_form()
+            password = form["elements"][-3]
+            if change == "missing":
+                form["elements"].remove(password)
+            elif change == "unmasked":
+                password.pop("AXSubrole")
+            else:
+                password["frame"][0][0] = 2000
+            with self.subTest(change=change), patch.object(proof, "inspect", return_value=form) as observe, \
+                    patch.object(UI.time, "monotonic", side_effect=[0, 0, 15]), patch.object(UI.time, "sleep") as sleep:
+                with self.assertRaisesRegex(UI.UIFailure, "^native-proof-timeout$"):
+                    proof.wait_for_direct_form()
+                observe.assert_called_once_with(deadline=ANY)
+                sleep.assert_not_called()
+
+    def test_direct_form_shares_one_deadline_across_sequential_subprocesses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proof = object.__new__(UI.NativeProof)
+            proof.screens, proof.environment, proof.directory = self.screens, {}, Path(directory)
+            proof.process = Mock(pid=123)
+            proof.process.poll.return_value = None
+            proof.executable = Path(directory) / "synthetic-app"
+            proof.executable.write_bytes(b"synthetic")
+            proof.executable_hash = hashlib.sha256(b"synthetic").hexdigest()
+            proof.identity = f"123 99 Wed Sep 9 00:00:00 2026 {proof.executable}"
+            stable = self.direct_form()
+            transient = copy.deepcopy(stable)
+            transient["windows"][0]["kCGWindowBounds"]["Y"] += 2
+            observations = iter([transient, stable])
+            clock = [100.0]
+            timeouts = []
+            helper_calls = []
+            def execute(command, **kwargs):
+                timeouts.append(kwargs["timeout"])
+                if command[0] == "/bin/ps":
+                    clock[0] += 4
+                    return subprocess.CompletedProcess(command, 0, proof.identity.encode())
+                helper_calls.append(command)
+                clock[0] += 3 if len(helper_calls) == 1 else 1
+                return subprocess.CompletedProcess(command, 0, json.dumps(next(observations)).encode())
+            def sleep(seconds):
+                clock[0] += seconds
+            with patch.object(UI.subprocess, "run", side_effect=execute), \
+                    patch.object(UI.time, "monotonic", side_effect=lambda: clock[0]), \
+                    patch.object(UI.time, "sleep", side_effect=sleep) as pause:
+                observed, _ = proof.wait_for_direct_form()
+            self.assertEqual(observed, stable)
+            self.assertEqual(timeouts, [5, 11, 5, 3.75])
+            self.assertEqual(helper_calls, [[str(ROOT / ".build/inspect-ui"), "123"]] * 2)
+            pause.assert_called_once_with(0.25)
+            self.assertLess(clock[0], 115)
+
+    def test_stalled_readiness_subprocess_maps_to_fixed_timeout(self):
+        for stalled in ("identity", "inspection"):
+            with self.subTest(stalled=stalled), tempfile.TemporaryDirectory() as directory:
+                proof = object.__new__(UI.NativeProof)
+                proof.screens, proof.environment, proof.directory = self.screens, {}, Path(directory)
+                proof.process = Mock(pid=123)
+                proof.process.poll.return_value = None
+                proof.executable = Path(directory) / "synthetic-app"
+                proof.executable.write_bytes(b"synthetic")
+                proof.executable_hash = hashlib.sha256(b"synthetic").hexdigest()
+                proof.identity = f"123 99 Wed Sep 9 00:00:00 2026 {proof.executable}"
+                clock = [0.0]
+                timeouts = []
+                def execute(command, **kwargs):
+                    timeouts.append(kwargs["timeout"])
+                    if stalled == "inspection" and command[0] == "/bin/ps":
+                        clock[0] += 4
+                        return subprocess.CompletedProcess(command, 0, proof.identity.encode())
+                    clock[0] += kwargs["timeout"]
+                    raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=b"private-sentinel")
+                with patch.object(UI.subprocess, "run", side_effect=execute), \
+                        patch.object(UI.time, "monotonic", side_effect=lambda: clock[0]), \
+                        patch.object(UI.time, "sleep") as sleep:
+                    with self.assertRaisesRegex(UI.UIFailure, "^native-proof-timeout$"):
+                        proof.wait_for_direct_form()
+                self.assertEqual(timeouts, [5] if stalled == "identity" else [5, 11])
+                self.assertLessEqual(clock[0], 15)
+                sleep.assert_not_called()
+
+    def test_readiness_sleep_never_exceeds_remaining_budget(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.screens = self.screens
+        clock = [0.0]
+        def inspect(*, deadline):
+            self.assertEqual(deadline, 15)
+            clock[0] = 14.9
+            return self.tree
+        def sleep(seconds):
+            clock[0] += seconds
+        with patch.object(proof, "inspect", side_effect=inspect) as observe, \
+                patch.object(UI.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(UI.time, "sleep", side_effect=sleep) as pause:
+            with self.assertRaisesRegex(UI.UIFailure, "^native-proof-timeout$"):
+                proof.wait_for_direct_form()
+        observe.assert_called_once_with(deadline=15)
+        self.assertEqual(pause.call_count, 1)
+        self.assertAlmostEqual(pause.call_args.args[0], 0.1)
+        self.assertEqual(clock[0], 15)
+
+    def test_popover_match_requires_positive_integer_window_identity(self):
+        for invalid in (None, True, 0, -1, "42", 42.0):
+            tree = copy.deepcopy(self.tree)
+            if invalid is None:
+                tree["windows"][0].pop("kCGWindowNumber")
+            else:
+                tree["windows"][0]["kCGWindowNumber"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(UI.UIFailure, "^native-popover-not-visible$"):
+                UI.popover_window(tree, self.screens)
+
+    def test_popover_match_retains_strict_subpixel_tolerance_and_both_display_bounds(self):
+        for delta in (0.5, 1):
+            tree = copy.deepcopy(self.tree)
+            tree["windows"][0]["kCGWindowBounds"]["Y"] += delta
+            with self.subTest(delta=delta):
+                if delta < 1:
+                    self.assertEqual(UI.popover_window(tree, self.screens)[1]["kCGWindowNumber"], 42)
+                else:
+                    with self.assertRaisesRegex(UI.UIFailure, "^native-popover-not-visible$"):
+                        UI.popover_window(tree, self.screens)
+        for outside in ("ax", "cg"):
+            tree = copy.deepcopy(self.tree)
+            tree["elements"][-1]["frame"][0][0] = -0.5 if outside == "ax" else 0
+            tree["windows"][0]["kCGWindowBounds"]["X"] = -0.5 if outside == "cg" else 0
+            with self.subTest(outside=outside), self.assertRaisesRegex(UI.UIFailure, "^native-popover-not-visible$"):
+                UI.popover_window(tree, self.screens)
 
     def test_offscreen_card_fails_with_visible_status(self):
         for element in self.tree["elements"][1:]:
