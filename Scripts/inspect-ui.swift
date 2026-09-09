@@ -1,5 +1,36 @@
 import AppKit
 import ApplicationServices
+import Darwin
+
+let expectedBundleIdentifier = "be.bram.vikingbar"
+
+func canonicalExecutablePath(_ path: String) -> String {
+    URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+}
+
+func isExpectedProcessIdentity(
+    executablePath: String?, expectedExecutablePath: String,
+    packagedBundleIdentifier: String?, reportedBundleIdentifier: String?
+) -> Bool {
+    guard executablePath == expectedExecutablePath,
+          packagedBundleIdentifier == expectedBundleIdentifier
+    else { return false }
+    return reportedBundleIdentifier == nil || reportedBundleIdentifier == expectedBundleIdentifier
+}
+
+func processExecutablePath(_ pid: Int32) -> String? {
+    var path = [CChar](repeating: 0, count: Int(PATH_MAX))
+    guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
+    return String(cString: path)
+}
+
+func packagedBundleIdentifier(_ infoPlistURL: URL) -> String? {
+    guard let data = try? Data(contentsOf: infoPlistURL),
+          let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+          let dictionary = plist as? [String: Any]
+    else { return nil }
+    return dictionary["CFBundleIdentifier"] as? String
+}
 
 func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
     var value: CFTypeRef?
@@ -73,15 +104,27 @@ func record(_ element: AXUIElement, redactText: Bool = false) -> [String: Any] {
 let arguments = Array(CommandLine.arguments.dropFirst())
 guard arguments.count >= 1, let pid = Int32(arguments[0]), AXIsProcessTrusted()
 else { fatalError("Require a VikingBar PID and Accessibility permission.") }
+guard let helperURL = Bundle.main.executableURL else { fatalError("Require the inspect-ui executable location.") }
+let packagedAppURL = helperURL.deletingLastPathComponent()
+    .appendingPathComponent("app/VikingBar.app", isDirectory: true)
+let expectedExecutablePath = canonicalExecutablePath(
+    packagedAppURL.appendingPathComponent("Contents/MacOS/VikingBarApp").path
+)
+let packagedInfoPlistURL = packagedAppURL.appendingPathComponent("Contents/Info.plist")
 var runningApp = NSRunningApplication(processIdentifier: pid)
 let registrationDeadline = ProcessInfo.processInfo.systemUptime + 3
-// Launch Services can publish the bundle identity after the process starts.
-while runningApp?.bundleIdentifier == nil, ProcessInfo.processInfo.systemUptime < registrationDeadline {
+while runningApp == nil, ProcessInfo.processInfo.systemUptime < registrationDeadline {
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
     runningApp = NSRunningApplication(processIdentifier: pid)
 }
-guard let app = runningApp, app.bundleIdentifier == "be.bram.vikingbar"
-else { fatalError("Require a registered VikingBar application.") }
+guard let app = runningApp,
+      isExpectedProcessIdentity(
+          executablePath: processExecutablePath(pid).map { canonicalExecutablePath($0) },
+          expectedExecutablePath: expectedExecutablePath,
+          packagedBundleIdentifier: packagedBundleIdentifier(packagedInfoPlistURL),
+          reportedBundleIdentifier: app.bundleIdentifier
+      )
+else { fatalError("Require the packaged VikingBar application.") }
 let tree = elements(AXUIElementCreateApplication(pid))
 if arguments.count == 2, arguments[1] == "fill-direct" {
     var inputInfo = stat()

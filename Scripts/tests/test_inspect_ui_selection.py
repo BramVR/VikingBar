@@ -26,6 +26,49 @@ class InspectUISelectionTests(unittest.TestCase):
 
 
 SYNTHETIC_SELECTION = r'''
+let expectedPath = "/checkout/.build/app/VikingBar.app/Contents/MacOS/VikingBarApp"
+let expectedBundleID = "be.bram.vikingbar"
+do {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let target = directory.appendingPathComponent("VikingBarApp")
+    precondition(FileManager.default.createFile(atPath: target.path, contents: Data()))
+    let symlink = directory.appendingPathComponent("VikingBarAlias")
+    try! FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
+    let canonicalTarget = canonicalExecutablePath(target.path)
+    let canonicalSymlink = canonicalExecutablePath(symlink.path)
+    precondition(canonicalSymlink == canonicalTarget)
+    precondition(isExpectedProcessIdentity(
+        executablePath: canonicalSymlink, expectedExecutablePath: canonicalTarget,
+        packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: nil
+    ))
+    precondition(!isExpectedProcessIdentity(
+        executablePath: canonicalExecutablePath(directory.appendingPathComponent("unrelated").path),
+        expectedExecutablePath: canonicalTarget,
+        packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: nil
+    ))
+}
+precondition(isExpectedProcessIdentity(
+    executablePath: expectedPath, expectedExecutablePath: expectedPath,
+    packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: nil
+))
+precondition(isExpectedProcessIdentity(
+    executablePath: expectedPath, expectedExecutablePath: expectedPath,
+    packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: expectedBundleID
+))
+precondition(!isExpectedProcessIdentity(
+    executablePath: "/other/VikingBarApp", expectedExecutablePath: expectedPath,
+    packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: expectedBundleID
+))
+precondition(!isExpectedProcessIdentity(
+    executablePath: expectedPath, expectedExecutablePath: expectedPath,
+    packagedBundleIdentifier: "wrong.bundle", reportedBundleIdentifier: expectedBundleID
+))
+precondition(!isExpectedProcessIdentity(
+    executablePath: expectedPath, expectedExecutablePath: expectedPath,
+    packagedBundleIdentifier: expectedBundleID, reportedBundleIdentifier: "wrong.bundle"
+))
 let first = AXUIElementCreateApplication(Int32.max - 1)
 let repeatedReference = AXUIElementCreateApplication(Int32.max - 1)
 let distinct = AXUIElementCreateApplication(Int32.max - 2)
