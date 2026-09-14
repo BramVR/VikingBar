@@ -11,7 +11,7 @@ For development archives and existing private drafts, use [Build artifacts and p
 
 ## Launch
 
-Run `make smoke-app-fixture` from the repo root with the exclusive Mac UI slot. It builds `.build/app/VikingBar.app`, launches three task-owned fixture processes in sequence, and uses one new `.build/proof/<run>/settings.json` file for persistence proof. Require exit 0, `result.json` with `passed: true`, and `cleanup.json` with `exited: true` and three verified Quit exits of 0.
+Run `make smoke-app-fixture` from the repo root with the exclusive Mac UI slot. It builds `.build/app/VikingBar.app`, launches four task-owned fixture processes in sequence, and uses one new `.build/proof/<run>/settings.json` file for persistence proof. Require exit 0, `result.json` with `passed: true`, and `cleanup.json` with `exited: true` and four verified Quit exits of 0.
 
 For interactive coverage, run `make package-app` and `swiftc Scripts/inspect-ui.swift -o .build/inspect-ui`, then launch `.build/app/VikingBar.app/Contents/MacOS/VikingBarApp --fixture finite` in a task-owned terminal session. Record PID, parent, start time, full executable path, and SHA256 before driving. Explicit fixture launches use memory for the display preference. For relaunch proof, add `--settings-file` with an absolute path inside a new task-owned directory and reuse that file. This app-only option requires `--fixture`. Never read or migrate real settings for fixture proof. Selecting **Not connected** inside that fixture launch must remain isolated and must not start a live worker.
 
@@ -25,21 +25,21 @@ The native helper waits briefly for Launch Services registration after a process
 
 ## Drive
 
-The automatic smoke presses the real helmet, switches Data and Settings tabs, checks both display modes across all five fixtures and Not connected, verifies GB/GiB, and proves on/off persistence through real Quit and relaunch. Read [Helmet and display setting](features/helmet-and-display-setting.md) for the state and rendering matrix. [Data card](features/data-card.md) and [Fixture selection](features/fixture-selection.md) cover exact card expectations.
+The automatic smoke presses the real helmet, opens footer Settings and Back, checks both display modes across all five fixtures and Not connected, verifies GB/GiB, and proves on/off persistence through real Quit and relaunch. It also drives synthetic SIM/bundle selection, refresh, details, Points, and app-local light/dark/accessibility appearances. The redesigned fixture gate passed on 2026-09-14 with four native Quit exits. Read [Helmet and display setting](features/helmet-and-display-setting.md) for the state and rendering matrix. [Data card](features/data-card.md) records the build, separate keyboard proof, and its focus boundary. [Fixture selection](features/fixture-selection.md) covers exact card expectations.
 
-For targeted actions, use `.build/inspect-ui <pid> press <selector>` and re-observe after each action. Selectors match identifiers, titles, current popup values, and native tab radio-button descriptions. Press `Settings` or `Data` for the tabs. Wait for popup menu items before choosing a value; the helper prefers actual menu items over a popup's current value.
+For targeted actions, use `.build/inspect-ui <pid> press <selector>` and re-observe after each action. Selectors match identifiers, titles, current popup values, and native tab radio-button descriptions. Press `vikingbar.settings` for Settings and `vikingbar.back` to return to the balance. For pickers, use `.build/inspect-ui <pid> choose <picker-identifier> <exact-menu-title>`. This invocation presses the picker once, waits boundedly for one visible matching menu item, and presses it once. Do not split picker readiness and selection across invocations. Never retry a successful or uncertain action; retain the failure receipt and stop. Resolution waits do not make synchronous Accessibility calls interruptible.
 
 ## Evidence
 
 Keep raw `.build/proof/<run>/` receipts and captures private and outside commits. The run preserves per-launch process/hash receipts, native trees, click and Quit receipts, tightly cropped status images, card and Settings captures, the isolated settings file, `result.json`, and cleanup. The initial `before.png`, `click.json`, `card.png`, and `process.json` names remain available.
 
-Default status title is empty; amount mode adds only the remaining decimal GB amount or an honest exceptional state. Fixture provenance stays visible in the card and Settings and explicit in tooltip, accessibility label, and CLI. Inspect the actual PNGs; AX text alone does not prove visibility or helmet appearance. Card captures must target the settled popover window, not a transient fixture menu. The smoke matches CoreGraphics window bounds to the AXPopover frame before capture.
+Default status title is empty; amount mode adds only the remaining decimal GB amount or an honest exceptional state. Fixture provenance stays visible in the card and Settings and explicit in tooltip, accessibility label, and CLI. Inspect the actual PNGs; AX text alone does not prove visibility or helmet appearance. Card capture waits for the same unique, opaque, display-contained AXPopover/CoreGraphics window pair in two consecutive native inspections, then makes one classic exact-window capture bound to the recorded PID and window ID. A failed or mismatched capture receipt is terminal; do not retry or substitute an area capture.
 
 Verify fixture isolation by tracing app and CLI entry points through their selected paths. Shared core imports include network transport, so imports alone cannot prove isolation. The CLI without arguments must exit 2 with fixture-required guidance. Explicit `connect`, `live`, `proof balance-api`, and private `session` commands access the connected account or its store. `proof auth-balance` performs a separate credential exchange without persistence. Follow their credential prerequisites; never use them as credential-free diagnostics.
 
 ## Cleanup
 
-The smoke's three launches must each exit through `vikingbar.quit` with code 0. Failure cleanup terminates only its recorded child process and waits for exit; that fallback is not Quit-button proof. Require `cleanup.json` to report all task processes exited and confirm screenshots survive cleanup. Interactive runs use `.build/inspect-ui <pid> press vikingbar.quit` and retain the receipt plus original process exit status. Never drive or stop a pre-existing app.
+The smoke's four launches must each exit through `vikingbar.quit` with code 0. Failure cleanup terminates only its recorded child process and waits for exit; that fallback is not Quit-button proof. Require `cleanup.json` to report all task processes exited and confirm screenshots survive cleanup. Interactive runs use `.build/inspect-ui <pid> press vikingbar.quit` and retain the receipt plus original process exit status. Never drive or stop a pre-existing app.
 
 ## Helpers
 
@@ -51,7 +51,7 @@ The smoke's three launches must each exit through `vikingbar.quit` with code 0. 
 - `make proof-live CHECK=invoices` requires the authorized [invoice proof](features/invoices.md) recipe. It accesses the stored account and downloads a PDF only when an invoice exists; it never opens a PDF viewer.
 - `make proof-live CHECK=points` requires the authorized [Viking Points](features/points.md) recipe, stored session, and private native evidence.
 - `make smoke-app-fixture` runs `Scripts/smoke-app-fixture.py` end to end.
-- `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action.
+- `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action or `choose <picker-identifier> <exact-menu-title>` for picker selection in one invocation. Action errors are terminal; never retry successful or uncertain dispatch.
 - `make package-app` builds the bundle for interactive checks.
 
 Use `$maintain-verification-skill` when available to update the map after product changes.

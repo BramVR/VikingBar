@@ -1,156 +1,155 @@
-import AppKit
 import SwiftUI
 import VikingBarCore
 
 struct DataCard: View {
     @Bindable var session: AppSession
-
+    @Binding var detailsExpanded: Bool
     var connect: () -> Void = {}
 
     var body: some View {
-        let menu = self.session.menu
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label("VikingBar", systemImage: "antenna.radiowaves.left.and.right")
-                    .font(.headline)
-                Spacer()
-                if self.session.fixture != nil {
-                    Text("FIXTURE")
-                        .font(.caption.bold())
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(.orange.opacity(0.2), in: Capsule())
-                        .accessibilityIdentifier("vikingbar.fixtureMarker")
+        VStack(alignment: .leading, spacing: 6) {
+            if self.session.needsConnection {
+                Text(self.session.connectionTitle).font(.headline)
+                    .accessibilityIdentifier("vikingbar.connectionStatus")
+                Text(self.session.connectionMessage)
+                    .accessibilityIdentifier("vikingbar.warning")
+                    .foregroundStyle(.secondary)
+                if self.session.isFixtureLaunch {
+                    Text("Choose a synthetic state in Settings.").font(.caption)
+                } else {
+                    self.connectionAction
+                    if self.session.canRefresh || self.session.activity == .refreshing {
+                        self.refreshAction
+                    }
                 }
-            }
-            if !self.session.isFixtureLaunch {
-                self.liveSelection
-            }
-            VStack(alignment: .leading, spacing: 5) {
-                Text(menu.title).font(.subheadline).foregroundStyle(.secondary)
-                Text(menu.balanceTitle).font(.caption).foregroundStyle(.secondary)
-                Text(menu.remainingText)
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
-                    .accessibilityIdentifier("vikingbar.remaining")
-                if let percentage = menu.percentageRemaining {
-                    ProgressView(value: percentage, total: 100)
-                        .tint(percentage == 0 ? .orange : .accentColor)
-                        .accessibilityLabel("Data remaining")
-                        .accessibilityValue(menu.percentageText ?? "")
-                }
-                if let percentageText = menu.usedPercentageText {
-                    Text(percentageText).font(.subheadline.weight(.medium))
-                }
-                HStack {
-                    Text(menu.usedText)
-                    Spacer()
-                    Text(menu.totalText)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(menu.expiryText)
-                Text(menu.freshnessText)
+            } else {
+                self.selection
+                self.balance
+                self.details
+                Divider().padding(.vertical, 6)
+                self.refreshAction
+                Text(self.session.menu.freshnessText)
+                    .font(.caption).foregroundStyle(.secondary)
                     .accessibilityIdentifier("vikingbar.freshness")
             }
-            .font(.caption)
-            if let warning = menu.warningText {
-                Label(warning, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+            Divider().padding(.vertical, 6)
+            Link(destination: URL(string: "https://mobilevikings.be/en/my-viking/")!) {
+                Label("Open My Viking", systemImage: "link")
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                Text(menu.sourceLabel)
-                    .font(.caption.weight(.medium))
-                    .accessibilityIdentifier("vikingbar.source")
-                if self.session.isFixtureLaunch {
-                    Picker("Fixture state", selection: self.$session.fixture) {
-                        Text("Not connected").tag(FixtureState?.none)
-                        ForEach(FixtureState.allCases, id: \.self) { fixture in
-                            Text(fixture.rawValue.capitalized).tag(Optional(fixture))
-                        }
-                    }
-                    .accessibilityIdentifier("vikingbar.fixturePicker")
-                } else {
-                    self.liveActions
-                }
-                Picker("Data units", selection: self.$session.unit) {
-                    ForEach(DataUnit.allCases, id: \.self) { unit in
-                        Text(unit.rawValue).tag(unit)
-                    }
-                }
-                Text(menu.unitExplanation)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Button("Quit VikingBar") { NSApplication.shared.terminate(nil) }
-                .keyboardShortcut("q")
-                .accessibilityIdentifier("vikingbar.quit")
+            .accessibilityIdentifier("vikingbar.openMyViking")
+            Text(self.session.menu.sourceLabel)
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("vikingbar.source")
         }
-        .padding(20)
-        .frame(width: 360, height: self.session.isFixtureLaunch ? 520 : nil, alignment: .top)
-        .frame(minHeight: self.session.isFixtureLaunch ? nil : 710, alignment: .top)
+        .buttonStyle(.plain)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    private var liveSelection: some View {
+    private var selection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !self.session.liveState.subscriptions.isEmpty {
-                Picker("SIM", selection: Binding(
-                    get: { self.session.liveState.selectedSubscriptionID ?? "" },
-                    set: { self.session.selectSubscription($0) },
-                )) {
-                    ForEach(self.session.liveState.subscriptions, id: \.id) { subscription in
-                        Text(subscription.displayName).tag(subscription.id)
-                    }
-                }
-                .accessibilityIdentifier("vikingbar.subscriptionPicker")
-                .disabled(!self.session.canSelectAccountData)
+            Picker("SIM", selection: Binding(
+                get: { self.session.selectedSubscriptionID }, set: { self.session.selectSubscription($0) },
+            )) {
+                ForEach(self.session.subscriptions) { Text($0.title).tag($0.id) }
             }
-            if !self.session.activeBundleIndices.isEmpty {
+            .accessibilityIdentifier("vikingbar.subscriptionPicker")
+            .disabled(!self.session.canSelectAccountData)
+            Divider().padding(.vertical, 6)
+            if self.session.hasSelectableBundle {
                 Picker("Data bundle", selection: Binding(
-                    get: { self.session.liveState.selectedBundleIndex ?? -1 },
-                    set: { self.session.selectBundle($0) },
+                    get: { self.session.selectedBundleIndex }, set: { self.session.selectBundle($0) },
                 )) {
-                    ForEach(self.session.activeBundleIndices, id: \.self) { index in
-                        if let bundle = self.session.liveState.balance?.bundles[index] {
-                            Text(LiveBalancePresentation.title(for: bundle, index: index)).tag(index)
-                        }
-                    }
+                    ForEach(self.session.bundles) { Text($0.title).tag($0.id) }
                 }
                 .accessibilityIdentifier("vikingbar.bundlePicker")
                 .disabled(!self.session.canSelectAccountData)
             }
-            let details = self.session.balanceDetails
-            Text(details.bundleTitle).font(.subheadline.weight(.medium))
-            if !details.bundleDescription.isEmpty {
-                Text(details.bundleDescription).font(.caption)
-            }
-            if !details.applicabilityText.isEmpty {
-                Text(details.applicabilityText).font(.caption).foregroundStyle(.secondary)
-            }
-            Text(details.extraChargesText).font(.caption)
+            Text(self.session.bundleSelectionLabel).font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("vikingbar.bundleSelectionLabel")
         }
-        .fixedSize(horizontal: false, vertical: true)
+        .pickerStyle(.menu)
     }
 
-    private var liveActions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(self.session.activity == .refreshing ? "Refreshing…" : "Refresh now") {
-                self.session.refresh()
+    private var balance: some View {
+        let menu = self.session.menu
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(menu.remainingText)
+                    .font(.system(size: 30, weight: .semibold))
+                    .accessibilityIdentifier("vikingbar.remaining")
+                Spacer(minLength: 8)
+                Text(menu.totalText).font(.subheadline).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("vikingbar.total")
             }
-            .disabled(!self.session.canRefresh)
-            .accessibilityIdentifier("vikingbar.refresh")
-            Button(self.session.activity == .connecting ? "Connecting…" : "Connect with 1Password") {
-                self.connect()
+            Text(menu.balanceTitle).font(.caption).foregroundStyle(.secondary)
+            if let percentage = menu.percentageRemaining {
+                ProgressView(value: percentage, total: 100)
+                    .tint(percentage == 0 ? .orange : .cyan)
+                    .accessibilityLabel("Data remaining")
+                    .accessibilityValue(menu.percentageText ?? "")
+                    .accessibilityIdentifier("vikingbar.progress")
             }
+            HStack {
+                Text(menu.usedText)
+                Spacer()
+                if let percentageText = menu.percentageText {
+                    Text(percentageText)
+                }
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            Label(menu.expiryText, systemImage: "calendar")
+                .font(.caption).padding(.vertical, 6)
+                .accessibilityIdentifier("vikingbar.expiry")
+            if let warning = menu.warningText {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+                    .accessibilityIdentifier("vikingbar.warning")
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    private var details: some View {
+        VStack(spacing: 6) {
+            Divider()
+            DisclosureGroup(isExpanded: self.$detailsExpanded) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(self.session.bundleDescription)
+                        .accessibilityIdentifier("vikingbar.bundleDescription")
+                    Text(self.session.applicabilityText).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("vikingbar.bundleApplicability")
+                }
+                .font(.caption).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+            } label: {
+                HStack {
+                    Text("Bundle details")
+                    Spacer()
+                    Text(self.session.extraChargesText).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("vikingbar.bundleDetails")
+        }
+    }
+
+    private var refreshAction: some View {
+        Button(action: self.session.refresh) {
+            Label(
+                self.session.activity == .refreshing ? "Refreshing…" : "Refresh",
+                systemImage: "arrow.clockwise",
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .disabled(!self.session.canRefresh)
+        .keyboardShortcut("r")
+        .accessibilityIdentifier("vikingbar.refresh")
+    }
+
+    private var connectionAction: some View {
+        Button(self.session.activity == .connecting ? "Connecting…" : "Connect with 1Password", action: self.connect)
             .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
             .accessibilityIdentifier("vikingbar.connect")
-            Link("Open My Viking", destination: URL(string: "https://mobilevikings.be/en/my-viking/")!)
-                .accessibilityIdentifier("vikingbar.openMyViking")
-        }
     }
 }

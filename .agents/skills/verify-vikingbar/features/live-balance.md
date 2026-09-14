@@ -6,7 +6,7 @@ Coverage: core live gate and subsequent current-build stored-session picker proo
 
 Default native startup restores the live account and refreshes it when connected. A disconnected account shows **Connect with 1Password**. The approved reference file selects one item and its `client_id`, `username`, and `password` fields. The packaged helper sources the authorized profile inside one private named tmux session and performs one `op item get`. The helper derives `USER` from the OS account only for tmux so the approved profile can select its credential. The `op` and CLI child environments remain unchanged. It sends credentials over stdin to the bundled CLI, which owns Keychain. The native app receives session state over private pipes, never tokens.
 
-The card selects one SIM and one active data bundle. The selected bundle controls the helmet, remaining amount, used percentage, and expiry. Bundles retain separate applicability and amounts. The picker and card share `LiveBalancePresentation.title(for:index:)`. Blank or whitespace-only titles display as `Data bundle N`, using the provider-array index plus one. Raw provider values remain unchanged. Extra charges show the selected SIM's euro amount, or unavailable when missing. Another SIM cannot supply the selected SIM's allowance. **Refresh now** requests fresh data. Failed reads retain known data as stale, while expired or unknown amounts stay unavailable.
+The card selects one SIM and one active data bundle. The selected bundle controls the helmet, remaining amount, remaining percentage, and expiry. Bundles retain separate applicability and amounts. The picker and card share `LiveBalancePresentation.title(for:index:)`. Blank or whitespace-only titles display as `Data bundle N`, using the provider-array index plus one. Raw provider values remain unchanged. Extra charges show the selected SIM's euro amount, or unavailable when missing. Another SIM cannot supply the selected SIM's allowance. **Refresh** requests fresh data. Failed reads retain known data as stale, while expired or unknown amounts stay unavailable.
 
 Each connection has a new identity. Refresh uses the stored token. A pending token rotation survives interruption and forces reconnect if no replacement was saved. CLI processes share a lease around rotation. Unsigned rebuilds may need renewed Keychain authorization.
 
@@ -15,6 +15,8 @@ An explicit fixture launch never creates a live worker. Choosing **Not connected
 ## Source
 
 - `Sources/VikingBar/AppSession.swift` owns startup, refresh scheduling, account selection, and fixture isolation.
+- `Sources/VikingBar/AppSessionOptional.swift` queues Points and Bills metadata, resumes interrupted metadata, and drops interrupted PDF actions.
+- `Sources/VikingBarCore/VikingSessionOperation.swift` serializes worker operations and gives required data refresh priority over optional work.
 - `Sources/VikingBar/SessionProcessClient.swift` owns the CLI process and private command pipes.
 - `Sources/VikingBar/AccountConnector.swift` invokes the packaged `Scripts/connect-account.py` helper.
 - `Sources/VikingBar/DataCard.swift` renders account actions, SIMs, active bundles, and charges.
@@ -39,6 +41,8 @@ For stored-session title verification, launch the fresh bundle with the stored s
 When the live account has several SIMs or active bundles, select each and compare its own amount, expiry, applicability, and charges with the corresponding report. If the account lacks that data, record the unavailable case and retain synthetic selection coverage. Do not claim live multi-SIM proof from a single-SIM account.
 
 Require visible status and card captures, current native AX values, successful API comparisons, unchanged bootstrap receipt, and verified Quit exits. Preserve evidence through cleanup. Missing native access, Keychain authorization, API data, or a release-relaunch receipt leaves coverage pending or failed.
+
+A balance-only gate does not prove the shared optional queue. On the current bundle, also settle Bills auto-load, compare Points, refresh usage, and require newer usage and Points timestamps with unchanged connection identity. Require resumed invoice metadata when interrupted. Fast responses do not prove delayed preemption. All-nine post-merge maintenance passed on main `e0f353dcfe2042932bf6e03e647782dc37b6aa99`, including current-build stored-session balance, combined Bills and Points, and the separate auth CLI gate. Current compact-navigation proof on 2026-09-14 passed Bills loading, Points, Back, Refresh, API comparisons, and the debug stored-session relaunch. The release rebuild reached a macOS Keychain password prompt and timed out with successful owned-process cleanup. A separate continuation of those exact release binaries passed stored-session restoration, a newer balance on the same connection and selection, native Quit, and owned-process cleanup. The interrupted receipt remains failed; the composed evidence completes the release gate. The historical evidence below retains its original build boundaries.
 
 ## Evidence and cleanup
 

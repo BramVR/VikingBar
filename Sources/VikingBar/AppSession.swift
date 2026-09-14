@@ -25,6 +25,7 @@ final class AppSession {
         }
     }
 
+    private(set) var fixtureAccount = FixtureAccount()
     private(set) var settingsError: String?
     var liveState = LiveSessionState()
     private(set) var activity: Activity = .idle
@@ -89,7 +90,8 @@ final class AppSession {
 
     var snapshot: UsageSnapshot {
         if self.isFixtureLaunch {
-            return self.fixture?.snapshot(referenceDate: self.referenceDate) ?? .notConnected
+            return self.fixture.map { self.fixtureAccount.snapshot(state: $0, referenceDate: self.referenceDate) }
+                ?? .notConnected
         }
         let previous = self.liveState.snapshot
         let expired = self.allowanceExpired || previous.expiresAt.map { $0 <= self.now() } == true
@@ -127,6 +129,15 @@ final class AppSession {
     func refresh() {
         guard self.canRefresh else { return }
         let intent = self.begin(.refreshing)
+        if self.isFixtureLaunch {
+            self.operation = Task {
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                guard self.isCurrent(intent) else { return }
+                self.fixtureAccount.refreshCount += 1
+                self.finish()
+            }
+            return
+        }
         self.operation = Task {
             if self.client == nil {
                 await self.restoreAndRefresh(intent: intent)
@@ -134,16 +145,6 @@ final class AppSession {
                 await self.perform(.refresh, intent: intent)
             }
         }
-    }
-
-    func selectSubscription(_ id: String) {
-        guard self.liveState.selectedSubscriptionID != id else { return }
-        self.select(.selectSubscription(id))
-    }
-
-    func selectBundle(_ index: Int) {
-        guard self.liveState.selectedBundleIndex != index else { return }
-        self.select(.selectBundle(index))
     }
 
     private func select(_ request: SessionRequest) {
@@ -332,16 +333,6 @@ extension AppSession {
 }
 
 extension AppSession {
-    var canRefresh: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && (self.isConnected || self.canRestartWorker)
-    }
-
-    var canSelectAccountData: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && self.isConnected && self.client != nil
-    }
-}
-
-extension AppSession {
     private var canRestartWorker: Bool {
         if case .unavailable? = self.bridgeFailure {
             return true
@@ -352,5 +343,39 @@ extension AppSession {
     var isConnected: Bool {
         self.liveState.connectionID != nil
             && ![.notConnected, .reconnectRequired, .unauthorized].contains(self.liveState.failure)
+    }
+}
+
+extension AppSession {
+    var canRefresh: Bool {
+        self
+            .activity == .idle &&
+            (self.isFixtureLaunch ? self.fixture != nil : self.isConnected || self.canRestartWorker)
+    }
+
+    var canSelectAccountData: Bool {
+        self.activity == .idle && (self.isFixtureLaunch ? self.fixture != nil : self.isConnected && self.client != nil)
+    }
+
+    func selectSubscription(_ id: String) {
+        if self.isFixtureLaunch {
+            guard self.canSelectAccountData else { return }
+            self.fixtureAccount.selectSubscription(id)
+            self.onPresentationChange?()
+            return
+        }
+        guard self.liveState.selectedSubscriptionID != id else { return }
+        self.select(.selectSubscription(id))
+    }
+
+    func selectBundle(_ index: Int) {
+        if self.isFixtureLaunch {
+            guard self.canSelectAccountData else { return }
+            self.fixtureAccount.selectBundle(index)
+            self.onPresentationChange?()
+            return
+        }
+        guard self.liveState.selectedBundleIndex != index else { return }
+        self.select(.selectBundle(index))
     }
 }

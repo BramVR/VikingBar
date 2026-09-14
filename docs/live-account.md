@@ -23,7 +23,7 @@ The packaged connection helper uses `/usr/bin/python3` and requires tmux, the 1P
 
 Opening the app without `--fixture` restores the stored session and refreshes it when connected. Each background refresh uses the stored token.
 
-After connection, choose a SIM and data bundle in the card. Different bundles keep their own amounts, applicability, and expiry. Blank or whitespace-only titles display as `Data bundle N`, where N is the bundle's one-based position in the provider array. The picker and card use the same title, and raw provider values remain unchanged. The helmet represents the selected bundle. Extra charges show the selected SIM's out-of-bundle cost in euros; a missing amount stays unavailable. **Refresh now** requests an update. **Open My Viking** opens the provider's account website.
+After connection, choose a SIM and data bundle in the card. Different bundles keep their own amounts, applicability, and expiry. Blank or whitespace-only titles display as `Data bundle N`, where N is the bundle's one-based position in the provider array. The picker and card use the same title, and raw provider values remain unchanged. The helmet represents the selected bundle. Extra charges show the selected SIM's out-of-bundle cost in euros; a missing amount stays unavailable. **Refresh** requests an update. **Open My Viking** opens the provider's account website.
 
 The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
 
@@ -31,11 +31,11 @@ Open **Bills** for the latest account invoice or credit note. Grouped totals rem
 
 ## Viking Points
 
-The Points tab shows the customer's Viking Points once for the account. Available points are spendable. Pending and blocked points remain separate. Switching SIMs does not change the owner of the points or duplicate the customer balance.
+The **Points** action shows the customer's Viking Points once for the account. Available points are spendable. Pending and blocked points remain separate. Switching SIMs does not change the owner of the points or duplicate the customer balance.
 
 Expand recent transactions to inspect each amount and provider state. The list contains up to three pages of 20 transactions. A truncated list is labeled and cannot establish the available balance. The provider's balance endpoint supplies that figure directly.
 
-Usage refresh publishes before points refresh. Points balance and transaction history each retain their last successful data and report failures separately. A points failure does not clear a usable data allowance. **Refresh now** updates both usage and points through the existing account session.
+Usage refresh publishes before points refresh. Points balance and transaction history each retain their last successful data and report failures separately. A points failure does not clear a usable data allowance. **Refresh** updates both usage and points through the existing account session.
 
 ## Inspect the same balance in the CLI
 
