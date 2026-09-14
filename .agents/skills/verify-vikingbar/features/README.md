@@ -9,3 +9,4 @@
 - [Auth/balance proof](auth-balance-proof.md). Prove password login, refresh, subscription discovery, and balances with authorized credentials.
 - [Viking Points](points.md). Verify customer balances, expandable transaction states, independent freshness, and the authorized stored-session points gate. Live API, native Refresh, first visible transaction row, and native Quit passed; see the feature evidence for coverage limits.
 - [Build artifacts and private drafts](packaged-artifacts.md). Inspect development archives, exact build identity, extracted fixture CLIs, and authorized draft delivery.
+- [Website](website.md). Drive the public page locally: helmet scene, synthetic balance demo, setup/FAQ, source and download dialogs, and motion controls.
