@@ -16,11 +16,16 @@ class InspectUIResolutionTests(unittest.TestCase):
         harness = Path(cls.directory.name) / "resolution.swift"
         harness.write_text(prefix + r'''
 struct DispatchFailure: Error {}
+struct Match {
+    let id: Int
+    let role: String?
+    let enabled: Bool
+}
 let scenario = CommandLine.arguments[1]
 var tick: TimeInterval = 0
 var resolutions = 0
 var actions: [Int] = []
-func run(_ resolve: () throws -> Int?, _ perform: (Int) throws -> Void) throws {
+func run<T>(_ resolve: () throws -> T?, _ perform: (T) throws -> Void) throws {
     try resolveAndPerform(timeout: 2, now: { tick }, pause: { tick += 0.5 }, resolve: {
         resolutions += 1
         return try resolve()
@@ -46,6 +51,35 @@ case "duplicate":
     do {
         try run({ try uniqueTarget([11, 22]) }, { actions.append($0) })
         fatalError("Distinct matching controls were accepted")
+    } catch ResolutionFailure.ambiguous {}
+    precondition(actions.isEmpty && resolutions == 1)
+case "inherited-scroll-identifier":
+    let matches = [Match(id: 11, role: "AXDisclosureTriangle", enabled: true),
+                   Match(id: 12, role: "AXScrollArea", enabled: false)]
+    try run({ try uniqueNonScrollTarget(matches, role: { $0.role }) }, { actions.append($0.id) })
+    precondition(actions == [11] && resolutions == 1)
+case "scroll-only":
+    let matches = [Match(id: 12, role: "AXScrollArea", enabled: false)]
+    do {
+        try run({ try uniqueNonScrollTarget(matches, role: { $0.role }) }, { actions.append($0.id) })
+        fatalError("Inert scroll area was pressed")
+    } catch ResolutionFailure.timeout {}
+    precondition(actions.isEmpty && resolutions > 0)
+case "duplicate-disclosures":
+    let matches = [Match(id: 11, role: "AXDisclosureTriangle", enabled: true),
+                   Match(id: 12, role: "AXScrollArea", enabled: false),
+                   Match(id: 13, role: "AXDisclosureTriangle", enabled: false)]
+    do {
+        try run({ try uniqueNonScrollTarget(matches, role: { $0.role }) }, { actions.append($0.id) })
+        fatalError("Distinct disclosure controls were accepted")
+    } catch ResolutionFailure.ambiguous {}
+    precondition(actions.isEmpty && resolutions == 1)
+case "unknown-role":
+    let matches = [Match(id: 11, role: "AXDisclosureTriangle", enabled: true),
+                   Match(id: 14, role: nil, enabled: false)]
+    do {
+        try run({ try uniqueNonScrollTarget(matches, role: { $0.role }) }, { actions.append($0.id) })
+        fatalError("Unknown-role candidate was silently discarded")
     } catch ResolutionFailure.ambiguous {}
     precondition(actions.isEmpty && resolutions == 1)
 case "success":
@@ -101,6 +135,18 @@ print("passed " + scenario)
 
     def test_distinct_matching_controls_fail_without_dispatch(self):
         self.verify("duplicate")
+
+    def test_inherited_scroll_identifier_does_not_make_disclosure_ambiguous(self):
+        self.verify("inherited-scroll-identifier")
+
+    def test_scroll_only_match_times_out_without_dispatch(self):
+        self.verify("scroll-only")
+
+    def test_distinct_disclosures_remain_ambiguous_when_one_is_disabled(self):
+        self.verify("duplicate-disclosures")
+
+    def test_unknown_role_remains_ambiguous(self):
+        self.verify("unknown-role")
 
     def test_successful_dispatch_is_never_retried(self):
         self.verify("success")

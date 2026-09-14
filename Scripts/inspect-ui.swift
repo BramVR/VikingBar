@@ -52,6 +52,10 @@ func uniqueTarget<T>(_ candidates: [T]) throws -> T? {
     return candidates.first
 }
 
+func uniqueNonScrollTarget<T>(_ candidates: [T], role: (T) -> String?) throws -> T? {
+    try uniqueTarget(candidates.filter { role($0) != "AXScrollArea" })
+}
+
 func readyTarget<T>(_ target: T, visible: Bool, enabled: Bool) -> T? {
     visible && enabled ? target : nil
 }
@@ -140,7 +144,8 @@ func resolveTarget(
             || (role == "AXPopUpButton" && (attribute(element, "AXValue") as? String) == selector)
             || (role == "AXRadioButton" && (attribute(element, "AXDescription") as? String) == selector)
     }
-    guard let selected = try uniqueTarget(matches) else { return nil }
+    guard let selected = try uniqueNonScrollTarget(matches, role: { attribute($0, "AXRole") as? String })
+    else { return nil }
     let target: AXUIElement
     if (attribute(selected, "AXRole") as? String) == "AXGroup" {
         let disclosures = elements(selected).filter {
