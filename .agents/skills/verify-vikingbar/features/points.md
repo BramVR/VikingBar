@@ -23,7 +23,7 @@ The status item and the matched popover must each fit within a real display. The
 
 For targeted inspection, use `vikingbar.points`, `vikingbar.points.available`, `vikingbar.points.pending`, `vikingbar.points.blocked`, and `vikingbar.points.transactionsToggle`. Row identifiers use `vikingbar.points.transaction.<zero-based-index>.amount`, `.state`, `.updated`, and `.description`. Press `vikingbar.back` for Refresh. Open footer Settings for Quit.
 
-Run `make check` and `Scripts/test.sh` for synthetic coverage. `vikingbar --fixture finite` exposes synthetic points through the shared CLI presentation without account access. The fixture states exercise pending, blocked, expired, failed, and unknown transaction states. Core tests also cover empty history and pagination boundaries.
+Run `make check` and `Scripts/test.sh` for synthetic coverage. `vikingbar --fixture finite` exposes synthetic points through the shared CLI presentation without account access. The fixture states exercise pending, blocked, expired, rejected, and unknown transaction states. Core tests also cover empty history and pagination boundaries.
 
 ## Gotchas
 
