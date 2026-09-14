@@ -29,4 +29,4 @@ Refresh displays a synthetic busy interval then advances its update timestamp, p
 
 The smoke launches app-local light, dark, high-contrast-light, and high-contrast-dark appearances. The final launch also requests reduced transparency. Use `--fixture-appearance` and `--fixture-reduce-transparency` only with `--fixture`; never change global appearance preferences.
 
-The display preference uses the smoke's new isolated settings file. Require default off, saved on after relaunch, saved off after relaunch, and four native Quit exits. Current redesigned native proof remains pending until the real gate and screenshot inspection pass.
+The display preference uses the smoke's new isolated settings file. Require default off, saved on after relaunch, saved off after relaunch, and four native Quit exits. The redesigned fixture gate passed on 2026-09-14. See [data-card evidence](data-card.md#proof-status) for the tested build and inspected captures.

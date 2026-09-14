@@ -25,9 +25,11 @@ Require finite positive AX and CoreGraphics popover bounds fully inside one fini
 
 ## Proof status
 
-The redesigned native gate remains incomplete. On 2026-09-08, the baseline three-launch gate passed; the compact first-launch state/unit/selection/refresh/details/Points matrix and Quit passed, and a separate persisted-setting launch passed Settings, Back, and Quit. Later full runs lost an accessibility target between readiness and action, so neither run supplied the required four Quit receipts. Keyboard activation, the complete appearance matrix, and the uninterrupted four-launch gate remain unverified.
+The redesigned fixture gate passed on 2026-09-14 at product commit `f148176cf871f001cf83bd31a0634527e2e984de`. The uninterrupted four-launch run covered states, units, selection, refresh, details, Points, display-setting persistence, and four native Quit exits. Separate current-build captures completed light, dark, increased-contrast, and reduced-transparency inspection. Fresh parent and head captures showed the compact card at 386 by 560 logical points, compared with the former card at 386 by 596.
 
-A private synthetic derivative with identical production views passed long-detail expansion across the fitted/scrollable boundary, native scrollbar navigation to the footer and back, collapse, and Quit. An app-local URL interceptor confirmed native My Viking dispatch and its exact destination; it did not load a browser or account page. Raw receipts and before/after dark captures remain private. These partial results do not replace the required automatic gate.
+Real keyboard events opened Settings, returned with Back, refreshed the balance, and selected the distinct Travel SIM and Extra data bundle. The selector check established focus through Accessibility before sending Down and Return. It does not prove Tab traversal. Global Keyboard Navigation remained unchanged. Earlier failed probes remain separate from passing receipts.
+
+A private synthetic derivative with identical production views passed long-detail expansion across the fitted/scrollable boundary, native scrollbar navigation to the footer and back, collapse, and Quit. An app-local URL interceptor confirmed native My Viking dispatch and its exact destination; it did not load a browser or account page. Raw receipts and before/after dark captures remain private. These focused results supplement the automatic gate.
 
 Normal launches inherit macOS appearance and native popover material. Fixture-only appearance overrides and the reduce-transparency fallback do not change system preferences.
 
