@@ -4,6 +4,7 @@
 
 - Add daily SIM usage charts and labeled cycle estimates, with bounded Brussels summaries, missing/stale states, independent balance refresh, and a stored-session history proof gate.
 - Fix rejected history date queries by sending whole-second numeric UTC offsets with escaped plus signs, preserving exact interval bounds.
+- Read grouped live history totals from outgoing data, excluding incoming and other traffic while preserving confirmed zero usage.
 - Recover a stopped history worker on the first Refresh or SIM selection while retaining known usage and matching history.
 - Preserve expanded history when the popover starts scrolling, retain accessible chart details, and prevent truncated chart dates.
 - Show connection status and username in Settings, with explicit account changes and password-free saved details.

@@ -54,21 +54,29 @@ struct LiveAPI: Sendable {
 
     static func decodeUsageSummary(_ data: Data) throws -> UInt64? {
         do {
-            let rows = try JSONDecoder().decode([UsageSummaryResponse].self, from: data)
-            guard !rows.isEmpty else { return nil }
-            var regions = Set<String>()
-            var bytes: UInt64 = 0
-            for row in rows {
-                guard row.trafficType == "data", !row.incoming,
-                      ["national", "international", "roaming", "unknown"].contains(row.regionality),
-                      regions.insert(row.regionality).inserted,
-                      row.totalDuration >= 0, !row.totalDuration.isNaN, !row.totalPrice.isNaN
-                else { throw LiveFailure.malformedResponse }
-                let sum = bytes.addingReportingOverflow(row.totalQuantity)
-                guard !sum.overflow else { throw LiveFailure.malformedResponse }
-                bytes = sum.partialValue
+            switch try JSONDecoder().decode(UsageSummaryPayload.self, from: data) {
+            case let .rows(rows):
+                guard !rows.isEmpty else { return nil }
+                var regions = Set<String>()
+                var bytes: UInt64 = 0
+                for row in rows {
+                    guard row.trafficType == "data", !row.incoming,
+                          ["national", "international", "roaming", "unknown"].contains(row.regionality),
+                          regions.insert(row.regionality).inserted,
+                          row.totalDuration >= 0, !row.totalDuration.isNaN, !row.totalPrice.isNaN
+                    else { throw LiveFailure.malformedResponse }
+                    let sum = bytes.addingReportingOverflow(row.totalQuantity)
+                    guard !sum.overflow else { throw LiveFailure.malformedResponse }
+                    bytes = sum.partialValue
+                }
+                return bytes
+            case let .grouped(response):
+                let data = response.outgoing.data
+                guard data.totalDuration >= 0, !data.totalDuration.isNaN, !data.totalPrice.isNaN else {
+                    throw LiveFailure.malformedResponse
+                }
+                return data.totalQuantity
             }
-            return bytes
         } catch { throw LiveFailure.malformedResponse }
     }
 
@@ -219,6 +227,45 @@ private struct UsageSummaryResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case regionality, incoming
         case trafficType = "traffic_type"
+        case numberOfRecords = "number_of_records"
+        case totalDuration = "total_duration"
+        case totalQuantity = "total_quantity"
+        case totalPrice = "total_price"
+    }
+}
+
+private enum UsageSummaryPayload: Decodable {
+    case rows([UsageSummaryResponse])
+    case grouped(UsageSummaryGroupedResponse)
+
+    init(from decoder: any Decoder) throws {
+        if var container = try? decoder.unkeyedContainer() {
+            var rows: [UsageSummaryResponse] = []
+            while !container.isAtEnd {
+                try rows.append(container.decode(UsageSummaryResponse.self))
+            }
+            self = .rows(rows)
+        } else {
+            self = try .grouped(UsageSummaryGroupedResponse(from: decoder))
+        }
+    }
+}
+
+private struct UsageSummaryGroupedResponse: Decodable {
+    let outgoing: UsageSummaryGroupedDirection
+}
+
+private struct UsageSummaryGroupedDirection: Decodable {
+    let data: UsageSummaryGroupedTotals
+}
+
+private struct UsageSummaryGroupedTotals: Decodable {
+    let numberOfRecords: UInt64
+    let totalDuration: Decimal
+    let totalQuantity: UInt64
+    let totalPrice: Decimal
+
+    enum CodingKeys: String, CodingKey {
         case numberOfRecords = "number_of_records"
         case totalDuration = "total_duration"
         case totalQuantity = "total_quantity"

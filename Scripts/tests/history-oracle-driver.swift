@@ -7,6 +7,7 @@ struct CommandFailure: Encodable {
 
 struct SyntheticHistoryTransport: ProofHTTPTransport {
     let missing: Bool
+    let grouped: Bool
 
     func send(_ request: URLRequest) async throws -> ProofHTTPResponse {
         let parts = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
@@ -16,11 +17,23 @@ struct SyntheticHistoryTransport: ProofHTTPTransport {
         if self.missing { return ProofHTTPResponse(statusCode: 200, data: Data("[]".utf8)) }
         let start = parts.queryItems!.first { $0.name == "from_date" }!.value!
         let amount = start.hasPrefix("2026-03-26") ? 0 : 1_000_000_000
-        let rows = """
-        [{"traffic_type":"data","regionality":"national","incoming":false,
-          "number_of_records":1,"total_quantity":\(amount),"total_duration":60,"total_price":0}]
+        let unrelated = """
+        {"number_of_records":7,"total_quantity":900,"total_duration":8,"total_price":10}
         """
-        return ProofHTTPResponse(statusCode: 200, data: Data(rows.utf8))
+        if !self.grouped {
+            let rows = """
+            [{"traffic_type":"data","regionality":"national","incoming":false,
+              "number_of_records":1,"total_quantity":\(amount),"total_duration":60,"total_price":0}]
+            """
+            return ProofHTTPResponse(statusCode: 200, data: Data(rows.utf8))
+        }
+        let grouped = """
+        {"incoming":{"data":\(unrelated),"sms":\(unrelated),"unknown":\(unrelated),"voice":\(unrelated)},
+         "outgoing":{"data":{"number_of_records":1,"total_quantity":\(amount),"total_duration":60,
+                               "total_price":0},
+                     "sms":\(unrelated),"unknown":\(unrelated),"voice":\(unrelated)}}
+        """
+        return ProofHTTPResponse(statusCode: 200, data: Data(grouped.utf8))
     }
 }
 
@@ -32,6 +45,11 @@ struct SyntheticHistoryTransport: ProofHTTPTransport {
         let (oracle, state) = try await Self.mappedState(now: now, missing: false)
         let presentation = HistoryPresentation(history: state.history, now: now)
         _ = try await oracle.receipt(state: state, presentation: presentation)
+        let (arrayOracle, arrayState) = try await Self.mappedState(now: now, missing: false, grouped: false)
+        _ = try await arrayOracle.receipt(
+            state: arrayState,
+            presentation: HistoryPresentation(history: arrayState.history, now: now),
+        )
         guard presentation.forecast?.observedSeconds == 95 * 3600 else { fatalError("DST elapsed time lost") }
         let history = state.history!
         let first = history.observations[0]
@@ -70,7 +88,9 @@ struct SyntheticHistoryTransport: ProofHTTPTransport {
         } catch ProofFailure.malformedResponse {}
     }
 
-    static func mappedState(now: Date, missing: Bool) async throws -> (HistoryOracleTransport, LiveSessionState) {
+    static func mappedState(
+        now: Date, missing: Bool, grouped: Bool = true,
+    ) async throws -> (HistoryOracleTransport, LiveSessionState) {
         let formatter = ISO8601DateFormatter()
         let bundle = BalanceBundle(title: "Data", description: "Synthetic", category: "default", type: "data",
                                    total: 50_000_000_000, used: 8_000_000_000, remaining: 42_000_000_000,
@@ -85,7 +105,7 @@ struct SyntheticHistoryTransport: ProofHTTPTransport {
             at: now,
             interval: .fiveMinutes,
         )
-        let oracle = HistoryOracleTransport(base: SyntheticHistoryTransport(missing: missing))
+        let oracle = HistoryOracleTransport(base: SyntheticHistoryTransport(missing: missing, grouped: grouped))
         var request = try ProofEndpoint.token.request()
         request.httpBody = Data("grant_type=refresh_token".utf8)
         _ = try await oracle.send(request)

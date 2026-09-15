@@ -65,21 +65,35 @@ actor HistoryOracleTransport: ProofHTTPTransport {
             guard start < end, end.timeIntervalSince(start) <= 25 * 3600 else {
                 throw ProofFailure.malformedResponse
             }
-            let rows = try JSONDecoder().decode([HistoryOracleRow].self, from: response.data)
-            var bytes: UInt64 = 0
-            for row in rows {
-                guard row.trafficType == "data", !row.incoming, row.numberOfRecords >= 0,
-                      ["national", "international", "roaming", "unknown"].contains(row.regionality)
-                else { throw ProofFailure.malformedResponse }
-                let addition = bytes.addingReportingOverflow(row.totalQuantity)
-                guard !addition.overflow else { throw ProofFailure.malformedResponse }
-                bytes = addition.partialValue
-            }
+            let bytes = try Self.decodeSummary(response.data)
             self.summaries.append(Summary(
-                subscriptionID: String(id), start: start, end: end, bytes: rows.isEmpty ? nil : bytes,
+                subscriptionID: String(id), start: start, end: end, bytes: bytes,
             ))
         }
         return response
+    }
+
+    private static func decodeSummary(_ data: Data) throws -> UInt64? {
+        switch try JSONDecoder().decode(HistoryOraclePayload.self, from: data) {
+        case let .rows(rows):
+            var total: UInt64 = 0
+            for row in rows {
+                guard row.trafficType == "data", !row.incoming,
+                      ["national", "international", "roaming", "unknown"].contains(row.regionality),
+                      row.totalDuration >= 0, !row.totalDuration.isNaN, !row.totalPrice.isNaN
+                else { throw ProofFailure.malformedResponse }
+                let addition = total.addingReportingOverflow(row.totalQuantity)
+                guard !addition.overflow else { throw ProofFailure.malformedResponse }
+                total = addition.partialValue
+            }
+            return rows.isEmpty ? nil : total
+        case let .grouped(response):
+            let data = response.outgoing.data
+            guard data.totalDuration >= 0, !data.totalDuration.isNaN, !data.totalPrice.isNaN else {
+                throw ProofFailure.malformedResponse
+            }
+            return data.totalQuantity
+        }
     }
 
     func receipt(state: LiveSessionState, presentation: HistoryPresentation) throws -> HistoryAPIReceipt {
@@ -188,14 +202,57 @@ private struct HistoryOracleRow: Decodable {
     let trafficType: String
     let regionality: String
     let incoming: Bool
-    let numberOfRecords: Int
+    let numberOfRecords: UInt64
+    let totalDuration: Decimal
     let totalQuantity: UInt64
+    let totalPrice: Decimal
 
     enum CodingKeys: String, CodingKey {
         case trafficType = "traffic_type"
         case numberOfRecords = "number_of_records"
+        case totalDuration = "total_duration"
         case totalQuantity = "total_quantity"
+        case totalPrice = "total_price"
         case regionality, incoming
+    }
+}
+
+private enum HistoryOraclePayload: Decodable {
+    case rows([HistoryOracleRow])
+    case grouped(HistoryOracleGroupedResponse)
+
+    init(from decoder: any Decoder) throws {
+        if var container = try? decoder.unkeyedContainer() {
+            var rows: [HistoryOracleRow] = []
+            while !container.isAtEnd {
+                try rows.append(container.decode(HistoryOracleRow.self))
+            }
+            self = .rows(rows)
+        } else {
+            self = try .grouped(HistoryOracleGroupedResponse(from: decoder))
+        }
+    }
+}
+
+private struct HistoryOracleGroupedResponse: Decodable {
+    let outgoing: HistoryOracleGroupedDirection
+}
+
+private struct HistoryOracleGroupedDirection: Decodable {
+    let data: HistoryOracleGroupedTotals
+}
+
+private struct HistoryOracleGroupedTotals: Decodable {
+    let numberOfRecords: UInt64
+    let totalDuration: Decimal
+    let totalQuantity: UInt64
+    let totalPrice: Decimal
+
+    enum CodingKeys: String, CodingKey {
+        case numberOfRecords = "number_of_records"
+        case totalDuration = "total_duration"
+        case totalQuantity = "total_quantity"
+        case totalPrice = "total_price"
     }
 }
 

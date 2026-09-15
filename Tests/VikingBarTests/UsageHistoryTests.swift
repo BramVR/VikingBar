@@ -110,6 +110,44 @@ struct UsageHistoryTests {
         }
     }
 
+    @Test func `summary accepts grouped outgoing data and ignores unrelated traffic totals`() throws {
+        #expect(try LiveAPI.decodeUsageSummary(Data(Self.groupedSummary(quantity: "42").utf8)) == 42)
+        #expect(try LiveAPI.decodeUsageSummary(Data(Self.groupedSummary(quantity: "0", records: "0", price: "-1").utf8))
+            == 0)
+        #expect(try LiveAPI.decodeUsageSummary(Data(Self.groupedSummary(quantity: "18446744073709551615").utf8))
+            == UInt64.max)
+    }
+
+    @Test func `grouped summary requires exact nonnegative integral data totals`() {
+        let missing = """
+        {"outgoing":{"data":{"number_of_records":1,"total_duration":0,"total_quantity":1}}}
+        """
+        let invalid = [
+            "{}",
+            "{\"incoming\":{\"data\":{}}}",
+            "{\"outgoing\":{}}",
+            missing,
+            Self.groupedSummary(quantity: "-1"),
+            Self.groupedSummary(quantity: "0.5"),
+            Self.groupedSummary(quantity: "\"1\""),
+            Self.groupedSummary(quantity: "null"),
+            Self.groupedSummary(quantity: "18446744073709551616"),
+            Self.groupedSummary(records: "-1"),
+            Self.groupedSummary(records: "0.5"),
+            Self.groupedSummary(records: "\"1\""),
+            Self.groupedSummary(records: "null"),
+            Self.groupedSummary(records: "18446744073709551616"),
+            Self.groupedSummary(duration: "-1"),
+            Self.groupedSummary(duration: "\"0\""),
+            Self.groupedSummary(price: "null"),
+        ]
+        for value in invalid {
+            #expect(throws: LiveFailure.malformedResponse) {
+                try LiveAPI.decodeUsageSummary(Data(value.utf8))
+            }
+        }
+    }
+
     @Test func `retained partial observations stop claiming today after brussels midnight`() throws {
         let history = Self.history(now: "2026-09-08T23:59:00+02:00")
         let nextDay = HistoryPresentation(history: history, now: history.attemptedAt.addingTimeInterval(120))
@@ -181,6 +219,22 @@ struct UsageHistoryTests {
         """
         {"traffic_type":"data","regionality":"\(region)","incoming":false,"number_of_records":1,
         "total_duration":0,"total_quantity":\(bytes),"total_price":0}
+        """
+    }
+
+    static func groupedSummary(
+        quantity: String = "1", records: String = "1", duration: String = "0", price: String = "0",
+    ) -> String {
+        let unrelated = """
+        {"number_of_records":7,"total_duration":8,"total_quantity":900,"total_price":10}
+        """
+        let selected = """
+        {"number_of_records":\(records),"total_duration":\(duration),"total_quantity":\(quantity),
+         "total_price":\(price)}
+        """
+        return """
+        {"incoming":{"data":\(unrelated),"sms":\(unrelated),"unknown":\(unrelated),"voice":\(unrelated)},
+         "outgoing":{"data":\(selected),"sms":\(unrelated),"unknown":\(unrelated),"voice":\(unrelated)}}
         """
     }
 

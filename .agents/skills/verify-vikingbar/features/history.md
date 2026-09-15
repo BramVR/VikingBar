@@ -32,6 +32,7 @@ For source-only checks, run `make check SWIFTFORMAT=/tmp/vikingbar-tools-issue1/
 ## Gotchas
 
 - The summary endpoint groups traffic over the requested interval, not by day. The client requests bounded Brussels days with inclusive start and exclusive end. Empty arrays do not establish zero.
+- Live responses group totals under direction and traffic keys. Select only `outgoing.data`; the documented regional row array remains supported. Do not sum incoming data or other traffic types. Missing selected groups are malformed, while an explicit zero total is confirmed zero.
 - Date queries require whole seconds and an escaped numeric UTC offset. Fractional seconds and `Z` produced HTTP 400 in the bounded live diagnostic; corrected aggregate and native proof still require a fresh slot.
 - Summary traffic spans the SIM's regions and bundles. The selected balance and history need not match. No call-detail endpoint or personal raw-response fixture is allowed.
 - Forecast proof needs three complete days plus continuous fresh elapsed-cycle evidence. Unavailable or truncated history is not a passing skip.
