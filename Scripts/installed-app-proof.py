@@ -231,7 +231,11 @@ class InstalledProof(UI.NativeProof):
             self.press("vikingbar.settings")
             UI.wait_for(self.inspect, lambda value: any(
                 item.get("AXIdentifier") == "vikingbar.quit" for item in value.get("elements", [])))
-        super().quit()
+        self.press("vikingbar.quit")
+        self.process.wait(timeout=10)
+        if self.process.returncode != 0:
+            raise UIFailure("native-quit-failed")
+        self.process = None
 
     def fixture_card(self, label):
         self.press("vikingbar.back")

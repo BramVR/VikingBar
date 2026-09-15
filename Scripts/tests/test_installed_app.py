@@ -413,6 +413,29 @@ class InstalledProofTests(unittest.TestCase):
         self.assertEqual(command[command.index("--window-id") + 1], "42")
         self.assertIn("--capture-engine", command)
 
+    def test_quit_handles_data_and_settings_without_reopening_settings(self):
+        data = {"elements": [{"AXIdentifier": "vikingbar.settings"}]}
+        settings = {"elements": [{"AXIdentifier": "vikingbar.quit"}]}
+        for name, states, actions in (
+                ("Data", [data, settings], ["vikingbar.settings", "vikingbar.quit"]),
+                ("Settings", [settings], ["vikingbar.quit"])):
+            with self.subTest(start=name):
+                process = Mock(returncode=0)
+                self.proof.process = process
+                self.proof.inspect = Mock(side_effect=states)
+                self.proof.press = Mock()
+                self.proof.quit()
+                self.assertEqual([entry.args[0] for entry in self.proof.press.call_args_list], actions)
+                process.wait.assert_called_once_with(timeout=10)
+                self.assertIsNone(self.proof.process)
+
+    def test_quit_rejects_nonzero_native_exit(self):
+        self.proof.process = Mock(returncode=9)
+        self.proof.inspect = Mock(return_value={"elements": [{"AXIdentifier": "vikingbar.quit"}]})
+        self.proof.press = Mock()
+        with self.assertRaisesRegex(PROOF.UIFailure, "native-quit-failed"):
+            self.proof.quit()
+
     def test_launch_defers_pending_interruption_until_ownership_is_recorded(self):
         p = self.proof
         p.verify_installed = Mock()

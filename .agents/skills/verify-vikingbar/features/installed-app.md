@@ -1,6 +1,6 @@
 # Installed app and login preferences
 
-Coverage is pending. Source and synthetic checks do not establish native registration or installed live balance.
+Source revisions and runtime results are tracked in [PR #19](https://github.com/BramVR/VikingBar/pull/19).
 
 ## Sub-features
 
