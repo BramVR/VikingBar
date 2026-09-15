@@ -128,7 +128,7 @@ class PointsProof(UI.NativeProof):
         self.screens = self.peek(["screen", "list"], "screens.json")["screens"]
         self.launch(first=False, label="stored-session")
         initial = self.matched_balance("usage")
-        self.press("Points")
+        self.press("vikingbar.points")
         self.matched_points("points")
 
         def api_check():
@@ -145,10 +145,10 @@ class PointsProof(UI.NativeProof):
         api_report = self.run([str(self.cli), "live", "--cached"], "after-api-report.json")
         after = points_timestamps(api_report)
         time.sleep(1.1)
-        self.press("Data")
+        self.press("vikingbar.back")
         self.press("vikingbar.refresh")
         self.matched_balance("refreshed-usage", UI.successful_timestamp(api_report))
-        self.press("Points")
+        self.press("vikingbar.points")
         refreshed = self.matched_points("refreshed", after)
         if refreshed["state"]["connectionID"] != initial["state"]["connectionID"]:
             raise UIFailure("points-connection-changed")
@@ -171,7 +171,7 @@ class PointsProof(UI.NativeProof):
             is_transactions_scroll(item)
             or item.get("AXIdentifier", "").startswith("vikingbar.points.transaction.")
             for item in tree.get("elements", [])))
-        self.press("Data")
+        self.press("vikingbar.back")
         self.quit()
         return {"schema_version": 1, "check": "points", "passed": True, "api_matches": True,
                 "token_refreshed": True, "native_refresh": True, "stored_session": True,

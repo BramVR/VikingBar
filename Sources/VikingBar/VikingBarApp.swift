@@ -41,12 +41,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.action = #selector(self.togglePopover)
         item.button?.setAccessibilityIdentifier("vikingbar.status")
         self.updateStatus()
+        if let appearance = self.options.fixtureAppearance?.appearance {
+            NSApplication.shared.appearance = appearance
+            self.popover.appearance = appearance
+        }
         self.popover.behavior = .transient
-        self.popover.contentSize = NSSize(width: 360, height: self.session.isFixtureLaunch ? 570 : 760)
-        self.popover.contentViewController = NSHostingController(rootView: PopoverView(
+        let hosting = NSHostingController(rootView: PopoverView(
             session: self.session,
             connect: self.connect,
+            fixtureReduceTransparency: self.options.fixtureReduceTransparency,
         ))
+        hosting.sizingOptions = [.preferredContentSize]
+        self.popover.contentViewController = hosting
+        self.popover.contentSize = hosting.view.fittingSize
         self.wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main,
         ) { [weak self] _ in
@@ -66,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func connect() {
+        guard !self.session.isFixtureLaunch else { return }
         if let reference = self.options.credentialReference {
             self.connect(reference: reference)
             return
@@ -169,6 +177,8 @@ struct VikingBarApp {
         if options.showHelp {
             print(LaunchOptions.usage.replacingOccurrences(of: "vikingbar", with: "VikingBar"))
             print("App fixture options: --settings-file ABSOLUTE_PATH [--allow-login-item]")
+            print("Fixture appearance: --fixture-appearance light|dark|high-contrast-light|high-contrast-dark")
+            print("Fixture material: --fixture-reduce-transparency")
             print("Login item maintenance: --login-item status|disable (use alone).")
             print("Live options: --credential-reference ABSOLUTE_PATH --proof-directory ABSOLUTE_PATH")
             return

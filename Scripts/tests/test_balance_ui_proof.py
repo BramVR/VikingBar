@@ -144,6 +144,8 @@ class BalanceUIProofTests(unittest.TestCase):
         self.tree["elements"].append({"AXIdentifier": "vikingbar.balanceTitle", "AXValue": "Data used",
                                       "frame": [[120, 100], [200, 20]]})
         self.tree["elements"][1]["AXValue"] = "20.00 GB"
+        next(item for item in self.tree["elements"]
+             if item.get("AXValue") == self.menu["usedText"])["AXValue"] = "30.00 GB remaining"
         UI.compare_menu(self.tree, self.report, self.screens)
         self.tree["elements"][1]["AXValue"] = "30.00 GB"
         with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):

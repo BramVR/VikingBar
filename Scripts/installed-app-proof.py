@@ -22,9 +22,14 @@ def load(name):
 
 
 UI = load("balance-ui-proof")
+NATIVE = load("native-ui-proof")
 INSTALL = load("install-app")
 UIFailure = UI.UIFailure
 private_write = UI.private_write
+
+
+class ProofInterrupted(BaseException):
+    pass
 
 
 def require_reviewed_artifact(artifact):
@@ -106,6 +111,8 @@ class InstalledProof(UI.NativeProof):
         self.original_preferences = None
         self.preferences_restored = True
         self.install_receipt = None
+        self.launch_in_progress = False
+        self.termination_requested = False
 
     def verify_installed(self):
         if self.install_receipt is None or INSTALL.validate_install(self.bundle) != self.install_receipt:
@@ -118,13 +125,57 @@ class InstalledProof(UI.NativeProof):
                                       "login-" + operation + ".json", timeout=30))
 
     def capture(self, label):
-        tree = self.inspect(label + "-tree.json")
-        window = next((window for window in tree.get("windows", [])
-                       if window.get("kCGWindowBounds", {}).get("Height", 0) > 100), None)
-        if not window:
-            raise UIFailure("card-window-missing")
-        self.peek(["see", "--window-id", str(window["kCGWindowNumber"]), "--no-elements", "--no-remote",
-                   "--path", str(self.directory / (label + ".png"))], label + "-image.json")
+        stability = NATIVE.CapturePopoverStability()
+
+        def observe():
+            tree = self.inspect(label + "-tree.json")
+            match = stability.observe(tree, self.screens, self.process.pid)
+            return (tree, match) if match is not None else None
+
+        tree, (_, window) = UI.wait_for(observe, lambda value: value is not None)
+        path = self.directory / (label + ".png")
+        NATIVE.capture_exact_window(
+            self.peekaboo, self.process.pid, window["kCGWindowNumber"], path,
+            lambda command: self.run(command, label + "-image.json"),
+        )
+        return tree
+
+    def matched_balance(self, label, after=None):
+        report = None
+        stability = NATIVE.CapturePopoverStability()
+        tree = self.inspect(label + "-details-before.json")
+        if (any(item.get("AXIdentifier") == "vikingbar.bundleDetails" for item in tree.get("elements", []))
+                and not any(item.get("AXIdentifier") == "vikingbar.bundleDescription"
+                            for item in tree.get("elements", []))):
+            self.press("vikingbar.bundleDetails")
+
+        def observe():
+            nonlocal report
+            try:
+                candidate = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
+                timestamp = UI.successful_timestamp(candidate)
+                if after is not None and timestamp <= after:
+                    stability.reset()
+                    return None
+                tree = self.inspect(label + "-card.json")
+                UI.compare_menu(tree, candidate, self.screens)
+                match = stability.observe(tree, self.screens, self.process.pid)
+                if match is None:
+                    return None
+                report = candidate
+                return match
+            except UIFailure:
+                stability.reset()
+                return None
+
+        _, window = UI.wait_for(observe, lambda value: value is not None)
+        self.verify_worker(label)
+        path = self.directory / (label + "-card.png")
+        NATIVE.capture_exact_window(
+            self.peekaboo, self.process.pid, window["kCGWindowNumber"], path,
+            lambda command: self.run(command, label + "-image.json"),
+        )
+        return report
 
     def launch(self, first=False, label="launch"):
         self.verify_installed()
@@ -136,25 +187,35 @@ class InstalledProof(UI.NativeProof):
             arguments += ["--proof-directory", str(self.directory)]
         clean = {key: self.environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL")
                  if key in self.environment}
-        self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.launch_record = {"pid": self.process.pid, "parentPID": os.getpid(), "arguments": arguments,
-                              "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                              "executableSHA256": self.executable_hash, "cli": str(self.cli),
-                              "cliSHA256": INSTALL.digest(self.cli), "workerOwnershipEstablished": self.check == "smoke"}
-        self.launches.append((self.process, self.launch_record))
-        private_write(self.directory / (label + "-process.json"), self.launch_record)
-        identity = UI.process_identity(self.process.pid)
-        if identity is None or identity["parentPID"] != os.getpid() or identity["command"] != " ".join(arguments):
-            raise UIFailure("launch-process-ownership-unverified")
-        self.identity = identity["identity"]
-        self.launch_record.update(identity)
-        private_write(self.directory / (label + "-process.json"), self.launch_record)
-        if self.check != "smoke":
-            if len(self.capture_worker(self.process, self.launch_record, seconds=3)) != 1:
-                raise UIFailure("runtime-worker-identity-mismatch")
-            self.launch_record["workerOwnershipEstablished"] = True
+        cli_hash = INSTALL.digest(self.cli)
+        self.launch_in_progress = True
+        try:
+            self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.launch_record = {
+                "pid": self.process.pid, "parentPID": os.getpid(), "arguments": arguments,
+                "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "executableSHA256": self.executable_hash, "cli": str(self.cli),
+                "cliSHA256": cli_hash, "workerOwnershipEstablished": self.check == "smoke",
+            }
+            self.launches.append((self.process, self.launch_record))
             private_write(self.directory / (label + "-process.json"), self.launch_record)
+            identity = UI.process_identity(self.process.pid)
+            if identity is None or identity["parentPID"] != os.getpid() or identity["command"] != " ".join(arguments):
+                raise UIFailure("launch-process-ownership-unverified")
+            self.identity = identity["identity"]
+            self.launch_record.update(identity)
+            private_write(self.directory / (label + "-process.json"), self.launch_record)
+            if self.check != "smoke":
+                if len(self.capture_worker(self.process, self.launch_record, seconds=3)) != 1:
+                    raise UIFailure("runtime-worker-identity-mismatch")
+                self.launch_record["workerOwnershipEstablished"] = True
+                private_write(self.directory / (label + "-process.json"), self.launch_record)
+        finally:
+            self.launch_in_progress = False
+            if self.termination_requested:
+                self.termination_requested = False
+                raise ProofInterrupted()
         tree = UI.wait_for(self.inspect, lambda value: UI.visible_status(value, self.screens), seconds=20)
         if tree.get("activationPolicy") != 1:
             raise UIFailure("accessory-policy-required")
@@ -165,26 +226,32 @@ class InstalledProof(UI.NativeProof):
             item.get("AXIdentifier") == "vikingbar.remaining" for item in value.get("elements", [])))
 
     def quit(self):
-        self.press("Data")
-        UI.wait_for(self.inspect, lambda tree: any(item.get("AXIdentifier") == "vikingbar.quit"
-                    for item in tree.get("elements", [])))
+        tree = self.inspect()
+        if not any(item.get("AXIdentifier") == "vikingbar.quit" for item in tree.get("elements", [])):
+            self.press("vikingbar.settings")
+            UI.wait_for(self.inspect, lambda value: any(
+                item.get("AXIdentifier") == "vikingbar.quit" for item in value.get("elements", [])))
         super().quit()
 
     def fixture_card(self, label):
-        self.press("Data")
+        self.press("vikingbar.back")
         UI.wait_for(self.inspect, lambda tree: all(any(
             item.get("AXIdentifier") == identifier
             and value in [item.get(key) for key in ("AXValue", "AXTitle", "AXDescription")]
             for item in tree.get("elements", [])) for identifier, value in (
                 ("vikingbar.balanceTitle", "Data used"), ("vikingbar.remaining", "14.00 GB"),
-                ("vikingbar.status", "36 GB"))))
+                ("vikingbar.total", "50.00 GB total"), ("vikingbar.bundlePicker", "Monthly data"),
+                ("vikingbar.bundleSelectionLabel", "Selected bundle"), ("vikingbar.status", "36 GB"))))
         self.capture(label)
         self.peek(["see", "--mode", "screen", "--no-elements", "--no-remote", "--path",
                    str(self.directory / (label + "-status.png"))], label + "-status-image.json")
         self.settings()
 
     def settings(self):
-        self.press("Settings")
+        tree = self.inspect()
+        if any(item.get("AXIdentifier") == "vikingbar.dataDisplayMode" for item in tree.get("elements", [])):
+            return tree
+        self.press("vikingbar.settings")
         return UI.wait_for(self.inspect, lambda tree: any(
             item.get("AXIdentifier") == "vikingbar.dataDisplayMode" for item in tree.get("elements", [])))
 
@@ -196,10 +263,11 @@ class InstalledProof(UI.NativeProof):
 
     def choose(self, identifier, value):
         accessibility_identifier = "vikingbar." + identifier
-        self.press(accessibility_identifier)
-        UI.wait_for(self.inspect, lambda tree: any(item.get("AXRole") == "AXMenuItem"
-                    and item.get("AXTitle") == value for item in tree.get("elements", [])))
-        self.press(value)
+        self.verify_process()
+        self.run(
+            [str(ROOT / ".build/inspect-ui"), str(self.process.pid), "choose", accessibility_identifier, value],
+            "choose-" + identifier + ".json",
+        )
 
         def settled(tree):
             elements = tree.get("elements", [])
@@ -278,7 +346,7 @@ class InstalledProof(UI.NativeProof):
         self.preferences_restored = False
         expected = dict(self.original_preferences, dataDisplayMode="Remaining")
         self.apply_preferences(expected)
-        self.press("Data")
+        self.press("vikingbar.back")
         initial = self.matched_balance("initial")
         def api_check():
             try:
@@ -297,7 +365,7 @@ class InstalledProof(UI.NativeProof):
         self.launch(label="stored-session-resumed")
         if preferences(self.settings()) != expected:
             raise UIFailure("installed-preferences-not-persisted")
-        self.press("Data")
+        self.press("vikingbar.back")
         resumed = self.matched_balance("resumed", UI.successful_timestamp(refreshed))
         for key in ("connectionID", "selectedSubscriptionID", "selectedBundleIndex"):
             if any(report["state"][key] != initial["state"][key] for report in (refreshed, resumed)):
@@ -370,7 +438,7 @@ class InstalledProof(UI.NativeProof):
                     self.verify_owned(process, record)
                     self.run([*probe, "press", "vikingbar.status"], timeout=2)
                 self.verify_owned(process, record)
-                self.run([*probe, "press", "Data"], timeout=2)
+                self.run([*probe, "press", "vikingbar.settings"], timeout=2)
             self.verify_owned(process, record)
             self.run([*probe, "press", "vikingbar.quit"], timeout=2)
             process.wait(timeout=25)
@@ -436,14 +504,33 @@ def run(environment, check="installed-balance"):
     old_mask = os.umask(0o077)
     proof = None
     result = {"passed": False, "error": "installed-proof-failed"}
+    handlers = {}
+    cleanup_started = False
+
+    def interrupted(_number, _frame):
+        if cleanup_started:
+            return
+        if proof is not None and proof.launch_in_progress:
+            proof.termination_requested = True
+            return
+        raise ProofInterrupted()
+
     try:
+        for number in (signal.SIGTERM, signal.SIGINT):
+            handlers[number] = signal.signal(number, interrupted)
         proof = InstalledProof(environment, check)
         try:
             result = proof.perform()
         finally:
+            cleanup_started = True
             proof.cleanup()
         private_write(proof.directory / "result.json", result)
         return result
+    except ProofInterrupted:
+        result = {"passed": False, "error": "installed-proof-interrupted"}
+        if proof is not None:
+            private_write(proof.directory / "result.json", result)
+        raise UIFailure(result["error"]) from None
     except Exception as error:
         result = {"passed": False, "error": str(error) if isinstance(error, (UIFailure, INSTALL.InstallFailure))
                   else "installed-proof-failed"}
@@ -451,6 +538,9 @@ def run(environment, check="installed-balance"):
             private_write(proof.directory / "result.json", result)
         raise UIFailure(result["error"]) from None
     finally:
+        cleanup_started = True
+        for number, handler in handlers.items():
+            signal.signal(number, handler)
         os.umask(old_mask)
 
 

@@ -45,11 +45,13 @@ extension AppSession {
 
 extension AppSession {
     var canRefresh: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && (self.isConnected || self.canRestartWorker)
+        self.activity == .idle
+            && (self.isFixtureLaunch ? self.fixture != nil : self.isConnected || self.canRestartWorker)
     }
 
     var canSelectAccountData: Bool {
-        !self.isFixtureLaunch && self.activity == .idle && self.isConnected && self.client != nil
+        self.activity == .idle
+            && (self.isFixtureLaunch ? self.fixture != nil : self.isConnected && self.client != nil)
     }
 }
 

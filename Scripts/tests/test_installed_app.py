@@ -303,6 +303,9 @@ class InstalledProofTests(unittest.TestCase):
         self.proof.fresh_install = True
         self.proof.login_baselines = {}
         self.proof.launches, self.proof.workers = [], []
+        self.proof.environment = {}
+        self.proof.launch_in_progress = False
+        self.proof.termination_requested = False
 
     def test_missing_slots_and_target_fail_before_native_boundary(self):
         for environment in ({}, {"VIKINGBAR_UI_SLOT": "held"},
@@ -331,10 +334,6 @@ class InstalledProofTests(unittest.TestCase):
         popup = "vikingbar.refreshInterval"
         selected = "Every 30 minutes"
         states = [
-            ("menu-visible", {"elements": [
-                {"AXIdentifier": popup, "AXRole": "AXPopUpButton", "AXValue": "Every 5 minutes"},
-                {"AXRole": "AXMenuItem", "AXTitle": selected},
-            ]}),
             ("stale-popup", {"elements": [
                 {"AXIdentifier": popup, "AXRole": "AXPopUpButton", "AXValue": "Every 5 minutes"},
             ]}),
@@ -349,7 +348,9 @@ class InstalledProofTests(unittest.TestCase):
             ]}),
         ]
         events = []
-        self.proof.press = Mock(side_effect=lambda selector: events.append(("press", selector)))
+        self.proof.process = Mock(pid=12345)
+        self.proof.verify_process = Mock()
+        self.proof.run = Mock(side_effect=lambda command, *_args: events.append(("choose", command)))
 
         def inspect():
             label, tree = states.pop(0)
@@ -367,19 +368,127 @@ class InstalledProofTests(unittest.TestCase):
             self.proof.choose("refreshInterval", selected)
         events.append(("returned", None))
 
-        self.assertEqual(self.proof.press.call_args_list, [
-            unittest.mock.call(popup), unittest.mock.call(selected),
-        ])
+        self.proof.run.assert_called_once_with(
+            [str(PROOF.ROOT / ".build/inspect-ui"), "12345", "choose", popup, selected],
+            "choose-refreshInterval.json",
+        )
         self.assertEqual(events, [
-            ("press", popup),
-            ("inspect", "menu-visible"),
-            ("press", selected),
+            ("choose", [str(PROOF.ROOT / ".build/inspect-ui"), "12345", "choose", popup, selected]),
             ("inspect", "stale-popup"),
             ("inspect", "selected-menu-visible"),
             ("inspect", "settled"),
             ("returned", None),
         ])
         self.assertEqual(states, [])
+
+    def test_capture_requires_stable_owned_opaque_popover_and_exact_receipt(self):
+        pid = 12345
+        output = self.root / "settings.png"
+        tree = {
+            "elements": [{"AXRole": "AXPopover", "frame": [[100, 24], [360, 480]]}],
+            "windows": [{
+                "kCGWindowNumber": 42, "kCGWindowOwnerPID": pid,
+                "kCGWindowIsOnscreen": True, "kCGWindowAlpha": 1.0,
+                "kCGWindowBounds": {"X": 100, "Y": 24, "Width": 360, "Height": 480},
+            }],
+        }
+        self.proof.process = Mock(pid=pid)
+        self.proof.screens = [{"bounds": {"x": 0, "y": 0, "width": 1440, "height": 900}}]
+        self.proof.peekaboo = self.root / "peekaboo"
+        self.proof.inspect = Mock(side_effect=[tree, tree])
+
+        def invoke(command, _name):
+            output.write_bytes(PROOF.NATIVE.PNG_SIGNATURE + b"image")
+            return {
+                "success": True, "target_receipt": {"pid": pid, "window_id": 42},
+                "data": {"files": [{"path": str(output), "window_id": 42,
+                                     "item_label": "window-42", "mime_type": "image/png"}]},
+            }
+
+        self.proof.run = Mock(side_effect=invoke)
+        self.assertEqual(self.proof.capture("settings"), tree)
+        self.assertEqual(self.proof.inspect.call_count, 2)
+        command = self.proof.run.call_args.args[0]
+        self.assertEqual(command[command.index("--pid") + 1], str(pid))
+        self.assertEqual(command[command.index("--window-id") + 1], "42")
+        self.assertIn("--capture-engine", command)
+
+    def test_launch_defers_pending_interruption_until_ownership_is_recorded(self):
+        p = self.proof
+        p.verify_installed = Mock()
+        p.executable_hash = INSTALL.digest(p.executable)
+        first = Mock(pid=12345)
+        first.poll.return_value = 1
+        resumed = Mock(pid=12346)
+        resumed.poll.return_value = None
+
+        def interrupted_spawn(*_args, **_kwargs):
+            self.assertTrue(p.launch_in_progress)
+            p.termination_requested = True
+            return first
+
+        arguments = [str(p.executable), "--fixture", "finite", "--settings-file", str(p.settings_file),
+                     "--allow-login-item"]
+        identities = [
+            {"pid": first.pid, "parentPID": os.getpid(), "command": " ".join(arguments),
+             "identity": "first", "startTime": "synthetic"},
+            {"pid": resumed.pid, "parentPID": os.getpid(), "command": " ".join(arguments),
+             "identity": "resumed", "startTime": "synthetic"},
+        ]
+        with patch.object(PROOF.subprocess, "Popen", side_effect=interrupted_spawn), \
+                patch.object(PROOF.UI, "process_identity", side_effect=identities):
+            with self.assertRaises(PROOF.ProofInterrupted):
+                p.launch(label="interrupted")
+        self.assertFalse(p.launch_in_progress)
+        self.assertFalse(p.termination_requested)
+        self.assertEqual(len(p.launches), 1)
+        self.assertEqual(p.launches[0][1]["identity"], "first")
+
+        p.original_preferences = {"showRemainingGB": "0", "dataDisplayMode": "Remaining",
+                                  "refreshInterval": "Every 5 minutes"}
+        p.preferences_restored = False
+        p.apply_preferences = Mock()
+        p.peek = Mock()
+        p.press = Mock()
+        with patch.object(PROOF.subprocess, "Popen", return_value=resumed), \
+                patch.object(PROOF.UI, "process_identity", return_value=identities[1]), \
+                patch.object(PROOF.UI, "wait_for", side_effect=[{"activationPolicy": 1}, {"elements": []}]):
+            p.restore_preferences()
+        p.apply_preferences.assert_called_once_with(p.original_preferences)
+        self.assertTrue(p.preferences_restored)
+
+    def test_interruption_cleans_once_ignores_repeats_and_restores_process_state(self):
+        class InertProof:
+            launch_in_progress = False
+            termination_requested = False
+
+            def __init__(self):
+                self.cleanup_count = 0
+
+            def perform(self):
+                os.kill(os.getpid(), received)
+
+            def cleanup(self):
+                self.cleanup_count += 1
+                os.kill(os.getpid(), signal.SIGTERM)
+                os.kill(os.getpid(), signal.SIGINT)
+
+        for received in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=received):
+                proof = InertProof()
+                proof.directory = self.root
+                handlers = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT)}
+                previous_mask = os.umask(0o027)
+                try:
+                    with patch.object(PROOF, "InstalledProof", return_value=proof):
+                        with self.assertRaisesRegex(PROOF.UIFailure, "installed-proof-interrupted"):
+                            PROOF.run({})
+                    self.assertEqual(proof.cleanup_count, 1)
+                    self.assertTrue(all(signal.getsignal(number) == handler
+                                        for number, handler in handlers.items()))
+                    self.assertEqual(os.umask(previous_mask), 0o027)
+                finally:
+                    os.umask(previous_mask)
 
     def test_constructor_proves_absent_target_and_receipt_before_enabling_fresh_policy(self):
         home = self.root.resolve()

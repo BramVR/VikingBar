@@ -46,6 +46,7 @@ final class AppSession {
     private(set) var changingLoginItem = false
     @ObservationIgnored private let loginItems: any LoginItemManaging
     @ObservationIgnored private var appliedInterval: RefreshInterval = .fiveMinutes
+    var fixtureAccount = FixtureAccount()
     private(set) var settingsError: String?
     var liveState = LiveSessionState()
     private(set) var activity: Activity = .idle
@@ -143,7 +144,8 @@ extension AppSession {
 
     var snapshot: UsageSnapshot {
         if self.isFixtureLaunch {
-            return self.fixture?.snapshot(referenceDate: self.referenceDate) ?? .notConnected
+            return self.fixture.map { self.fixtureAccount.snapshot(state: $0, referenceDate: self.referenceDate) }
+                ?? .notConnected
         }
         let previous = self.liveState.snapshot
         let expired = self.allowanceExpired || previous.expiresAt.map { $0 <= self.now() } == true
@@ -170,6 +172,15 @@ extension AppSession {
     func refresh() {
         guard self.canRefresh else { return }
         let intent = self.begin(.refreshing)
+        if self.isFixtureLaunch {
+            self.operation = Task {
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                guard self.isCurrent(intent) else { return }
+                self.fixtureAccount.refreshCount += 1
+                self.finish()
+            }
+            return
+        }
         self.operation = Task {
             if self.client == nil {
                 await self.restoreAndRefresh(intent: intent)
@@ -179,17 +190,7 @@ extension AppSession {
         }
     }
 
-    func selectSubscription(_ id: String) {
-        guard self.liveState.selectedSubscriptionID != id else { return }
-        self.select(.selectSubscription(id))
-    }
-
-    func selectBundle(_ index: Int) {
-        guard self.liveState.selectedBundleIndex != index else { return }
-        self.select(.selectBundle(index))
-    }
-
-    private func select(_ request: SessionRequest) {
+    func select(_ request: SessionRequest) {
         guard self.canSelectAccountData else { return }
         let intent = self.begin(.selecting)
         self.operation = Task { await self.perform(request, intent: intent) }

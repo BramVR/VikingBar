@@ -156,7 +156,6 @@ def refuse_running(target):
         try:
             target.stat()
         except FileNotFoundError:
-            # Fresh publication must use an exclusive rename; no existing bundle is replaced.
             return
         resolved = target.resolve()
         for executable in process_paths():
@@ -276,7 +275,6 @@ def install(value, replace=False, builder=build, verify=signature, check_running
             record["passed"] = True
             private_write(stage / "result.json", record)
             private_write(stage / "install.json", record)
-            # Publish last: failures before this point never own the public receipt path.
             rename_exclusive(stage / "install.json", previous_receipt)
             return record
         except BaseException:

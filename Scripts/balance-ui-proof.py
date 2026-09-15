@@ -4,7 +4,6 @@ import datetime
 import hashlib
 import importlib.util
 import json
-import math
 import os
 import signal
 from pathlib import Path
@@ -19,8 +18,15 @@ CONNECT = importlib.util.module_from_spec(CONNECT_SPEC)
 CONNECT_SPEC.loader.exec_module(CONNECT)
 
 
-class UIFailure(Exception):
-    """Fixed public diagnostic."""
+UI_SPEC = importlib.util.spec_from_file_location("native_ui_proof", ROOT / "Scripts/native-ui-proof.py")
+UI = importlib.util.module_from_spec(UI_SPEC)
+UI_SPEC.loader.exec_module(UI)
+UIFailure = UI.UIFailure
+frame = UI.frame
+contained = UI.contained
+display_frames = UI.display_frames
+visible_status = UI.visible_status
+popover_window = UI.popover_window
 
 
 def private_write(path, value):
@@ -28,68 +34,6 @@ def private_write(path, value):
     with os.fdopen(os.open(path, flags, 0o600), "w") as stream:
         json.dump(value, stream, sort_keys=True)
 
-
-def frame(element):
-    try:
-        (x, y), (width, height) = element["frame"]
-        values = (x, y, width, height)
-        if (all(type(value) in (int, float) and math.isfinite(value) for value in values)
-                and width > 0 and height > 0 and math.isfinite(x + width) and math.isfinite(y + height)):
-            return values
-    except (KeyError, TypeError, ValueError, OverflowError):
-        pass
-    raise UIFailure("native-frame-invalid")
-
-
-def contained(element, boundary):
-    try:
-        x, y, width, height = frame(element)
-        bx, by, bw, bh = frame(boundary)
-        return x >= bx and y >= by and x + width <= bx + bw and y + height <= by + bh
-    except UIFailure:
-        return False
-
-
-def display_frames(screens):
-    displays = []
-    for screen in screens:
-        try:
-            bounds = screen["bounds"]
-            display = {"frame": [[bounds["x"], bounds["y"]], [bounds["width"], bounds["height"]]]}
-            frame(display)
-            displays.append(display)
-        except (KeyError, TypeError, UIFailure):
-            pass
-    return displays
-
-
-def visible_status(tree, screens):
-    displays = display_frames(screens)
-    return any(element.get("AXIdentifier") == "vikingbar.status"
-               and any(contained(element, display) for display in displays)
-               for element in tree.get("elements", []))
-
-
-def popover_window(tree, screens):
-    displays = display_frames(screens)
-    for element in tree.get("elements", []):
-        if element.get("AXRole") != "AXPopover":
-            continue
-        try:
-            ax_frame = frame(element)
-        except UIFailure:
-            continue
-        for window in tree.get("windows", []):
-            try:
-                bounds = window["kCGWindowBounds"]
-                cg_element = {"frame": [[bounds["X"], bounds["Y"]], [bounds["Width"], bounds["Height"]]]}
-                cg_frame = frame(cg_element)
-            except (KeyError, TypeError, UIFailure):
-                continue
-            if (all(abs(ax - cg) < 1 for ax, cg in zip(ax_frame, cg_frame))
-                    and any(contained(element, display) and contained(cg_element, display) for display in displays)):
-                return element, window
-    raise UIFailure("native-popover-not-visible")
 
 
 def successful_timestamp(report):
@@ -126,6 +70,7 @@ def compare_menu(tree, report, screens):
         title_values = [titles[0].get(key) for key in ("AXTitle", "AXValue", "AXDescription")]
         if "Data used" in title_values:
             expected["balanceTitle"] = "Data used"
+            expected["usedText"] = menu["remainingText"] + " remaining"
             if menu["usedText"] == "Usage unavailable":
                 expected["remainingText"] = "Unavailable"
             elif menu["usedText"].endswith(" used"):
@@ -304,9 +249,15 @@ class NativeProof:
                    str(self.directory / (label + "-before.png"))], label + "-before.json")
         self.press("vikingbar.status")
         return wait_for(self.inspect, lambda value: any(
-            item.get("AXIdentifier") == "vikingbar.remaining" for item in value.get("elements", [])))
+            item.get("AXIdentifier") in ("vikingbar.remaining", "vikingbar.connect")
+            for item in value.get("elements", [])))
 
     def matched_balance(self, label, after=None):
+        tree = self.inspect(label + "-details-before.json")
+        if (any(item.get("AXIdentifier") == "vikingbar.bundleDetails" for item in tree.get("elements", []))
+                and not any(item.get("AXIdentifier") == "vikingbar.bundleDescription"
+                            for item in tree.get("elements", []))):
+            self.press("vikingbar.bundleDetails")
         def observe():
             try:
                 report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
@@ -362,6 +313,9 @@ class NativeProof:
         private_write(self.directory / (label + "-worker.json"), matches[0])
 
     def quit(self):
+        self.press("vikingbar.settings")
+        wait_for(self.inspect, lambda tree: any(
+            item.get("AXIdentifier") == "vikingbar.quit" for item in tree.get("elements", [])))
         self.press("vikingbar.quit")
         self.process.wait(timeout=10)
         if self.process.returncode != 0:
