@@ -6,9 +6,11 @@ private struct AccountConnectReceipt: Decodable {
     let check: String
     let passed: Bool
     let connected: Bool
+    let connectionSHA256: String
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
+        case connectionSHA256 = "connection_sha256"
         case check, passed, connected
     }
 }
@@ -108,7 +110,11 @@ actor AccountConnector: AccountConnecting {
         let receipt = try JSONDecoder().decode(AccountConnectReceipt.self, from: data)
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         guard receipt.schemaVersion == 1, receipt.check == "connect", receipt.passed, receipt.connected,
-              object.map({ Set($0.keys) }) == ["schema_version", "check", "passed", "connected"]
+              receipt.connectionSHA256.utf8.count == 64,
+              receipt.connectionSHA256.utf8.allSatisfy({ (48 ... 57).contains($0) || (97 ... 102).contains($0) }),
+              object.map({ Set($0.keys) }) == [
+                  "schema_version", "check", "passed", "connected", "connection_sha256",
+              ]
         else { throw LiveBridgeFailure.connectFailed }
     }
 

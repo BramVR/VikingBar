@@ -27,7 +27,8 @@ class ConnectAccountTests(unittest.TestCase):
         self.cli.touch()
         self.environment = {"TMUX": "synthetic", "PATH": "/synthetic", "BRAM_OP_SERVICE_ACCOUNT_TOKEN": "secret",
                             "DYLD_INSERT_LIBRARIES": "injection", "PYTHONPATH": "injection", "HOME": "/private"}
-        self.receipt = {"schema_version": 1, "check": "connect", "passed": True, "connected": True}
+        self.receipt = {"schema_version": 1, "check": "connect", "passed": True, "connected": True,
+                        "connection_sha256": "7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052"}
 
     def test_exactly_one_read_and_cli_stdin_isolation(self):
         calls = []
@@ -196,7 +197,11 @@ class ConnectAccountTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             CONNECT.write_receipt(target, self.receipt)
         for value in (dict(self.receipt, raw="private"), dict(self.receipt, schema_version=True),
-                      dict(self.receipt, connected=False), dict(self.receipt, passed=1)):
+                      dict(self.receipt, schema_version=0), dict(self.receipt, schema_version=2),
+                      dict(self.receipt, connected=False), dict(self.receipt, passed=1),
+                      dict(self.receipt, connection_sha256="A" * 64),
+                      dict(self.receipt, connection_sha256="0" * 63),
+                      dict(self.receipt, connection_sha256="g" * 64)):
             with self.assertRaises(CONNECT.ConnectFailure):
                 CONNECT.validate_receipt(value)
 

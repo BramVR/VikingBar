@@ -4,7 +4,6 @@ import datetime
 import hashlib
 import importlib.util
 import json
-import math
 import os
 import resource
 import signal
@@ -19,13 +18,17 @@ ROOT = Path(__file__).resolve().parents[1]
 CONNECT_SPEC = importlib.util.spec_from_file_location("connect_account", ROOT / "Scripts/connect-account.py")
 CONNECT = importlib.util.module_from_spec(CONNECT_SPEC)
 CONNECT_SPEC.loader.exec_module(CONNECT)
-RESUME_SPEC = importlib.util.spec_from_file_location("direct_resume", ROOT / "Scripts/direct-resume.py")
-RESUME = importlib.util.module_from_spec(RESUME_SPEC)
-RESUME_SPEC.loader.exec_module(RESUME)
 
 
-class UIFailure(Exception):
-    """Fixed public diagnostic."""
+UI_SPEC = importlib.util.spec_from_file_location("native_ui_proof", ROOT / "Scripts/native-ui-proof.py")
+UI = importlib.util.module_from_spec(UI_SPEC)
+UI_SPEC.loader.exec_module(UI)
+UIFailure = UI.UIFailure
+frame = UI.frame
+contained = UI.contained
+display_frames = UI.display_frames
+visible_status = UI.visible_status
+popover_window = UI.popover_window
 
 
 class ProofTerminated(BaseException):
@@ -105,84 +108,12 @@ def private_publish(path, value):
         temporary.unlink(missing_ok=True)
 
 
-def frame(element):
-    try:
-        (x, y), (width, height) = element["frame"]
-        values = (x, y, width, height)
-        if (all(type(value) in (int, float) and math.isfinite(value) for value in values)
-                and width > 0 and height > 0 and math.isfinite(x + width) and math.isfinite(y + height)):
-            return values
-    except (KeyError, TypeError, ValueError, OverflowError):
-        pass
-    raise UIFailure("native-frame-invalid")
-
-
-def contained(element, boundary):
-    try:
-        x, y, width, height = frame(element)
-        bx, by, bw, bh = frame(boundary)
-        return x >= bx and y >= by and x + width <= bx + bw and y + height <= by + bh
-    except UIFailure:
-        return False
-
-
-def display_frames(screens):
-    displays = []
-    for screen in screens:
-        try:
-            bounds = screen["bounds"]
-            display = {"frame": [[bounds["x"], bounds["y"]], [bounds["width"], bounds["height"]]]}
-            frame(display)
-            displays.append(display)
-        except (KeyError, TypeError, UIFailure):
-            pass
-    return displays
-
-
-def visible_status(tree, screens):
-    displays = display_frames(screens)
-    return any(element.get("AXIdentifier") == "vikingbar.status"
-               and any(contained(element, display) for display in displays)
-               for element in tree.get("elements", []))
-
-
-def popover_window(tree, screens):
-    displays = display_frames(screens)
-    matches = {}
-    for element in tree.get("elements", []):
-        if element.get("AXRole") != "AXPopover":
-            continue
-        try:
-            ax_frame = frame(element)
-        except UIFailure:
-            continue
-        for window in tree.get("windows", []):
-            try:
-                window_number = window["kCGWindowNumber"]
-                if type(window_number) is not int or window_number <= 0:
-                    continue
-                bounds = window["kCGWindowBounds"]
-                cg_element = {"frame": [[bounds["X"], bounds["Y"]], [bounds["Width"], bounds["Height"]]]}
-                cg_frame = frame(cg_element)
-            except (KeyError, TypeError, UIFailure):
-                continue
-            if (all(abs(ax - cg) < 1 for ax, cg in zip(ax_frame, cg_frame))
-                    and any(contained(element, display) and contained(cg_element, display) for display in displays)):
-                matches.setdefault((ax_frame, cg_frame, window_number), (element, window))
-                if len(matches) > 1:
-                    raise UIFailure("native-popover-ambiguous")
-    if matches:
-        return next(iter(matches.values()))
-    raise UIFailure("native-popover-not-visible")
-
-
 def successful_timestamp(report):
     try:
         state = report["state"]
         snapshot = report["snapshot"]
-        connection_id = state.get("connectionID")
+        connection_identity(report)
         if (report["schemaVersion"] != 1 or state["snapshot"] != snapshot
-                or type(connection_id) is not str or not connection_id.strip()
                 or state.get("failure") or state.get("isRefreshing")
                 or not state.get("balance") or "live" not in snapshot["source"]
                 or state.get("selectedSubscriptionID") is None or state.get("selectedBundleIndex") is None
@@ -190,6 +121,17 @@ def successful_timestamp(report):
             raise ValueError()
         timestamp = snapshot["freshness"]["current"]["lastUpdated"]
         return datetime.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise UIFailure("live-report-invalid") from None
+
+
+def connection_identity(report):
+    try:
+        value = report["state"]["connectionID"]
+        if set(value) != {"rawValue"} or not isinstance(value["rawValue"], str):
+            raise ValueError()
+        normalized = str(uuid.UUID(value["rawValue"])).lower()
+        return normalized, hashlib.sha256(normalized.encode()).hexdigest()
     except (KeyError, TypeError, ValueError, AttributeError):
         raise UIFailure("live-report-invalid") from None
 
@@ -205,6 +147,22 @@ def compare_menu(tree, report, screens):
     status_elements = [element for element in elements
                        if visible_status({"elements": [element]}, screens)]
     expected = dict(menu)
+    titles = [item for item in elements if item.get("AXIdentifier") == "vikingbar.balanceTitle"]
+    if titles:
+        if len(titles) != 1:
+            raise UIFailure("native-menu-mismatch")
+        title_values = [titles[0].get(key) for key in ("AXTitle", "AXValue", "AXDescription")]
+        if "Data used" in title_values:
+            expected["balanceTitle"] = "Data used"
+            expected["usedText"] = menu["remainingText"] + " remaining"
+            if menu["usedText"] == "Usage unavailable":
+                expected["remainingText"] = "Unavailable"
+            elif menu["usedText"].endswith(" used"):
+                expected["remainingText"] = menu["usedText"][:-5]
+            else:
+                raise UIFailure("native-menu-mismatch")
+        elif menu["balanceTitle"] not in title_values:
+            raise UIFailure("native-menu-mismatch")
     expected["accessibilityLabel"] = f'{menu["accessibilityLabel"]}, {menu["title"]}, {menu["freshnessText"]}'
     for identifier, field in (("vikingbar.remaining", "remainingText"),
                               ("vikingbar.freshness", "freshnessText"),
@@ -217,7 +175,7 @@ def compare_menu(tree, report, screens):
     visible_text = {element.get(key) for element in card_elements
                     for key in ("AXTitle", "AXValue", "AXDescription") if isinstance(element.get(key), str)}
     for field in ("title", "balanceTitle", "usedText", "totalText", "expiryText", "sourceLabel"):
-        if menu[field] not in visible_text:
+        if expected[field] not in visible_text:
             raise UIFailure("native-menu-mismatch")
     for text in report["balanceDetails"].values():
         if text and text not in visible_text:
@@ -242,7 +200,7 @@ def validate_connect_receipt(value):
     if code:
         raise UIFailure("native-connect-" + code)
     try:
-        CONNECT.validate_receipt(value)
+        return CONNECT.validate_receipt(value)
     except CONNECT.ConnectFailure:
         raise UIFailure("native-connect-failed") from None
 
@@ -282,27 +240,19 @@ def process_identity(pid, *, timeout=5):
 
 class NativeProof:
     direct = None
-    resume = None
     human_deadline = None
     capture_suppressed = False
     launch_in_progress = False
     termination_requested = False
 
-    def __init__(self, environment, *, stored_session=False, direct_connect=False, direct_resume=False):
-        if direct_resume and direct_connect:
-            raise UIFailure("direct-resume-mode-invalid")
-        if direct_resume:
-            try:
-                self.resume = RESUME.validate(environment, ROOT)
-            except RESUME.ResumeFailure as error:
-                raise UIFailure(str(error)) from None
+    def __init__(self, environment, *, stored_session=False, direct_connect=False):
         self.direct = direct_configuration(environment) if direct_connect else None
         self.environment = environment
         self.peekaboo = environment.get("PEEKABOO_BIN")
         if not self.peekaboo or not Path(self.peekaboo).is_file():
             raise UIFailure("configured-peekaboo-required")
         self.reference = None
-        if not stored_session and self.resume is None:
+        if not stored_session:
             reference = environment.get("VIKINGBAR_CREDENTIAL_REFERENCE", "")
             if not Path(reference).is_file():
                 raise UIFailure("credential-reference-required")
@@ -319,32 +269,23 @@ class NativeProof:
         self.identity = None
         self.screens = []
 
-    def resume_configuration(self):
-        if self.resume is not None:
-            try:
-                current = RESUME.validate(self.environment, ROOT)
-                RESUME.require(current == self.resume)
-                RESUME.require(not os.path.lexists(self.directory / "connect-result.json"))
-            except RESUME.ResumeFailure as error:
-                raise UIFailure(str(error)) from None
-
     def begin_human_window(self, stage):
-        if self.resume is not None:
-            self.resume_configuration()
-            now = datetime.datetime.now(datetime.timezone.utc)
-            slot_expires = datetime.datetime.fromisoformat(
-                self.resume["config"]["expires_at"].replace("Z", "+00:00"))
-            window_seconds = min(600, (slot_expires - now).total_seconds())
-            if window_seconds <= 0:
-                raise UIFailure("direct-resume-evidence-invalid")
-            window_expires = now + datetime.timedelta(seconds=window_seconds)
-            self.human_deadline = time.monotonic() + window_seconds
-            self.capture_suppressed = True
-            private_write(self.directory / (stage + "-readiness.json"), {
-                "schema_version": 1, "stage": stage, "readiness": "waiting-for-stored-session",
-                "configuration_sha256": self.environment["VIKINGBAR_DIRECT_RESUME_CONFIG_SHA256"],
-                "manifest_sha256": self.resume["config"]["manifest_sha256"],
-                "expires_at": window_expires.isoformat(), "capture_suppressed": True})
+        if self.direct is None:
+            return
+        config = direct_configuration(self.environment)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        slot_expires = datetime.datetime.fromisoformat(config["expires_at"].replace("Z", "+00:00"))
+        seconds = min(600, (slot_expires - now).total_seconds())
+        if seconds <= 0:
+            raise UIFailure("direct-proof-configuration-required")
+        self.human_deadline = time.monotonic() + seconds
+        self.capture_suppressed = True
+        private_write(self.directory / (stage + "-readiness.json"), {
+            "schema_version": 1, "stage": stage, "readiness": "ready-for-keychain-prompt",
+            "configuration_sha256": self.environment["VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256"],
+            "expires_at": (now + datetime.timedelta(seconds=seconds)).isoformat(),
+            "capture_suppressed": True,
+        })
 
     def human_remaining(self):
         remaining = self.human_deadline - time.monotonic()
@@ -353,20 +294,20 @@ class NativeProof:
         return remaining
 
     def bounded_process_identity(self, pid):
-        if self.human_deadline is None:
-            return process_identity(pid)
-        timeout = min(5, self.human_remaining())
+        timeout = min(5, self.human_remaining()) if self.human_deadline is not None else 5
         try:
             value = process_identity(pid, timeout=timeout)
         except subprocess.TimeoutExpired:
-            self.human_remaining()
+            if self.human_deadline is not None:
+                self.human_remaining()
             raise
-        self.human_remaining()
+        if self.human_deadline is not None:
+            self.human_remaining()
         return value
 
     def run(self, command, name=None, timeout=120):
         if self.human_deadline is not None:
-            timeout = self.human_remaining()
+            timeout = min(timeout, self.human_remaining())
         clean = {key: self.environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL")
                  if key in self.environment}
         try:
@@ -435,15 +376,14 @@ class NativeProof:
             raise UIFailure("running-artifact-changed")
 
     def launch(self, first, label=None):
-        arguments = [str(self.executable), "--proof-directory", str(self.directory)]
-        if first and self.direct is None and self.resume is None:
-            arguments += ["--credential-reference", self.reference]
         label = label or ("initial" if first else "resumed")
-        if self.resume is not None:
+        if self.direct is not None:
             self.begin_human_window(label)
-        if self.direct is not None or self.resume is not None:
-            if self.direct is not None:
-                direct_configuration(self.environment)
+        arguments = [str(self.executable), "--proof-directory", str(self.directory)]
+        if first and self.direct is None:
+            arguments += ["--credential-reference", self.reference]
+        if self.direct is not None:
+            direct_configuration(self.environment)
             arguments = ["/usr/bin/sandbox-exec", "-p", direct_sandbox(self.executable, self.cli), *arguments]
         clean = {key: self.environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL")
                  if key in self.environment}
@@ -451,18 +391,16 @@ class NativeProof:
         try:
             self.process = subprocess.Popen(arguments, cwd=ROOT, env=clean,
                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            label = label or ("initial" if first else "resumed")
             self.launch_record = {
                 "pid": self.process.pid, "parentPID": os.getpid(), "arguments": arguments,
                 "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "executableSHA256": self.executable_hash, "workerOwnershipEstablished": False}
             self.launches.append((self.process, self.launch_record))
             identity = self.bounded_process_identity(self.process.pid)
-            if self.direct is not None or self.resume is not None:
-                seconds = min(5, self.human_remaining()) if self.human_deadline is not None else 5
+            if self.direct is not None:
                 identity = wait_for(lambda: self.bounded_process_identity(self.process.pid), lambda value:
                                     value is not None and value["command"].startswith(str(self.executable) + " "),
-                                    seconds=seconds)
+                                    seconds=min(5, self.human_remaining()))
             if identity is None:
                 raise UIFailure("app-exited")
             self.identity = identity["identity"]
@@ -481,59 +419,69 @@ class NativeProof:
                         seconds=self.human_remaining() if self.human_deadline is not None else 20)
         if tree.get("activationPolicy") != 1:
             raise UIFailure("accessory-policy-required")
-        if self.resume is None:
+        if self.direct is None:
             self.peek(["see", "--mode", "screen", "--no-elements", "--path",
                        str(self.directory / (label + "-before.png"))], label + "-before.json")
-        if self.resume is not None:
-            return self.open_resume_popover()
+        if self.direct is not None:
+            return self.open_direct_popover()
         self.press("vikingbar.status")
         return wait_for(self.inspect, lambda value: any(
-            item.get("AXIdentifier") == "vikingbar.remaining" for item in value.get("elements", [])),
-            seconds=self.human_remaining() if self.human_deadline is not None else 90)
+            item.get("AXIdentifier") in ("vikingbar.remaining", "vikingbar.connect.direct")
+            for item in value.get("elements", [])))
 
-    def open_resume_popover(self):
-        press_failure = None
+    def open_direct_popover(self):
+        tree = self.inspect(deadline=self.human_deadline)
+        if tree.get("activationPolicy") != 1 or not visible_status(tree, self.screens):
+            raise UIFailure("direct-status-not-ready")
+        status_keys = ("AXRole", "AXSubrole", "AXIdentifier", "AXEnabled")
+        statuses = {(frame(item), json.dumps({key: item[key] for key in status_keys if key in item},
+                                             sort_keys=True))
+                    for item in tree.get("elements", [])
+                    if visible_status({"elements": [item]}, self.screens)}
+        if len(statuses) != 1:
+            raise UIFailure("direct-status-ambiguous")
+        try:
+            boundary, _window = popover_window(tree, self.screens)
+        except UIFailure as error:
+            if str(error) != "native-popover-not-visible":
+                raise
+        else:
+            if any(item.get("AXIdentifier") in {"vikingbar.remaining", "vikingbar.connect.direct"}
+                   and contained(item, boundary) for item in tree.get("elements", [])):
+                return tree
+        self.press("vikingbar.status", deadline=self.human_deadline)
         while True:
             self.human_remaining()
             tree = self.inspect(deadline=self.human_deadline)
-            self.human_remaining()
             if tree.get("activationPolicy") != 1 or not visible_status(tree, self.screens):
-                raise UIFailure("resume-status-not-ready")
-            # Menu-extra traversal can report the same physical button twice.
+                raise UIFailure("direct-status-not-ready")
             status_keys = ("AXRole", "AXSubrole", "AXIdentifier", "AXEnabled")
             statuses = {(frame(item), json.dumps({key: item[key] for key in status_keys if key in item},
                                                  sort_keys=True))
                         for item in tree.get("elements", [])
                         if visible_status({"elements": [item]}, self.screens)}
             if len(statuses) != 1:
-                raise UIFailure("resume-status-ambiguous")
+                raise UIFailure("direct-status-ambiguous")
             try:
                 boundary, _window = popover_window(tree, self.screens)
             except UIFailure as error:
                 if str(error) != "native-popover-not-visible":
                     raise
-                # A blocked press is retriable only after another owned inspection
-                # confirms the visible status item and absence of its popover.
-                press_failure = None
-                try:
-                    self.press("vikingbar.status", deadline=self.human_deadline)
-                except UIFailure as error:
-                    if str(error) != "proof-command-failed":
-                        raise
-                    press_failure = error
             else:
-                if press_failure is not None:
-                    raise press_failure
-                if any(item.get("AXIdentifier") == "vikingbar.remaining" and contained(item, boundary)
-                       for item in tree.get("elements", [])):
+                if any(item.get("AXIdentifier") in {"vikingbar.remaining", "vikingbar.connect.direct"}
+                       and contained(item, boundary) for item in tree.get("elements", [])):
                     return tree
             time.sleep(min(0.25, self.human_remaining()))
 
     def matched_balance(self, label, after=None):
+        tree = self.inspect(label + "-details-before.json")
+        if (any(item.get("AXIdentifier") == "vikingbar.bundleDetails" for item in tree.get("elements", []))
+                and not any(item.get("AXIdentifier") == "vikingbar.bundleDescription"
+                            for item in tree.get("elements", []))):
+            self.press("vikingbar.bundleDetails")
         def observe():
             try:
-                report = self.run([str(self.cli), "live", "--cached"], label + "-report.json",
-                                  timeout=600 if self.resume is not None else 120)
+                report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
                 timestamp = successful_timestamp(report)
                 if after is not None and timestamp <= after:
                     return None
@@ -546,11 +494,11 @@ class NativeProof:
                 return None
         report, tree = wait_for(observe, lambda value: value is not None,
                                seconds=self.human_remaining() if self.human_deadline is not None else 90)
-        self.capture_suppressed = False
         self.verify_worker(label)
-        if (self.direct is not None or self.resume is not None) and any(item.get("AXIdentifier") == "vikingbar.connect.password"
+        if self.direct is not None and any(item.get("AXIdentifier") == "vikingbar.connect.password"
                                            for item in tree.get("elements", [])):
             raise UIFailure("direct-form-capture-forbidden")
+        self.capture_suppressed = False
         _, window = popover_window(tree, self.screens)
         self.peek(["see", "--window-id", str(window["kCGWindowNumber"]), "--no-elements", "--no-remote",
                    "--path", str(self.directory / (label + "-card.png"))], label + "-image.json")
@@ -635,6 +583,9 @@ class NativeProof:
         private_write(self.directory / (label + "-worker.json"), matches[0])
 
     def quit(self):
+        self.press("vikingbar.settings")
+        wait_for(self.inspect, lambda tree: any(
+            item.get("AXIdentifier") == "vikingbar.quit" for item in tree.get("elements", [])))
         self.press("vikingbar.quit")
         timeout = min(10, self.human_remaining()) if self.human_deadline is not None else 10
         try:
@@ -648,6 +599,8 @@ class NativeProof:
         if self.process.returncode != 0:
             raise UIFailure("native-quit-failed")
         self.process = None
+        self.human_deadline = None
+        self.capture_suppressed = False
 
     def connect_with_one_password(self, tree, receipt_path):
         if not any(item.get("AXIdentifier") == "vikingbar.connect" for item in tree["elements"]):
@@ -659,7 +612,7 @@ class NativeProof:
         wait_for(lambda: receipt_path.exists(), bool, seconds=170)
         connect_receipt = json.loads(receipt_path.read_text())
         self.capture_worker(self.process, self.launch_record)
-        validate_connect_receipt(connect_receipt)
+        connect_receipt = validate_connect_receipt(connect_receipt)
         ownership = json.loads((self.directory / "connect-result-ownership.json").read_text())
         if (ownership.get("parentPID") != self.process.pid
                 or any(type(ownership.get(key)) is not int or ownership[key] <= 0
@@ -670,6 +623,7 @@ class NativeProof:
                 or ownership.get("helperSHA256") != hashlib.sha256(
                     (self.bundle / "Contents/Resources/connect-account.py").read_bytes()).hexdigest()):
             raise UIFailure("connect-ownership-invalid")
+        return connect_receipt
 
     def prepare_direct(self):
         config = direct_configuration(self.environment)
@@ -697,16 +651,6 @@ class NativeProof:
                 raise UIFailure("direct-proof-tmux-mismatch")
         else:
             raise UIFailure("direct-proof-tmux-mismatch")
-        self.prepare_sandbox()
-        policy = direct_sandbox(self.executable, self.cli)
-        private_write(self.directory / "direct-configuration.json", {
-            "sourceSHA256": config["source_sha256"],
-            "configurationSHA256": self.environment["VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256"],
-            "sandboxSHA256": hashlib.sha256(policy.encode()).hexdigest(), "processExecRestricted": True})
-
-    def prepare_sandbox(self):
-        if not Path("/usr/bin/sandbox-exec").is_file():
-            raise UIFailure("direct-proof-dependency-required")
         policy = direct_sandbox(self.executable, self.cli)
         denied = subprocess.run(["/usr/bin/sandbox-exec", "-p", policy, "/usr/bin/true"],
                                 env=CONNECT.child_environment(self.environment), capture_output=True,
@@ -714,9 +658,15 @@ class NativeProof:
         if denied.returncode == 0:
             raise UIFailure("direct-proof-exec-restriction-failed")
         self.run(["/usr/bin/sandbox-exec", "-p", policy, str(self.cli), "--fixture", "finite"])
+        private_write(self.directory / "direct-configuration.json", {
+            "sourceSHA256": config["source_sha256"],
+            "configurationSHA256": self.environment["VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256"],
+            "sandboxSHA256": hashlib.sha256(policy.encode()).hexdigest(), "processExecRestricted": True})
 
     def wait_for_direct_form(self):
         deadline = time.monotonic() + 15
+        if self.human_deadline is not None:
+            deadline = min(deadline, self.human_deadline)
         while True:
             deadline_remaining(deadline)
             try:
@@ -754,9 +704,12 @@ class NativeProof:
         clean = CONNECT.child_environment(self.environment)
         op_environment = dict(clean, OP_SERVICE_ACCOUNT_TOKEN=self.environment["BRAM_OP_SERVICE_ACCOUNT_TOKEN"])
         try:
+            credential_timeout = min(60, self.human_remaining()) if self.human_deadline is not None else 60
             item = subprocess.run([op, "item", "get", selector["item_id"], "--vault", selector["vault"],
                                    "--format", "json"], env=op_environment, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                  timeout=60, check=False)
+                                  timeout=credential_timeout, check=False)
+            if self.human_deadline is not None:
+                self.human_remaining()
             if item.returncode:
                 raise UIFailure("direct-credential-read-failed")
             credentials = CONNECT.credentials_from(item.stdout)
@@ -764,9 +717,12 @@ class NativeProof:
             payload = json.dumps(credentials).encode()
             del credentials
             self.verify_process()
+            fill_timeout = min(10, self.human_remaining()) if self.human_deadline is not None else 10
             result = subprocess.run([str(ROOT / ".build/inspect-ui"), str(self.process.pid), "fill-direct"],
                                     input=payload, env=clean, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                    timeout=10, check=False)
+                                    timeout=fill_timeout, check=False)
+            if self.human_deadline is not None:
+                self.human_remaining()
             del payload
             if result.returncode or result.stdout.strip() != b'{"filled":true}':
                 raise UIFailure("native-direct-fill-failed")
@@ -775,50 +731,52 @@ class NativeProof:
             private_write(self.directory / "direct-connect-launch.json", self.launch_record)
             self.press("vikingbar.connect.submit")
             child = self.capture_direct_child(self.launch_record, acknowledge=True, seconds=10)
-        except (OSError, subprocess.SubprocessError, CONNECT.ConnectFailure):
+        except subprocess.TimeoutExpired:
+            if self.human_deadline is not None:
+                self.human_remaining()
+            raise UIFailure("native-direct-input-failed") from None
+        except (OSError, CONNECT.ConnectFailure):
             raise UIFailure("native-direct-input-failed") from None
         finally:
             del op_environment
         receipt_path = self.directory / "connect-result.json"
-        wait_for(lambda: receipt_path.exists(), bool, seconds=170)
-        validate_connect_receipt(json.loads(receipt_path.read_text()))
-        wait_for(lambda: self.worker_present(child), lambda present: not present, seconds=10)
+        wait_for(lambda: receipt_path.exists(), bool,
+                 seconds=min(170, self.human_remaining()) if self.human_deadline is not None else 170)
+        connect_receipt = validate_connect_receipt(json.loads(receipt_path.read_text()))
+        wait_for(lambda: self.worker_present(child), lambda present: not present,
+                 seconds=min(10, self.human_remaining()) if self.human_deadline is not None else 10)
         private_write(self.directory / "direct-input.json", {
             "credentialReads": 1, "privatePipe": True, "formCaptureSkipped": True,
             "appCredentialReference": False, "processExecRestricted": True})
+        return connect_receipt
 
     def perform(self):
         self.peek(["permissions", "status", "--all-sources"], "permissions.json")
         apps = self.peek(["app", "list", "--include-hidden", "--include-background"], "apps-before.json")
         if "be.bram.vikingbar" in json.dumps(apps):
             raise UIFailure("existing-app-must-be-quit")
-        self.resume_configuration()
         self.run(["./Scripts/package-app.sh"], timeout=300)
         self.run(["swiftc", "Scripts/inspect-ui.swift", "-o", ".build/inspect-ui"], timeout=120)
         self.executable_hash = hashlib.sha256(self.executable.read_bytes()).hexdigest()
         initial_cli_hash = hashlib.sha256(self.cli.read_bytes()).hexdigest()
-        if self.resume is not None:
-            try:
-                RESUME.verify_debug(self.resume, self.executable, self.cli)
-            except RESUME.ResumeFailure as error:
-                raise UIFailure(str(error)) from None
         self.screens = self.peek(["screen", "list"], "screens.json")["screens"]
         if self.direct is not None:
             self.prepare_direct()
-        elif self.resume is not None:
-            self.prepare_sandbox()
         tree = self.launch(first=True)
         receipt_path = self.directory / "connect-result.json"
-        if self.resume is not None:
-            receipt_path = self.resume["directory"] / "connect-result.json"
-        elif self.direct is not None:
-            self.connect_direct(tree)
+        if self.direct is not None:
+            connect_receipt = self.connect_direct(tree)
         else:
-            self.connect_with_one_password(tree, receipt_path)
+            connect_receipt = self.connect_with_one_password(tree, receipt_path)
         initial = self.matched_balance("connected")
+        connection_id, connection_sha256 = connection_identity(initial)
+        if connect_receipt["connection_sha256"] != connection_sha256:
+            raise UIFailure("connect-connection-mismatch")
+        if self.direct is not None:
+            self.begin_human_window("api")
         def api_check():
             try:
-                result = self.run([str(self.cli), "proof", "balance-api"], timeout=600 if self.resume is not None else 180)
+                result = self.run([str(self.cli), "proof", "balance-api"], timeout=180)
                 receipt = validate_api_receipt(json.loads(result))
                 private_write(self.directory / "api-result.json", receipt)
                 return receipt
@@ -826,43 +784,34 @@ class NativeProof:
                 if str(error) == "session-busy":
                     return None
                 raise
-        self.begin_human_window("api")
-        api = wait_for(api_check, lambda value: value is not None,
-                       seconds=self.human_remaining() if self.human_deadline is not None else 30)
+        api = wait_for(api_check, lambda value: value is not None, seconds=30)
         validate_api_receipt(api)
-        self.human_deadline = None
-        self.begin_human_window("after-api")
-        api_report = self.run([str(self.cli), "live", "--cached"], "after-api-report.json",
-                              timeout=600 if self.resume is not None else 120)
-        successful_timestamp(api_report)
-        self.human_deadline = None
+        if self.direct is not None:
+            self.begin_human_window("after-api")
+        api_report = self.run([str(self.cli), "live", "--cached"], "after-api-report.json")
+        if connection_identity(api_report) != (connection_id, connection_sha256):
+            raise UIFailure("api-reconnected")
+        if self.direct is not None:
+            self.begin_human_window("refresh")
         time.sleep(1.1)
-        self.begin_human_window("refresh")
-        if self.human_deadline is not None:
-            self.press("vikingbar.refresh", deadline=self.human_deadline)
-        else:
-            self.press("vikingbar.refresh")
+        self.press("vikingbar.refresh")
         refreshed = self.matched_balance("refreshed", successful_timestamp(api_report))
-        if self.resume is not None and any(report["state"]["connectionID"] != initial["state"]["connectionID"]
-                                           for report in (api_report, refreshed)):
-            raise UIFailure("resume-reconnected")
+        if connection_identity(refreshed) != (connection_id, connection_sha256):
+            raise UIFailure("refresh-reconnected")
         receipt_bytes = receipt_path.read_bytes()
         receipt_modified = receipt_path.stat().st_mtime_ns
         self.quit()
-        self.human_deadline = None
         time.sleep(1.1)
         self.launch(first=False)
         resumed = self.matched_balance("resumed", successful_timestamp(refreshed))
         if (receipt_path.read_bytes() != receipt_bytes or receipt_path.stat().st_mtime_ns != receipt_modified
-                or resumed["state"]["connectionID"] != initial["state"]["connectionID"]):
+                or connection_identity(resumed) != (connection_id, connection_sha256)):
             raise UIFailure("resume-reconnected")
         self.quit()
-        self.human_deadline = None
-        self.resume_configuration()
-        self.begin_human_window("release-build")
+        if self.direct is not None:
+            self.begin_human_window("release-build")
         self.run(["python3", "Scripts/package-artifacts.py", "--app-only", "--configuration", "release",
                   "--output", str(self.bundle)], timeout=300)
-        self.human_deadline = None
         self.executable_hash = hashlib.sha256(self.executable.read_bytes()).hexdigest()
         if hashlib.sha256(self.cli.read_bytes()).hexdigest() == initial_cli_hash:
             raise UIFailure("rebuilt-cli-identity-unchanged")
@@ -870,22 +819,18 @@ class NativeProof:
         self.launch(first=False, label="rebuilt")
         rebuilt = self.matched_balance("rebuilt", successful_timestamp(resumed))
         if (receipt_path.read_bytes() != receipt_bytes or receipt_path.stat().st_mtime_ns != receipt_modified
-                or rebuilt["state"]["connectionID"] != initial["state"]["connectionID"]):
+                or connection_identity(rebuilt) != (connection_id, connection_sha256)):
             raise UIFailure("rebuild-reconnected")
         self.quit()
-        self.human_deadline = None
-        receipt = {"schema_version": 1, "check": "direct-connect-ui" if self.direct is not None or self.resume is not None else "balance-ui",
+        receipt = {"schema_version": 1, "check": "direct-connect-ui" if self.direct is not None else "balance-ui",
                    "passed": True, "native_connect": True,
                    "api_matches": True, "native_refresh": True, "keychain_resume": True,
                    "keychain_rebuild": True, "visible_menu_matches": True}
-        if self.resume is not None:
-            self.resume_configuration()
-            receipt.update(credential_reads_total=1, resume_manifest_sha256=self.resume["config"]["manifest_sha256"])
         private_write(self.directory / "result.json", receipt)
         return receipt
 
     def worker_present(self, worker):
-        current = self.bounded_process_identity(worker["pid"])
+        current = process_identity(worker["pid"])
         if current is None or current["startTime"] != worker["startTime"]:
             return False
         if (current["command"] != worker["command"]
@@ -912,7 +857,6 @@ class NativeProof:
 
     def cleanup(self):
         self.human_deadline = None
-        self.capture_suppressed = False
         failures = []
         for process, launch in self.launches:
             if launch.get("connectOwnershipRequired"):
@@ -981,7 +925,7 @@ class NativeProof:
             raise UIFailure("cleanup-process-still-running")
 
 
-def run(environment, *, direct_connect=False, direct_resume=False):
+def run(environment, *, direct_connect=False):
     old_mask = os.umask(0o077)
     core_limit = resource.getrlimit(resource.RLIMIT_CORE)
     previous_handler = signal.getsignal(signal.SIGTERM)
@@ -1001,12 +945,9 @@ def run(environment, *, direct_connect=False, direct_resume=False):
 
     try:
         signal.signal(signal.SIGTERM, terminate)
-        if direct_connect or direct_resume:
+        if direct_connect:
             resource.setrlimit(resource.RLIMIT_CORE, (0, core_limit[1]))
-        if direct_resume:
-            proof = NativeProof(environment, direct_resume=True)
-        else:
-            proof = NativeProof(environment, direct_connect=direct_connect)
+        proof = NativeProof(environment, direct_connect=direct_connect)
         return proof.perform()
     except ProofTerminated:
         raise UIFailure("native-proof-terminated") from None
@@ -1018,7 +959,7 @@ def run(environment, *, direct_connect=False, direct_resume=False):
         finally:
             try:
                 os.umask(old_mask)
-                if direct_connect or direct_resume:
+                if direct_connect:
                     resource.setrlimit(resource.RLIMIT_CORE, core_limit)
             finally:
                 signal.signal(signal.SIGTERM, previous_handler)

@@ -6,6 +6,8 @@ private actor SyntheticSession {
 
     func execute(_ command: SessionCommand) async throws {
         switch command.command {
+        case .configure:
+            self.current.nextRefreshAt = Date(timeIntervalSince1970: Double(command.refreshInterval!.rawValue))
         case .refresh:
             FileHandle.standardError.write(Data("refresh-started\n".utf8))
             try await Task.sleep(for: .seconds(30))

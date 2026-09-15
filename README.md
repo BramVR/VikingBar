@@ -15,6 +15,8 @@ The helmet in the menu bar shows the selected data bundle's remaining allowance.
 
 Each SIM keeps its own allowance. Viking Points belong to the whole account. Missing amounts stay unavailable rather than appearing as zero.
 
+Install a local build with `make install-app`. Settings also save the card's used/remaining display and refresh interval. Launch-at-login controls report the actual macOS registration state. See [local installation, updates, and removal](docs/local-install.md). Installed native proof is tracked separately in the [verification map](.agents/skills/verify-vikingbar/features/installed-app.md).
+
 The **Bills** tab shows the latest account invoice or credit note, including grouped scope, payment state, and amount due. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md).
 
 ## Requirements and availability
@@ -23,7 +25,7 @@ VikingBar currently targets Apple Silicon Macs with macOS 14 or later. Building 
 
 Development builds have no Developer ID signing or notarization. Public distribution and automatic updates are not configured. The [build download guide](docs/RELEASING.md#download-a-development-build) covers app and CLI artifacts from GitHub Actions.
 
-Daily usage history, cycle forecasts, and launch at login remain planned. The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
+Daily usage history and cycle forecasts remain planned. The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
 
 ## Getting started
 

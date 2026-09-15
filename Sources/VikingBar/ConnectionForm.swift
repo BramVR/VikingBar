@@ -65,8 +65,7 @@ struct ConnectionForm: View {
             }
         }
         .textFieldStyle(.roundedBorder)
-        .padding(20)
-        .frame(width: 360, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: 560, alignment: .topLeading)
         .onAppear {
             self.clientIDFocused = true
             self.finishIfNeeded()

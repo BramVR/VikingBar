@@ -47,9 +47,36 @@ func children(_ element: AXUIElement) -> [AXUIElement] {
     return result
 }
 
-func elements(_ element: AXUIElement, depth: Int = 0) -> [AXUIElement] {
-    guard depth < 15 else { return [] }
-    return [element] + children(element).flatMap { elements($0, depth: depth + 1) }
+func recordTraversal(
+    _ element: AXUIElement,
+    depth: Int,
+    elements: inout [AXUIElement],
+    shallowestDepths: inout [(element: AXUIElement, depth: Int)]) -> Bool
+{
+    guard depth < 15 else { return false }
+    if let index = shallowestDepths.firstIndex(where: { CFEqual($0.element, element) }) {
+        guard depth < shallowestDepths[index].depth else { return false }
+        shallowestDepths[index].depth = depth
+        return true
+    }
+    shallowestDepths.append((element, depth))
+    elements.append(element)
+    return true
+}
+
+func elements(_ element: AXUIElement) -> [AXUIElement] {
+    var visited: [AXUIElement] = []
+    var shallowestDepths: [(element: AXUIElement, depth: Int)] = []
+    func visit(_ current: AXUIElement, depth: Int) {
+        guard recordTraversal(
+            current,
+            depth: depth,
+            elements: &visited,
+            shallowestDepths: &shallowestDepths) else { return }
+        for child in children(current) { visit(child, depth: depth + 1) }
+    }
+    visit(element, depth: 0)
+    return visited
 }
 
 func uniqueElement(_ matches: [AXUIElement]) -> AXUIElement? {
@@ -102,6 +129,144 @@ func record(_ element: AXUIElement, redactText: Bool = false) -> [String: Any] {
     return result
 }
 
+enum ResolutionFailure: Error {
+    case timeout, ambiguous, unavailable
+}
+
+func uniqueTarget<T>(_ candidates: [T]) throws -> T? {
+    guard candidates.count <= 1 else { throw ResolutionFailure.ambiguous }
+    return candidates.first
+}
+
+func uniqueNonScrollTarget<T>(_ candidates: [T], role: (T) -> String?) throws -> T? {
+    try uniqueTarget(candidates.filter { role($0) != "AXScrollArea" })
+}
+
+func readyTarget<T>(_ target: T, visible: Bool, enabled: Bool) -> T? {
+    visible && enabled ? target : nil
+}
+
+func resolveAndPerform<T>(
+    timeout: TimeInterval,
+    now: () -> TimeInterval,
+    pause: () -> Void,
+    resolve: () throws -> T?,
+    perform: (T) throws -> Void
+) throws {
+    let deadline = now() + timeout
+    while true {
+        if let target = try resolve() {
+            guard now() < deadline else { throw ResolutionFailure.timeout }
+            try perform(target)
+            return
+        }
+        guard now() < deadline else { throw ResolutionFailure.timeout }
+        pause()
+        guard now() < deadline else { throw ResolutionFailure.timeout }
+    }
+}
+
+func isFinitePositiveRectangle(_ rectangle: CGRect) -> Bool {
+    rectangle.origin.x.isFinite && rectangle.origin.y.isFinite
+        && rectangle.size.width.isFinite && rectangle.size.height.isFinite
+        && rectangle.size.width > 0 && rectangle.size.height > 0
+        && rectangle.maxX.isFinite && rectangle.maxY.isFinite
+}
+
+func activeDisplayBounds() throws -> [CGRect] {
+    var count: UInt32 = 0
+    guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else {
+        throw ResolutionFailure.unavailable
+    }
+    var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+    guard CGGetActiveDisplayList(count, &displays, &count) == .success else {
+        throw ResolutionFailure.unavailable
+    }
+    let bounds = displays.prefix(Int(count)).map(CGDisplayBounds)
+    guard !bounds.isEmpty, bounds.allSatisfy(isFinitePositiveRectangle) else {
+        throw ResolutionFailure.unavailable
+    }
+    return bounds
+}
+
+func isVisible(_ element: AXUIElement, displays: [CGRect]) -> Bool {
+    guard let position = attribute(element, "AXPosition"), CFGetTypeID(position) == AXValueGetTypeID(),
+          let dimensions = attribute(element, "AXSize"), CFGetTypeID(dimensions) == AXValueGetTypeID()
+    else { return false }
+    var point = CGPoint.zero
+    var size = CGSize.zero
+    guard AXValueGetValue(unsafeBitCast(position, to: AXValue.self), .cgPoint, &point),
+          AXValueGetValue(unsafeBitCast(dimensions, to: AXValue.self), .cgSize, &size),
+          point.x.isFinite, point.y.isFinite, size.width.isFinite, size.height.isFinite,
+          size.width > 0, size.height > 0 else { return false }
+    let frame = CGRect(origin: point, size: size)
+    return isFinitePositiveRectangle(frame) && displays.contains { $0.contains(frame) }
+}
+
+func resolveTarget(
+    root: AXUIElement,
+    selector: String,
+    menuOnly: Bool = false,
+    identifierOnly: Bool = false
+) throws -> AXUIElement? {
+    let displays = try activeDisplayBounds()
+    let tree = elements(root)
+    let menuItems = tree.filter {
+        (attribute($0, "AXRole") as? String) == "AXMenuItem"
+            && (attribute($0, "AXTitle") as? String) == selector
+    }
+    let candidates = !menuOnly && !identifierOnly && !menuItems.isEmpty ? menuItems : tree
+    let matches = candidates.filter { element in
+        let role = attribute(element, "AXRole") as? String
+        if menuOnly {
+            return role == "AXMenuItem" && (attribute(element, "AXTitle") as? String) == selector
+                && isVisible(element, displays: displays)
+        }
+        if identifierOnly {
+            return role == "AXPopUpButton" && (attribute(element, "AXIdentifier") as? String) == selector
+        }
+        return (attribute(element, "AXIdentifier") as? String) == selector
+            || (attribute(element, "AXTitle") as? String) == selector
+            || (role == "AXPopUpButton" && (attribute(element, "AXValue") as? String) == selector)
+            || (role == "AXRadioButton" && (attribute(element, "AXDescription") as? String) == selector)
+    }
+    guard let selected = try uniqueNonScrollTarget(matches, role: { attribute($0, "AXRole") as? String })
+    else { return nil }
+    let target: AXUIElement
+    if (attribute(selected, "AXRole") as? String) == "AXGroup" {
+        let disclosures = elements(selected).filter {
+            (attribute($0, "AXRole") as? String) == "AXDisclosureTriangle"
+        }
+        guard let disclosure = try uniqueTarget(disclosures) else { return nil }
+        target = disclosure
+    } else {
+        target = selected
+    }
+    return readyTarget(target, visible: isVisible(target, displays: displays),
+                       enabled: (attribute(target, "AXEnabled") as? Bool) == true)
+}
+
+func press(_ target: AXUIElement, application: NSRunningApplication) throws {
+    guard !application.isTerminated else { throw ResolutionFailure.unavailable }
+    let isQuit = (attribute(target, "AXIdentifier") as? String) == "vikingbar.quit"
+    let result = AXUIElementPerformAction(target, kAXPressAction as CFString)
+    if isQuit {
+        // Quit can disconnect Accessibility before AXPress returns its response.
+        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        while !application.isTerminated, ProcessInfo.processInfo.systemUptime < deadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+        guard application.isTerminated else { throw ResolutionFailure.unavailable }
+    } else if result != .success {
+        throw ResolutionFailure.unavailable
+    }
+}
+
+func writeJSON(_ result: [String: Any]) throws {
+    let data = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
+    FileHandle.standardOutput.write(data)
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 guard arguments.count >= 1, let pid = Int32(arguments[0]), AXIsProcessTrusted()
 else { fatalError("Require a VikingBar PID and Accessibility permission.") }
@@ -126,8 +291,9 @@ guard let app = runningApp,
           reportedBundleIdentifier: app.bundleIdentifier
       )
 else { fatalError("Require the packaged VikingBar application.") }
-let tree = elements(AXUIElementCreateApplication(pid))
+let root = AXUIElementCreateApplication(pid)
 if arguments.count == 2, arguments[1] == "fill-direct" {
+    let tree = elements(root)
     var inputInfo = stat()
     guard fstat(STDIN_FILENO, &inputInfo) == 0, inputInfo.st_mode & S_IFMT == S_IFIFO else { exit(1) }
     do {
@@ -163,41 +329,49 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
         exit(1)
     }
 } else if arguments.count == 3, arguments[1] == "press" {
-    let menuItem = tree.first(where: {
-        (attribute($0, "AXRole") as? String) == "AXMenuItem"
-            && (attribute($0, "AXTitle") as? String) == arguments[2]
-    })
-    guard let target = menuItem ?? tree.first(where: {
-        (attribute($0, "AXIdentifier") as? String) == arguments[2]
-            || (attribute($0, "AXTitle") as? String) == arguments[2]
-            || ((attribute($0, "AXRole") as? String) == "AXPopUpButton"
-                && (attribute($0, "AXValue") as? String) == arguments[2])
-            || ((attribute($0, "AXRole") as? String) == "AXRadioButton"
-                && (attribute($0, "AXDescription") as? String) == arguments[2])
-    }) else { fatalError("Requested accessibility element is absent.") }
-    let isQuit = (attribute(target, "AXIdentifier") as? String) == "vikingbar.quit"
-    guard !app.isTerminated else { fatalError("Target application already terminated.") }
-    let pressResult = AXUIElementPerformAction(target, kAXPressAction as CFString)
-    if isQuit {
-        // Quit can disconnect Accessibility before AXPress returns its response.
-        let deadline = ProcessInfo.processInfo.systemUptime + 3
-        while !app.isTerminated, ProcessInfo.processInfo.systemUptime < deadline {
-            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
-        }
-        guard app.isTerminated else { fatalError("Application did not terminate after Quit.") }
-    } else if pressResult != .success {
-        fatalError("Accessibility press failed.")
-    }
-    print("{\"pressed\":\"\(arguments[2])\",\"pid\":\(pid)}")
+    try resolveAndPerform(
+        timeout: 3,
+        now: { ProcessInfo.processInfo.systemUptime },
+        pause: { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05)) },
+        resolve: {
+            guard !app.isTerminated else { throw ResolutionFailure.unavailable }
+            return try resolveTarget(root: root, selector: arguments[2])
+        },
+        perform: { try press($0, application: app) }
+    )
+    try writeJSON(["pressed": arguments[2], "pid": pid])
+} else if arguments.count == 4, arguments[1] == "choose" {
+    try resolveAndPerform(
+        timeout: 3,
+        now: { ProcessInfo.processInfo.systemUptime },
+        pause: { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05)) },
+        resolve: {
+            guard !app.isTerminated else { throw ResolutionFailure.unavailable }
+            return try resolveTarget(root: root, selector: arguments[2], identifierOnly: true)
+        },
+        perform: { try press($0, application: app) }
+    )
+    try resolveAndPerform(
+        timeout: 3,
+        now: { ProcessInfo.processInfo.systemUptime },
+        pause: { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05)) },
+        resolve: {
+            guard !app.isTerminated else { throw ResolutionFailure.unavailable }
+            return try resolveTarget(root: root, selector: arguments[3], menuOnly: true)
+        },
+        perform: { try press($0, application: app) }
+    )
+    try writeJSON(["chosen": arguments[3], "picker": arguments[2], "pid": pid])
 } else {
+    guard arguments.count == 1 else { fatalError("Use PID, PID press SELECTOR, or PID choose PICKER TITLE.") }
     let windows = (CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? [])
         .filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }
+    let tree = elements(root)
     let formVisible = tree.contains { (attribute($0, "AXIdentifier") as? String) == "vikingbar.connect.password" }
     let safeWindows = windows.map { window in
         formVisible ? window.filter { $0.key != kCGWindowName as String } : window
     }
     let result: [String: Any] = ["pid": pid, "activationPolicy": app.activationPolicy.rawValue,
                                "elements": tree.map { record($0, redactText: formVisible) }, "windows": safeWindows]
-    let data = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
-    FileHandle.standardOutput.write(data)
+    try writeJSON(result)
 }

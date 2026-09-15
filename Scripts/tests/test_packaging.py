@@ -24,6 +24,19 @@ smoke = load("smoke-package")
 
 
 class PackagingTests(unittest.TestCase):
+    def test_bundle_versions_match_release_or_prerelease_manifest(self):
+        for version in ("0.1.0", "2.3.4-beta.2"):
+            numeric = version.split("-")[0]
+            plist = dict(CFBundleExecutable="VikingBarApp", CFBundleIdentifier="be.bram.vikingbar",
+                         CFBundleName="VikingBar", CFBundlePackageType="APPL",
+                         CFBundleShortVersionString=numeric, CFBundleVersion=numeric,
+                         LSMinimumSystemVersion="14.0", LSUIElement=True)
+            with self.subTest(version=version):
+                smoke.verify_bundle_metadata(plist, {"version": version})
+                for field in ("CFBundleVersion", "CFBundleShortVersionString", "CFBundleIdentifier"):
+                    with self.assertRaisesRegex(AssertionError, field):
+                        smoke.verify_bundle_metadata(dict(plist, **{field: "1"}), {"version": version})
+
     def test_missing_manifest(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

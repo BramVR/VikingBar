@@ -16,11 +16,11 @@ Run `make smoke-app-fixture` under the [launch and isolation contract](../SKILL.
 - Exact Settings copy, fixture marker, toggle value, and immediate status change.
 - Finite `36 GB`, exhausted `0 GB`, and honest `Unlimited`/`Unavailable` titles; GB remains decimal when the card uses GiB.
 - All five fixture states plus Not connected in both modes, with visible status crops and exact card states.
-- Preference on survives the first real Quit/relaunch; off survives the second. All three task-owned processes exit through Quit with code 0.
+- Preference on survives the first real Quit/relaunch; off survives the second. All four task-owned processes exit through Quit with code 0.
 
 Inspect status crops, Settings captures, `result.json` persistence fields, and `cleanup.json`. Compare finite, exhausted, infinity, and question-mark images; screenshots and semantic AX assertions both matter. The smoke retains crops for visual inspection rather than claiming a pixel comparison.
 
-For targeted actions, press `Settings`, read the tree, and press `vikingbar.showRemainingGB`. Re-read the toggle's `AXValue` and status `AXTitle`, `AXDescription`, and `AXHelp`. Fixture provenance and exact allowance/freshness remain meaningful even when `AXTitle` is empty. Press `Data` to return to the card.
+For targeted actions, press `vikingbar.settings`, read the tree, and press `vikingbar.showRemainingGB`. Re-read the toggle's `AXValue` and status `AXTitle`, `AXDescription`, and `AXHelp`. Fixture provenance and exact allowance/freshness remain meaningful even when `AXTitle` is empty. Press `vikingbar.back` to return to the card.
 
 ## Deterministic rendering and model proof
 

@@ -3,7 +3,7 @@ import VikingBarCore
 
 struct PointsCard: View {
     @Bindable var session: AppSession
-    @State private var expanded = false
+    @Binding var expanded: Bool
 
     var body: some View {
         let points = self.session.points
@@ -40,10 +40,8 @@ struct PointsCard: View {
                 .accessibilityIdentifier("vikingbar.points.transactionsScroll")
             }
             .accessibilityIdentifier("vikingbar.points.transactionsToggle")
-            Spacer(minLength: 0)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func transaction(_ row: PointsTransactionPresentation, index: Int) -> some View {

@@ -125,7 +125,8 @@ class DirectInputTests(unittest.TestCase):
         self.form["elements"][3].update(AXRole="AXTextField", AXSubrole="AXSecureTextField")
         self.tree = {"elements": [{"AXIdentifier": "vikingbar.connect.direct"}]}
         self.credential = {"client_id": "synthetic-client", "username": "synthetic-user", "password": "SECRET-SENTINEL"}
-        self.receipt = {"schema_version": 1, "check": "connect", "passed": True, "connected": True}
+        self.receipt = {"schema_version": 1, "check": "connect", "passed": True, "connected": True,
+                        "connection_sha256": "7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052"}
 
     def exercise(self, failure=None, fill_stdout=b'{"filled":true}'):
         calls = []
@@ -195,6 +196,75 @@ class DirectInputTests(unittest.TestCase):
             with self.assertRaisesRegex(UI.UIFailure, "native-direct-form-not-visible"):
                 self.proof.connect_direct(self.tree)
         execute.assert_not_called()
+
+
+class DirectReadinessTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.proof = UI.NativeProof.__new__(UI.NativeProof)
+        self.proof.directory = Path(self.temporary.name)
+        self.proof.environment = {"PATH": "/synthetic", "TMUX": "synthetic"}
+
+    def test_window_is_bound_to_current_configuration_and_suppresses_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proof = object.__new__(UI.NativeProof)
+            proof.direct = {"active": True}
+            proof.directory = Path(directory)
+            proof.environment = {"VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256": "b" * 64}
+            expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=30)
+            config = {"expires_at": expires.isoformat()}
+            with patch.object(UI, "direct_configuration", return_value=config), \
+                    patch.object(UI.time, "monotonic", return_value=10):
+                proof.begin_human_window("initial")
+            self.assertGreater(proof.human_deadline, 10)
+            self.assertLessEqual(proof.human_deadline, 40)
+            readiness = json.loads((proof.directory / "initial-readiness.json").read_text())
+            self.assertEqual(readiness["configuration_sha256"], "b" * 64)
+            self.assertTrue(readiness["capture_suppressed"])
+            with patch.object(proof, "run") as execute:
+                with self.assertRaisesRegex(UI.UIFailure, "capture-forbidden"):
+                    proof.peek(["see"], "forbidden.json")
+            execute.assert_not_called()
+
+    def test_commands_use_the_smaller_command_or_human_timeout(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.environment = {}
+        proof.human_deadline = 600
+        result = subprocess.CompletedProcess(["synthetic"], 0, b"ok", b"")
+        with patch.object(UI.time, "monotonic", return_value=10), \
+                patch.object(UI.subprocess, "run", return_value=result) as execute:
+            self.assertEqual(proof.run(["synthetic"]), b"ok")
+        self.assertEqual(execute.call_args.kwargs["timeout"], 120)
+        with patch.object(UI.time, "monotonic", return_value=590), \
+                patch.object(UI.subprocess, "run", return_value=result) as execute:
+            self.assertEqual(proof.run(["synthetic"], timeout=120), b"ok")
+        self.assertEqual(execute.call_args.kwargs["timeout"], 10)
+        with patch.object(UI.time, "monotonic", return_value=10), \
+                patch.object(UI, "process_identity", return_value=None) as identity:
+            self.assertIsNone(proof.bounded_process_identity(123))
+        identity.assert_called_once_with(123, timeout=5)
+
+    def test_direct_popover_dispatches_once_then_waits_for_settled_content(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.direct = {"active": True}
+        proof.human_deadline = 600
+        proof.capture_suppressed = True
+        proof.screens = [{"bounds": {"x": 0, "y": 0, "width": 1000, "height": 800}}]
+        status = {"AXIdentifier": "vikingbar.status", "AXRole": "AXMenuBarItem",
+                  "AXEnabled": True, "frame": [[10, 0], [30, 24]]}
+        closed = {"activationPolicy": 1, "elements": [status], "windows": []}
+        opened = {"activationPolicy": 1, "elements": [status,
+                  {"AXRole": "AXPopover", "frame": [[10, 24], [300, 400]]},
+                  {"AXIdentifier": "vikingbar.connect.direct", "frame": [[20, 40], [100, 20]]}],
+                  "windows": [{"kCGWindowNumber": 42,
+                               "kCGWindowBounds": {"X": 10, "Y": 24, "Width": 300, "Height": 400}}]}
+        with patch.object(UI.time, "monotonic", return_value=0), patch.object(UI.time, "sleep"), \
+                patch.object(proof, "inspect", side_effect=[closed, closed, opened]), \
+                patch.object(proof, "press") as press, patch.object(proof, "peek") as capture:
+            self.assertEqual(proof.open_direct_popover(), opened)
+        press.assert_called_once_with("vikingbar.status", deadline=600)
+        capture.assert_not_called()
 
     def test_runtime_rejects_wrong_tmux_session_and_missing_exec_denial(self):
         self.proof.executable = Path("/synthetic/VikingBarApp")
@@ -276,6 +346,71 @@ class DirectInputTests(unittest.TestCase):
         self.assertNotIn('subpath', policy)
         self.assertNotIn('op"', policy)
         self.assertNotIn('tmux', policy)
+
+
+class DirectSequenceTests(unittest.TestCase):
+    def test_fresh_receipt_and_every_report_keep_one_connection_identity(self):
+        for changed_stage in (None, "connected", "api", "refreshed", "resumed", "rebuilt"):
+            with self.subTest(changed_stage=changed_stage), tempfile.TemporaryDirectory() as directory:
+                proof = object.__new__(UI.NativeProof)
+                proof.direct = {"active": True}
+                proof.human_deadline = None
+                proof.capture_suppressed = False
+                proof.directory = Path(directory)
+                proof.bundle = proof.directory / "app"
+                proof.executable = proof.directory / "VikingBarApp"
+                proof.cli = proof.directory / "vikingbar"
+                proof.executable.write_bytes(b"app")
+                proof.cli.write_bytes(b"debug")
+                proof.environment = {}
+                receipt_path = proof.directory / "connect-result.json"
+                digest = "7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052"
+                receipt = {"schema_version": 1, "check": "connect", "passed": True, "connected": True,
+                           "connection_sha256": digest}
+
+                def report(stage):
+                    identifier = ("00000000-0000-0000-0000-000000000002" if stage == changed_stage else
+                                  "00000000-0000-0000-0000-000000000001")
+                    order = {"connected": 1, "api": 2, "refreshed": 3, "resumed": 4, "rebuilt": 5}
+                    snapshot = {"source": {"live": {}}, "freshness": {
+                        "current": {"lastUpdated": f"2026-09-09T00:00:0{order[stage]}Z"}}}
+                    return {"schemaVersion": 1, "snapshot": snapshot, "state": {"snapshot": snapshot,
+                            "connectionID": {"rawValue": identifier}, "balance": {"bundles": [1]},
+                            "selectedSubscriptionID": "sim", "selectedBundleIndex": 0}}
+
+                api = {"schema_version": 1, "check": "balance-api", "passed": True,
+                       "api_matches": True, "token_refreshed": True, "bundle_count": 1}
+                def run(command, name=None, timeout=120):
+                    if "package-artifacts.py" in " ".join(command):
+                        proof.cli.write_bytes(b"release")
+                    if "balance-api" in command:
+                        return json.dumps(api)
+                    if "--cached" in command:
+                        return report("api")
+                    return b""
+                def connect(_tree):
+                    receipt_path.write_text(json.dumps(receipt))
+                    return receipt
+
+                with patch.object(proof, "run", side_effect=run), \
+                        patch.object(proof, "peek", side_effect=lambda command, _name: {
+                            "screens": [],
+                        } if command == ["screen", "list"] else {}), \
+                        patch.object(proof, "prepare_direct"), patch.object(proof, "launch"), \
+                        patch.object(proof, "connect_direct", side_effect=connect), \
+                        patch.object(proof, "connect_with_one_password", side_effect=AssertionError("optional path")), \
+                        patch.object(proof, "matched_balance", side_effect=lambda stage, *_args: report(stage)), \
+                        patch.object(proof, "begin_human_window") as window, patch.object(proof, "press"), \
+                        patch.object(proof, "quit") as quit_app, patch.object(UI.time, "sleep"):
+                    if changed_stage is None:
+                        result = proof.perform()
+                        self.assertTrue(result["passed"])
+                        self.assertEqual(quit_app.call_count, 3)
+                        self.assertEqual([call.args[0] for call in window.call_args_list],
+                                         ["api", "after-api", "refresh", "release-build"])
+                    else:
+                        with self.assertRaisesRegex(UI.UIFailure, "mismatch|reconnected"):
+                            proof.perform()
 
 
 class DirectChildOwnershipTests(unittest.TestCase):
@@ -393,7 +528,9 @@ class DirectChildOwnershipTests(unittest.TestCase):
             self.assertEqual(execute.call_args.kwargs["env"], {"PATH": "/poisoned-path"})
         self.proof.executable = Path("/synthetic/app")
         self.proof.direct = {}
-        with patch.object(UI, "direct_configuration"), \
+        expires = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)).isoformat()
+        with patch.object(UI, "direct_configuration", return_value={"expires_at": expires}), \
+                patch.object(self.proof, "begin_human_window"), \
                 patch.object(UI.subprocess, "Popen", side_effect=UI.UIFailure("captured-launch")) as launch:
             with self.assertRaisesRegex(UI.UIFailure, "captured-launch"):
                 self.proof.launch(first=True)

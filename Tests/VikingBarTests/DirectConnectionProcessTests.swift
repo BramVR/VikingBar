@@ -12,7 +12,8 @@ struct DirectConnectionProcessTests {
         assert not forbidden.intersection(os.environ), 'unexpected environment'
         data = json.load(sys.stdin)
         assert data == {'client_id': 'client', 'username': 'user', 'password': 'synthetic-password'}, 'invalid input'
-        print(json.dumps({'schema_version': 1, 'check': 'connect', 'passed': True, 'connected': True}))
+        print(json.dumps({'schema_version': 1, 'check': 'connect', 'passed': True, 'connected': True,
+                          'connection_sha256': '7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052'}))
         """)
         defer { fixture.cleanup() }
         let credentials = try Self.credentials()
@@ -25,7 +26,9 @@ struct DirectConnectionProcessTests {
         try await fixture.acknowledgeDirectConnection()
         try await connecting.value
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: receipt)) as? [String: Any]
-        #expect(saved.map { Set($0.keys) } == ["schema_version", "check", "passed", "connected"])
+        #expect(saved.map { Set($0.keys) } == [
+            "schema_version", "check", "passed", "connected", "connection_sha256",
+        ])
         #expect(saved?["passed"] as? Bool == true)
         let attributes = try FileManager.default.attributesOfItem(atPath: receipt.path)
         #expect(attributes[.posixPermissions] as? Int == 0o600)

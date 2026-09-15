@@ -10,7 +10,8 @@ struct ConnectionProofTests {
         pathlib.Path(__file__ + '.started').touch()
         json.load(sys.stdin)
         pathlib.Path(__file__ + '.received').touch()
-        print(json.dumps({'schema_version': 1, 'check': 'connect', 'passed': True, 'connected': True}))
+        print(json.dumps({'schema_version': 1, 'check': 'connect', 'passed': True, 'connected': True,
+                          'connection_sha256': '7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052'}))
         """)
         defer { fixture.cleanup() }
         let connector = AccountConnector(cliURL: fixture.executable, helperURL: fixture.executable)

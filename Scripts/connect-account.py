@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shlex
 import shutil
 import signal
@@ -71,9 +72,13 @@ def credentials_from(data):
 
 
 def validate_receipt(receipt):
-    if receipt != {"schema_version": 1, "check": "connect", "passed": True, "connected": True}:
+    if (not isinstance(receipt, dict)
+            or set(receipt) != {"schema_version", "check", "passed", "connected", "connection_sha256"}
+            or receipt.get("check") != "connect"
+            or not isinstance(receipt.get("connection_sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", receipt["connection_sha256"]) is None):
         raise ConnectFailure("invalid-connect-receipt")
-    if (type(receipt["schema_version"]) is not int
+    if (type(receipt["schema_version"]) is not int or receipt["schema_version"] != 1
             or receipt["passed"] is not True or receipt["connected"] is not True):
         raise ConnectFailure("invalid-connect-receipt")
     return receipt

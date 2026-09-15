@@ -24,7 +24,9 @@ class BalanceUIProofTests(unittest.TestCase):
         self.report = {"schemaVersion": 1, "snapshot": snapshot, "menu": self.menu,
                        "balanceDetails": {"extraChargesText": "Extra charges: €1.23", "bundleTitle": "Data",
                                           "bundleDescription": "Domestic", "applicabilityText": "national"},
-                       "state": {"snapshot": snapshot, "connectionID": "synthetic", "balance": {"bundles": [1]},
+                       "state": {"snapshot": snapshot,
+                                 "connectionID": {"rawValue": "00000000-0000-0000-0000-000000000001"},
+                                 "balance": {"bundles": [1]},
                                  "selectedSubscriptionID": "synthetic", "selectedBundleIndex": 0}}
         self.tree = {"elements": [{"AXIdentifier": "vikingbar.status", "AXDescription": "VikingBar, Synthetic SIM, Last updated today",
                                    "frame": [[100, 0], [50, 24]]},
@@ -365,6 +367,27 @@ class BalanceUIProofTests(unittest.TestCase):
         with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
             UI.compare_menu(self.tree, self.report, self.screens)
 
+    def test_used_mode_matches_exact_hero_without_changing_preferences(self):
+        self.tree["elements"].append({"AXIdentifier": "vikingbar.balanceTitle", "AXValue": "Data used",
+                                      "frame": [[120, 100], [200, 20]]})
+        self.tree["elements"][1]["AXValue"] = "20.00 GB"
+        next(item for item in self.tree["elements"]
+             if item.get("AXValue") == self.menu["usedText"])["AXValue"] = "30.00 GB remaining"
+        UI.compare_menu(self.tree, self.report, self.screens)
+        self.tree["elements"][1]["AXValue"] = "30.00 GB"
+        with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
+            UI.compare_menu(self.tree, self.report, self.screens)
+
+    def test_unknown_or_duplicate_balance_title_cannot_choose_display_mode(self):
+        self.tree["elements"].append({"AXIdentifier": "vikingbar.balanceTitle", "AXValue": "Wrong title",
+                                      "frame": [[120, 100], [200, 20]]})
+        with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
+            UI.compare_menu(self.tree, self.report, self.screens)
+        self.tree["elements"][-1]["AXValue"] = self.menu["balanceTitle"]
+        self.tree["elements"].append(dict(self.tree["elements"][-1]))
+        with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
+            UI.compare_menu(self.tree, self.report, self.screens)
+
     def test_offscreen_fixture_stale_and_cross_sim_reports_fail(self):
         tree = copy.deepcopy(self.tree)
         tree["elements"][0]["frame"] = [[2000, 0], [50, 24]]
@@ -379,6 +402,16 @@ class BalanceUIProofTests(unittest.TestCase):
                 report["state"]["snapshot"] = {}
             with self.assertRaises(UI.UIFailure):
                 UI.successful_timestamp(report)
+
+    def test_connection_identity_normalizes_uuid_and_matches_connect_digest(self):
+        connection_id, digest = UI.connection_identity(self.report)
+        self.assertEqual(connection_id, "00000000-0000-0000-0000-000000000001")
+        self.assertEqual(digest, "7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052")
+        self.report["state"]["connectionID"] = {
+            "rawValue": "00000000-0000-0000-0000-000000000001", "extra": "private",
+        }
+        with self.assertRaisesRegex(UI.UIFailure, "live-report-invalid"):
+            UI.connection_identity(self.report)
 
     def test_wrong_extra_charges_fail_native_comparison(self):
         self.report["balanceDetails"]["extraChargesText"] = "Extra charges: €0.00"

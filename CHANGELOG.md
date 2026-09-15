@@ -4,6 +4,15 @@
 
 - Add default native direct sign-in for approved public-client accounts, retain optional 1Password connection, and reuse the CLI-owned Keychain session; required direct-form live proof remains pending.
 
+- Preserve missing login-service records as a distinct status; accept them only in fresh task-owned installation proof and retain strict registration cleanup.
+- Add local installation with ad-hoc bundle sealing, saved used/remaining card display and refresh interval, wake refresh, and launch-at-login controls with actual macOS status and restoration-aware installed proof.
+- Allow fresh local installation when unrelated process origins are unavailable; preserve conservative update refusal and prevent overwriting a destination created during the build.
+- Publish install receipts exclusively and preserve external receipt files during rollback.
+- Keep the compact popover onscreen as its content changes, and expose expanded bundle details as distinct accessible text.
+
+- Show an explicit unavailable state when a connected SIM has no active data bundles, and reject offscreen or unexpanded bundle-detail evidence in native fixture proof.
+
+- Replace the tabbed popover with a compact native bundle layout, remaining allowance beside total, SIM and bundle selectors, details, refresh, and footer Settings; keep Bills and Points reachable and move units, fixture controls, and Quit into Settings.
 - Add latest account invoice details with honest grouped-SIM relationships, separate payment amounts and credit notes, optional invoice refresh, and explicit authenticated private PDF downloads; queue points and bills without delaying data refresh or dropping pending metadata.
 - Show customer-wide Viking Points with separate available, pending, and blocked balances, expandable scrollable recent transactions that keep the balance visible, and independent stale or failed points states.
 - Publish a searchable GitHub Pages website with a rounded Three.js helmet, draggable plus-sign stars, a full-to-empty/refill animation, an interactive native menu demo matching issue #22, Mobile Vikings-inspired styling, API-access and 1Password setup requirements, an expandable FAQ, development-build links, and a source reference panel.
