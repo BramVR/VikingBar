@@ -9,7 +9,7 @@
 
 ## How to get to it (user POV)
 
-Open the helmet, choose **Data**, select a SIM and data bundle, then expand **Daily SIM data and estimate**. **Refresh now** refreshes balance first and schedules optional history. **Data units** changes both the card and chart units.
+Open the helmet, select a SIM and data bundle on the balance card, then expand **Daily SIM data and estimate**. **Refresh** refreshes balance first and schedules optional history. **Data units** in Settings changes both the card and chart units.
 
 CLI equivalents are `vikingbar live --history` and `vikingbar live --cached`. Both use the stored session. Do not run either as a credential-free diagnostic.
 
@@ -34,4 +34,4 @@ For source-only checks, run `make check SWIFTFORMAT=/tmp/vikingbar-tools-issue1/
 - Summary traffic spans the SIM's regions and bundles. The selected balance and history need not match. No call-detail endpoint or personal raw-response fixture is allowed.
 - Forecast proof needs three complete days plus continuous fresh elapsed-cycle evidence. Unavailable or truncated history is not a passing skip.
 - CLI and native session replies contain account data. Keep output and captures out of public PRs and CI.
-- Native history proof remains blocked before chart capture by the date-query failure. Source and synthetic results cannot establish visual or live API coverage. Record the exact verified head and private evidence after the coordinator grants the live slots.
+- The integrated `47c5a4d` live gate on 15 September 2026 timed out during `proof history-api`, before native launch. SecurityAgent appeared while the CLI waited, suggesting pending Keychain authorization. No API receipt or chart capture was produced, and cleanup passed. Private receipts remain under `.build/proof/cebf4795e2124911bb047b63c58ebc65/`. Arrange Mac availability for any authorization prompt before another stored-session run. This gate performs no password or 1Password read.

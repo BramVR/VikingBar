@@ -43,4 +43,4 @@ History uses the access token obtained by balance refresh. It does not bootstrap
 
 The API comparison requires real summaries with sufficient evidence for a calculable forecast. Missing evidence fails the gate; a synthetic result or unavailable estimate cannot substitute for the required live proof. No 1Password read is part of this history gate. A missing stored connection must be established separately through the approved connection workflow.
 
-The source and synthetic gate are implemented. Required live history proof has not run yet. See the [history feature map](../.agents/skills/verify-vikingbar/features/history.md) for commands, evidence, and coverage boundaries.
+The source and synthetic gate pass. Required live history proof has not passed. On 15 September 2026, the integrated build at `47c5a4d` timed out during the API proof before native launch. SecurityAgent appeared while the CLI waited, which suggests a Keychain authorization wait. No API receipt or chart capture was produced. Cleanup passed. See the [history feature map](../.agents/skills/verify-vikingbar/features/history.md) for commands, evidence, and coverage boundaries.
