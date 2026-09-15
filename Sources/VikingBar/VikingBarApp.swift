@@ -4,9 +4,10 @@ import SwiftUI
 import VikingBarCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
+    private let historyCompanion = HistoryCompanionController()
     private let session: AppSession
     private let options: AppLaunchOptions
     private var wakeObserver: NSObjectProtocol?
@@ -46,8 +47,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.popover.appearance = appearance
         }
         self.popover.behavior = .transient
+        self.popover.delegate = self
         let hosting = NSHostingController(rootView: PopoverView(
             session: self.session,
+            historyCompanion: self.historyCompanion,
             connect: self.connect,
             connectResultURL: self.options.proofDirectory?.appending(path: "connect-result.json"),
             fixtureReduceTransparency: self.options.fixtureReduceTransparency,
@@ -100,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !self.terminationPending else { return .terminateLater }
         self.terminationPending = true
+        self.historyCompanion.dismiss()
         if let wakeObserver = self.wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
             self.wakeObserver = nil
@@ -113,6 +117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.completeTermination(sender)
         }
         return .terminateLater
+    }
+
+    func popoverWillClose(_: Notification) {
+        self.historyCompanion.dismiss()
     }
 
     private func completeTermination(_ application: NSApplication) {

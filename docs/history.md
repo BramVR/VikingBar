@@ -7,7 +7,9 @@ read_when:
 
 # Daily SIM usage and cycle estimates
 
-The selected SIM's Data card includes **Daily SIM data and estimate**. Its chart uses the selected data bundle's validity period. Bars show reported daily bytes in GB or GiB. Missing summaries remain gaps; an explicit numeric zero is confirmed zero. Today is partial. Stale samples retain their amounts with a stale label.
+The selected SIM's Data card includes a compact daily usage summary and chart. Hover over the summary to open a separate detail panel beside the main popover. Move into that panel to inspect individual days without expanding the main card. You can also click the summary or activate it with the keyboard or an accessibility tool.
+
+The chart uses the selected data bundle's validity period. Bars show reported daily bytes in GB or GiB. Hover over a day for its full Brussels date, amount, and observation status. Missing summaries remain gaps; an explicit numeric zero is confirmed zero. Today and clipped cycle-boundary days are partial. Stale samples retain their amounts with a stale label.
 
 History covers all data traffic for that SIM, across regions and bundles. The provider's selected-bundle balance has a different scope. The card keeps both figures separate and explains that provider updates may lag. The history sum never replaces or corrects the balance.
 
@@ -43,8 +45,8 @@ History uses the access token obtained by balance refresh. It does not bootstrap
 
 `make proof-live CHECK=history` uses a stored connection. It requires fresh coordinator grants for account access and Mac UI driving. It builds the native bundle, runs the independent `proof history-api` comparison, opens the chart, verifies displayed values, presses Refresh, and retains chart captures and process cleanup receipts.
 
-The chart and balance checks use separate visible views of the same report. After capturing the expanded chart, the runner collapses history and verifies the balance and freshness text before pressing Refresh. All chart labels and required history text must fit inside the captured popover.
+The chart and balance checks use two visible windows of the same report. The runner verifies hover opening, pointer travel into the companion, and day selection. All chart labels and required history text must fit inside the detail panel. Classic capture includes both attached windows; the runner validates each exact-window target receipt and the resulting two-window group geometry. The main balance and freshness text remain visible and are checked before Refresh.
 
 The API comparison requires real summaries with sufficient evidence for a calculable forecast. Missing evidence fails the gate; a synthetic result or unavailable estimate cannot substitute for the required live proof. No 1Password read is part of this history gate. A missing stored connection must be established separately through the approved connection workflow.
 
-The source and synthetic gate pass. Required live history proof has not passed. On 15 September 2026, the integrated build at `47c5a4d` timed out during the API proof before native launch. SecurityAgent appeared while the CLI waited, which suggests a Keychain authorization wait. No API receipt or chart capture was produced. Cleanup passed. See the [history feature map](../.agents/skills/verify-vikingbar/features/history.md) for commands, evidence, and coverage boundaries.
+On 15 September 2026, build `abc0a37` passed the real API and forecast comparison with 19 requests and 18 observed days. Native proof timed out after the popover disappeared while another menu was open. No chart capture was produced; cleanup passed. The hover companion requires fresh native proof before issue completion. See the [history feature map](../.agents/skills/verify-vikingbar/features/history.md) for commands, evidence, and coverage boundaries.

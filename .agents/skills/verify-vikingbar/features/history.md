@@ -9,7 +9,7 @@
 
 ## How to get to it (user POV)
 
-Open the helmet, select a SIM and data bundle on the balance card, then expand **Daily SIM data and estimate**. **Refresh** refreshes balance first and schedules optional history. **Data units** in Settings changes both the card and chart units.
+Open the helmet, select a SIM and data bundle, then hover over the daily usage summary. A separate detail panel opens beside the main popover. Move into the panel and hover over a day to inspect its date, amount, and status. Click or activate the summary with the keyboard to open the same details. Arrow keys select a day; Escape dismisses the panel. **Refresh** refreshes balance first and schedules optional history. **Data units** in Settings changes both the card and chart units.
 
 CLI equivalents are `vikingbar live --history` and `vikingbar live --cached`. Both use the stored session. Do not run either as a credential-free diagnostic.
 
@@ -21,11 +21,13 @@ Run `make proof-live CHECK=history` with `PEEKABOO_BIN` set to the approved exec
 
 Require exit 0 and the redacted history receipt with `api_matches`, `forecast_matches`, `native_chart_matches`, and `native_refresh` all true. Require `cleanup.json` to show `exited: true`. Missing or insufficient live evidence fails the gate.
 
-The gate first runs bundled `vikingbar proof history-api`. This forces real daily reads and compares their mapping and forecast arithmetic independently. It then launches the fresh native bundle, opens `vikingbar.historyDisclosure`, and compares `vikingbar.historyChart`, `vikingbar.historyForecast`, `vikingbar.historyStatus`, and `vikingbar.historyScope` with the same production presentation. The chart and each required history text must fit fully inside one AXPopover whose bounds match one CG window on a real display. Capture receipts must match that window, its bounds, and the requested image path; the card is rechecked after capture. Negative-origin displays are supported. It requires a newer successful balance after native Refresh; eligible historical samples may come from the scoped cache.
+The gate first runs bundled `vikingbar proof history-api`. This forces real daily reads and compares their mapping and forecast arithmetic independently. It then launches the fresh native bundle and hovers over `vikingbar.historyDisclosure`. The main AXPopover and the separate `vikingbar.historyPanel` must each match a visible CG window on a real display. The chart, total, forecast, status, and scope must fit fully inside the companion window and match the same production presentation. Negative-origin displays are supported. Native Refresh must produce a newer successful balance; eligible historical samples may come from the scoped cache.
+
+Classic capture returns these attached windows as one group. The history gate targets each member by exact PID and window ID, validates its receipt against that member's bounds, and requires each PNG to match the geometric union of exactly the two known content windows at a uniform scale. It rejects extra content windows and rechecks both identities, frames, and selected-day details after each capture. These are explicitly labeled group images, not individual crops. No area capture or retry substitutes for a failed receipt.
 
 Keep the generated `.build/proof/<run>/` directory private. It contains API receipts, typed private reports, native trees, initial and refreshed chart PNGs, exact process and executable identities, and cleanup receipts. Inspect both PNGs for visible bars, date labels, units, gap markers, estimate wording, and readable layout. Evidence must survive cleanup. Publish only redacted results and build identity.
 
-After each chart capture, the runner collapses history and compares the visible balance and freshness text against that exact report. Refresh runs with history collapsed. The next chart check opens it again. Expanded history and the lower balance controls cannot all fit in one viewport.
+The runner checks source-to-panel pointer traversal and selected-day details through `vikingbar.historyPlot`, whose bounds exclude chart axes. It compares the main balance and freshness text against the same report used for the detail panel. Moving away dismisses the panel; the next chart check opens it again.
 
 For source-only checks, run `make check SWIFTFORMAT=/tmp/vikingbar-tools-issue1/swiftformat`, `Scripts/test.sh --filter History`, and `python3 -m unittest discover -s Scripts/tests -p test_history_proof.py`. These tests inject synthetic HTTP and stores. They do not drive the native app, use Keychain, invoke 1Password, or contact the account API.
 
@@ -33,8 +35,8 @@ For source-only checks, run `make check SWIFTFORMAT=/tmp/vikingbar-tools-issue1/
 
 - The summary endpoint groups traffic over the requested interval, not by day. The client requests bounded Brussels days with inclusive start and exclusive end. Empty arrays do not establish zero.
 - Live responses group totals under direction and traffic keys. Select only `outgoing.data`; the documented regional row array remains supported. Do not sum incoming data or other traffic types. Missing selected groups are malformed, while an explicit zero total is confirmed zero.
-- Date queries require whole seconds and an escaped numeric UTC offset. Fractional seconds and `Z` produced HTTP 400 in the bounded live diagnostic; corrected aggregate and native proof still require a fresh slot.
+- Date queries require whole seconds and an escaped numeric UTC offset. Fractional seconds and `Z` produced HTTP 400 in the bounded live diagnostic.
 - Summary traffic spans the SIM's regions and bundles. The selected balance and history need not match. No call-detail endpoint or personal raw-response fixture is allowed.
 - Forecast proof needs three complete days plus continuous fresh elapsed-cycle evidence. Unavailable or truncated history is not a passing skip.
 - CLI and native session replies contain account data. Keep output and captures out of public PRs and CI.
-- The integrated `47c5a4d` live gate on 15 September 2026 timed out during `proof history-api`, before native launch. SecurityAgent appeared while the CLI waited, suggesting pending Keychain authorization. No API receipt or chart capture was produced, and cleanup passed. Private receipts remain under `.build/proof/cebf4795e2124911bb047b63c58ebc65/`. Arrange Mac availability for any authorization prompt before another stored-session run. This gate performs no password or 1Password read.
+- On 15 September 2026, `abc0a37` passed the real API and forecast comparison with 19 requests and 18 observed days. Native proof timed out after the popover disappeared while another menu was open. No chart capture was produced; cleanup passed. The new hover panel requires a fresh native run before the issue can close. This gate performs no password or 1Password read.

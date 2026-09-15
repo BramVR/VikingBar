@@ -14,8 +14,11 @@ public struct HistoryDayPresentation: Codable, Equatable, Sendable {
     public let isMissing: Bool
     public let isStale: Bool
     public let isToday: Bool
+    public let isPartial: Bool
     public let label: String
+    public let fullDateText: String
     public let valueText: String
+    public let statusText: String
 }
 
 public struct HistoryPresentation: Codable, Equatable, Sendable {
@@ -33,22 +36,10 @@ public struct HistoryPresentation: Codable, Equatable, Sendable {
         self.scopeText = "SIM data across all regions and bundles. Selected bundle balance has a different scope; "
             + "provider updates may lag. Days use Europe/Brussels."
         let divisor = unit == .gigabytes ? 1_000_000_000.0 : 1_073_741_824.0
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = HistoryPlan.calendar.timeZone
-        formatter.dateFormat = "d MMM"
-        self.days = (history?.observations ?? []).map { observation in
-            let isToday = HistoryPlan.calendar.isDate(observation.interval.dayStart, inSameDayAs: now)
-            let partial = isToday ? " · today, partial" : (observation.interval.isCompleteDay ? "" : " · partial")
-            let stale = observation.bytes != nil && observation.stale(at: now)
-            let amount = observation.bytes.map { unit.format(bytes: $0) } ?? "Missing"
-            return HistoryDayPresentation(
-                dayStart: observation.interval.dayStart, bytes: observation.bytes,
-                value: observation.bytes.map { Double($0) / divisor }, isMissing: observation.bytes == nil,
-                isStale: stale, isToday: isToday,
-                label: formatter.string(from: observation.interval.dayStart),
-                valueText: amount + (stale ? " · stale" : "") + partial,
-            )
+        let labelFormatter = Self.dateFormatter(format: "d MMM")
+        let fullDateFormatter = Self.dateFormatter(format: "d MMMM yyyy")
+        self.days = (history?.observations ?? []).map {
+            Self.day($0, unit: unit, now: now, labelFormatter: labelFormatter, fullDateFormatter: fullDateFormatter)
         }
         self.totalObservedBytes = Self.sum((history?.observations ?? []).compactMap(\.bytes))
         self.totalText = self.totalObservedBytes.map { "Observed SIM total: \(unit.format(bytes: $0))" }
@@ -76,6 +67,43 @@ public struct HistoryPresentation: Codable, Equatable, Sendable {
         } else {
             self.statusText = "Daily SIM data. Today is partial."
         }
+    }
+
+    private static func dateFormatter(format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = HistoryPlan.calendar.timeZone
+        formatter.dateFormat = format
+        return formatter
+    }
+
+    private static func day(
+        _ observation: HistoryObservation,
+        unit: DataUnit,
+        now: Date,
+        labelFormatter: DateFormatter,
+        fullDateFormatter: DateFormatter,
+    ) -> HistoryDayPresentation {
+        let divisor = unit == .gigabytes ? 1_000_000_000.0 : 1_073_741_824.0
+        let isToday = HistoryPlan.calendar.isDate(observation.interval.dayStart, inSameDayAs: now)
+        let partial = isToday ? " · today, partial" : (observation.interval.isCompleteDay ? "" : " · partial")
+        let stale = observation.bytes != nil && observation.stale(at: now)
+        let amount = observation.bytes.map { unit.format(bytes: $0) } ?? "Missing"
+        let statusText = if observation.bytes == nil {
+            "No data (missing)"
+        } else if observation.bytes == 0 {
+            "Confirmed zero usage"
+        } else {
+            "Data usage confirmed"
+        }
+        return HistoryDayPresentation(
+            dayStart: observation.interval.dayStart, bytes: observation.bytes,
+            value: observation.bytes.map { Double($0) / divisor }, isMissing: observation.bytes == nil,
+            isStale: stale, isToday: isToday, isPartial: !observation.interval.isCompleteDay,
+            label: labelFormatter.string(from: observation.interval.dayStart),
+            fullDateText: fullDateFormatter.string(from: observation.interval.dayStart),
+            valueText: amount + (stale ? " · stale" : "") + partial, statusText: statusText,
+        )
     }
 
     private static func sum(_ amounts: [UInt64]) -> UInt64? {

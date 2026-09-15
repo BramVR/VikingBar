@@ -4,7 +4,7 @@ import VikingBarCore
 struct DataCard: View {
     @Bindable var session: AppSession
     @Binding var detailsExpanded: Bool
-    @Binding var historyExpanded: Bool
+    let historyCompanion: HistoryCompanionController
     var presentConnection: () -> Void = {}
 
     var body: some View {
@@ -29,28 +29,24 @@ struct DataCard: View {
             } else {
                 self.selection
                 self.balance
-                self.details
-                if !self.session.isFixtureLaunch, self.session.liveState.historyContext != nil {
-                    HistoryCard(
-                        presentation: self.session.historyPresentation,
-                        isLoading: self.session.isHistoryLoading,
-                        error: self.session.historyError,
-                        reportedUsedText: self.session.menu.usedText,
-                        expanded: self.$historyExpanded,
-                    )
+                if !self.session.isFixtureLaunch, let content = HistoryCompanionContent(session: self.session) {
+                    HistoryCard(content: content, companion: self.historyCompanion)
                 }
-                Divider().padding(.vertical, 6)
-                self.refreshAction
+                self.details
+                Divider().padding(.vertical, 2)
+                HStack {
+                    self.refreshAction
+                    Spacer()
+                    self.myViking
+                }
                 Text(self.session.menu.freshnessText)
                     .font(.caption).foregroundStyle(.secondary)
                     .accessibilityIdentifier("vikingbar.freshness")
             }
-            Divider().padding(.vertical, 6)
-            Link(destination: URL(string: "https://mobilevikings.be/en/my-viking/")!) {
-                Label("Open My Viking", systemImage: "link")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if self.session.needsConnection {
+                Divider().padding(.vertical, 2)
+                self.myViking
             }
-            .accessibilityIdentifier("vikingbar.openMyViking")
             Text(self.session.menu.sourceLabel)
                 .font(.caption).foregroundStyle(.secondary)
                 .accessibilityIdentifier("vikingbar.source")
@@ -69,7 +65,6 @@ struct DataCard: View {
             }
             .accessibilityIdentifier("vikingbar.subscriptionPicker")
             .disabled(!self.session.canSelectAccountData)
-            Divider().padding(.vertical, 6)
             if self.session.hasSelectableBundle {
                 Picker("Data bundle", selection: Binding(
                     get: { self.session.selectedBundleIndex },
@@ -116,7 +111,7 @@ struct DataCard: View {
             }
             .font(.caption).foregroundStyle(.secondary)
             Label(menu.expiryText, systemImage: "calendar")
-                .font(.caption).padding(.vertical, 6)
+                .font(.caption).padding(.vertical, 2)
                 .accessibilityIdentifier("vikingbar.expiry")
             if let warning = menu.warningText {
                 Label(warning, systemImage: "exclamationmark.triangle")
@@ -128,7 +123,7 @@ struct DataCard: View {
     }
 
     private var details: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 3) {
             Divider()
             DisclosureGroup(isExpanded: self.$detailsExpanded) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -138,7 +133,7 @@ struct DataCard: View {
                         .accessibilityIdentifier("vikingbar.bundleApplicability")
                 }
                 .font(.caption).frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 6)
+                .padding(.top, 3)
             } label: {
                 HStack {
                     Text("Bundle details")
@@ -157,11 +152,17 @@ struct DataCard: View {
                 self.session.activity == .refreshing ? "Refreshing…" : "Refresh",
                 systemImage: "arrow.clockwise",
             )
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .disabled(!self.session.canRefresh)
         .keyboardShortcut("r")
         .accessibilityIdentifier("vikingbar.refresh")
+    }
+
+    private var myViking: some View {
+        Link(destination: URL(string: "https://mobilevikings.be/en/my-viking/")!) {
+            Label("Open My Viking", systemImage: "link")
+        }
+        .accessibilityIdentifier("vikingbar.openMyViking")
     }
 
     private var directConnect: some View {
