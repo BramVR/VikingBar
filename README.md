@@ -15,6 +15,8 @@ The helmet in the menu bar shows the selected data bundle's remaining allowance.
 
 Each SIM keeps its own allowance. Viking Points belong to the whole account. Missing amounts stay unavailable rather than appearing as zero.
 
+Install a local build with `make install-app`. Settings also save the card's used/remaining display and refresh interval. Launch-at-login controls report the actual macOS registration state. See [local installation, updates, and removal](docs/local-install.md). Installed native proof is tracked separately in the [verification map](.agents/skills/verify-vikingbar/features/installed-app.md).
+
 The **Bills** tab shows the latest account invoice or credit note, including grouped scope, payment state, and amount due. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md).
 
 Expand **Daily SIM data and estimate** for daily aggregate usage and a labeled cycle estimate. Missing and stale days remain distinct from zero. See [history rules and pending live proof](docs/history.md).
@@ -25,7 +27,7 @@ VikingBar currently targets Apple Silicon Macs with macOS 14 or later. Building 
 
 Development builds have no Developer ID signing or notarization. Public distribution and automatic updates are not configured. The [build download guide](docs/RELEASING.md#download-a-development-build) covers app and CLI artifacts from GitHub Actions.
 
-Launch at login remains planned. The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
+Required live history proof remains pending. The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
 
 ## Getting started
 
@@ -35,13 +37,13 @@ The app has no Dock icon. Its helmet opens the data card. **Settings** contains 
 
 The [website](https://bramvr.github.io/VikingBar/) explains setup and includes an interactive sample menu. See the [website development guide](website/README.md) for its separate build and checks.
 
-For your own balance, the [account setup guide](docs/live-account.md) covers connection through **Connect with 1Password**. The current connection helper requires the 1Password CLI, tmux, `/usr/bin/python3`, and the service-account and credential-reference setup described in that guide.
+For your own balance, the [account setup guide](docs/live-account.md) covers default direct sign-in and optional **Connect with 1Password**. Direct sign-in needs approved public-client details and your account credentials. The optional 1Password helper requires the 1Password CLI, tmux, `/usr/bin/python3`, and the service-account and credential-reference setup described in that guide.
 
 Opening the app without `--fixture` restores a live session or shows account setup. Subsequent refreshes use the stored token.
 
 ## Credentials and account data
 
-The connection helper reads the configured 1Password item once. The bundled CLI stores refresh tokens in macOS Keychain and communicates with the app over private pipes. The public OAuth client needs no client secret.
+Direct sign-in passes credentials to the bundled CLI over stdin. The optional connection helper reads the configured 1Password item once. The bundled CLI stores refresh tokens in macOS Keychain and communicates with the app over private pipes. The public OAuth client needs no client secret.
 
 VikingBar restricts account requests to authentication and allowlisted data reads. Account changes and payments are outside its scope. Credentials, account responses, and private screenshots stay out of commits and hosted CI. The [live proof guide](docs/live-proof.md) documents request limits and verification coverage.
 

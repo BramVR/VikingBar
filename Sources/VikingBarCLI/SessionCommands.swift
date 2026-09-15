@@ -4,16 +4,18 @@ import VikingBarCore
 struct SessionCommand: Decodable, Sendable {
     enum Name: String, Decodable, Sendable {
         case restore, refresh, refreshHistory, refreshPoints, refreshInvoices, downloadInvoice
-        case selectSubscription, selectBundle, cancel, shutdown
+        case selectSubscription, selectBundle, configure, cancel, shutdown
     }
 
     let command: Name
     let id: String?
     let index: Int?
+    let refreshInterval: RefreshInterval?
 
     func execute(on session: VikingSession) async throws {
         await session.clearInvoiceDocument()
         switch self.command {
+        case .configure: _ = await session.configure(refreshInterval: self.refreshInterval!)
         case .restore: _ = try await session.restore()
         case .refresh: _ = try await session.refresh()
         case .refreshHistory: _ = try await session.refreshHistory()
@@ -33,14 +35,15 @@ struct SessionCommand: Decodable, Sendable {
         }
         let keys: Set<String>
         switch value.command {
-        case .downloadInvoice:
+        case .configure:
+            keys = ["command", "refreshInterval"]
+            guard value.refreshInterval != nil else { throw ProofFailure.invalidInput }
+        case .downloadInvoice, .selectSubscription:
             keys = ["command", "id"]
             guard let id = value.id else { throw ProofFailure.invalidInput }
-            _ = try ProofEndpoint.invoicePDF(id: id).request()
-        case .selectSubscription:
-            keys = ["command", "id"]
-            guard let id = value.id else { throw ProofFailure.invalidInput }
-            _ = try ProofEndpoint.balance(subscriptionID: id).request()
+            let endpoint: ProofEndpoint = value.command == .downloadInvoice
+                ? .invoicePDF(id: id) : .balance(subscriptionID: id)
+            _ = try endpoint.request()
         case .selectBundle:
             keys = ["command", "index"]
             guard let index = value.index, index >= 0 else { throw ProofFailure.invalidInput }

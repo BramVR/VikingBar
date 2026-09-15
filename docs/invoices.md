@@ -7,7 +7,9 @@ read_when:
 
 # Invoices
 
-The **Bills** tab shows the latest account billing document. A grouped invoice can cover several subscriptions. VikingBar labels its total as a grouped amount and reports the selected SIM's relationship separately. Missing subscription identifiers do not establish membership.
+The **Bills** action opens the latest account billing document. A grouped invoice can cover several subscriptions. VikingBar labels its total as a grouped amount and reports the selected SIM's relationship separately. Missing subscription identifiers do not establish membership.
+
+Use **Back** to return to the selected balance. Bills and Points share the compact popover navigation; Settings remains in the footer.
 
 The account invoice list is necessary because the subscription invoice endpoint omits grouped invoices. The API orders documents by date and invoice number, newest first. Credit notes remain credit notes, with their linked invoice identified separately. An amount due describes that document, not the account's total debt.
 

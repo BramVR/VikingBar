@@ -83,6 +83,8 @@ The private `connect-result-ownership.json` receipt records the helper, tmux ser
 
 The native runner records each session worker in `workers.json` before waiting for UI or balance responses. Failure cleanup tries native Quit, then stops only its recorded app and workers. Worker signals require matching PID, start time, and command, with the original parent or PID 1 after reparenting. `cleanup.json` reports success only when all tracked app and worker processes exited and ownership checks passed. Missing worker ownership or failed process inspection cannot count as successful cleanup.
 
+The runner handles SIGTERM as a fixed cancellation failure and runs owned-process cleanup before restoring its previous signal handler, umask, and core-dump limit. Repeated SIGTERM does not interrupt cleanup. SIGKILL cannot run this cleanup path.
+
 Connection failures preserve a fixed stage through the CLI and helper. Credential context, item-read failures or timeouts, and invalid fields have separate codes. The CLI reports `credential-input`, `local-filesystem`, `session-busy`, `token-network`, `token-rejected`, `token-response`, `token-rate-limited`, `token-server`, `keychain-write`, `connect-cancelled`, or the unknown fallback `connect-failed`. Native proof prefixes a validated stage with `native-connect-`. Only exact allowlisted failure receipts are accepted; raw stderr, provider text, extra fields, and unknown error strings are never forwarded.
 
 A connection-command timeout does not identify the operation that was waiting. Earlier generic `connect-failed` receipts establish only an unsuccessful inner result; they cannot establish whether credentials were read, a token was issued, or storage was attempted. Preserve those receipts and do not infer a cause or repeat the password read. A separate stored-session inspection requires explicit authorization; `live --cached` can read Keychain and private cached account data even though it makes no API request.
@@ -92,7 +94,7 @@ Required issue #4 sequence:
 1. Build and launch a fresh native bundle. Record its path, PID, parent, start time, and executable hashes.
 2. Press **Connect with 1Password** once. Require the packaged helper's redacted connection receipt from exactly one approved item read.
 3. Compare raw API fields with production models through the bundled `vikingbar proof balance-api`. Compare the native card and visible status item with the same account's production CLI report.
-4. Press **Refresh now**. Require a newer successful update and matching native values.
+4. Press **Refresh**. Require a newer successful update and matching native values.
 5. Quit and relaunch. Require the same connection ID and a successful refresh using the stored token.
 6. Quit, rebuild the bundle in release configuration, and relaunch. Require another successful stored-token refresh with the same connection ID and no second 1Password read.
 7. Preserve API comparison, native captures, build identities, connection, relaunch, and cleanup receipts. Missing stages fail the gate.
@@ -146,3 +148,25 @@ This check reuses the stored session. It does not retrieve the password or conne
 Raw account output and captures stay private under `.build/proof/`. Retain the build hashes, API comparison, native action receipts, images, result, and cleanup receipt. Inspect the PNGs after the automated check. Synthetic tests cover states absent from the live account; do not claim that every state was observed live.
 
 The [points feature map](../.agents/skills/verify-vikingbar/features/points.md) records live coverage and its limits.
+
+## Direct sign-in proof
+
+`make proof-live CHECK=direct-connect-ui` extends the native balance proof. This new entry method requires explicit approval of its concrete private proof configuration, plus the coordinator's credential and Mac UI slots. Existing retry authorization does not approve this new configuration.
+
+Both native entry methods passed on 2026-09-15. Direct sign-in passed on `4f8f0c9`; the optional 1Password method passed on `0471b6f`, whose changes only affect proof automation and its tests. Both runs verified a new connection, API comparison, native Refresh, stored-session relaunch, release rebuild, visible balance and owned-process cleanup. Private receipts remain under `.build/proof/8cc571f7200244f988a52220469d24d2/` and `.build/proof/05316b20c8694eaebef40df336b3415e/`. Native keyboard navigation remains unverified because automation could not obtain a complete exact-window snapshot.
+
+The private configuration identifies the reviewed source digest, the approved credential-reference digest, one named tmux session, slot owners, and a short expiry. `VIKINGBAR_DIRECT_CONNECT_CONFIG` names that file outside the checkout. `VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256` acknowledges its exact contents. The coordinator supplies fresh `VIKINGBAR_CREDENTIAL_SLOT`, `VIKINGBAR_MAC_UI_SLOT`, and `VIKINGBAR_SLOT_BINDINGS_EXPIRES_AT` bindings. They must match the configuration's slots and expiry; inactive placeholders fail. The expiry must be in the next hour. These are operator checks against supplied bindings. The runner cannot verify a coordinator grant independently, and setting variables does not grant authorization.
+
+After approval, the external proof process runs inside the configured tmux session. It reads the exact approved 1Password item once and passes the three selected fields through a private pipe to `inspect-ui fill-direct`. That helper fills the actual native fields through Accessibility. It accepts no password argument or file, requires a secure password field, and emits a fixed receipt. This external credential source belongs to the proof process. The app's direct route has no 1Password or tmux dependency.
+
+The helper identifies duplicate Accessibility references with `CFEqual` and rejects distinct controls sharing a field identifier. It focuses each field before setting its value and moves focus afterward. Its fill receipt proves only those Accessibility operations succeeded. Native submission must separately prove that SwiftUI received the edits; nonempty AX values alone do not satisfy the gate. The focus-based edit path still requires a successful fixture run.
+
+During direct proof, a process-execution policy permits the app and bundled CLI only. The runner checks the restriction before reading credentials. The app receives neither the credential reference nor the service-account token. It submits the form to the existing CLI `connect` command through private stdin. The CLI continues to own the refresh session in Keychain.
+
+Each successful connect receipt contains only a SHA-256 digest of the new connection UUID. The first live report must match that digest, and the same normalized UUID and digest must remain present through the API comparison, native Refresh, stored-session relaunch, and release rebuild. A receipt from an earlier connection cannot satisfy a later run.
+
+Before writing credentials to that stdin, the app publishes a private connection-worker candidate and waits for the runner's acknowledgement. The runner verifies and records the child's PID, parent, start time, exact command, and executable hash first. Cleanup checks this candidate even if the app has already exited. Unverified ownership fails cleanup instead of permitting a signal to an unknown process. Direct sign-in with `--proof-directory` requires this runner handshake and fails after 15 seconds without acknowledgement. The normal direct sign-in flow does not require it.
+
+The helper suppresses form text in accessibility output. Before each direct live stage, the runner writes a private readiness receipt and allows up to ten minutes, capped by the coordinator slot expiry, for a human to approve a Keychain prompt. It suppresses screenshots from launch until a valid live card replaces the credential form. Helper commands, API calls, process checks, Refresh, Quit, and rebuild all share the active readiness deadline. All child errors remain fixed diagnostics. Credentials remain briefly in process memory; clearing references does not guarantee erasure of immutable runtime strings. No password belongs in arguments, environment, settings, files, logs, clipboard, or proof receipts.
+
+The gate requires a real API comparison, native refresh, stored-session relaunch, release rebuild and another stored-session relaunch. It preserves the balance proof's identity and cleanup checks. The optional method still requires a separate `make proof-live CHECK=balance-ui` result under its existing authorization policy. Missing or skipped proof keeps issue 26 incomplete and blocks website availability claims.

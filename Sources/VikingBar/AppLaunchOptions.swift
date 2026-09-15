@@ -1,20 +1,56 @@
+import AppKit
 import Foundation
 import VikingBarCore
 
 struct AppLaunchOptions {
+    enum FixtureAppearance: String {
+        case light, dark
+        case highContrastLight = "high-contrast-light"
+        case highContrastDark = "high-contrast-dark"
+
+        var appearance: NSAppearance? {
+            let name: NSAppearance.Name = switch self {
+            case .light: .aqua
+            case .dark: .darkAqua
+            case .highContrastLight: .accessibilityHighContrastAqua
+            case .highContrastDark: .accessibilityHighContrastDarkAqua
+            }
+            return NSAppearance(named: name)
+        }
+    }
+
+    let fixtureAppearance: FixtureAppearance?
+    let fixtureReduceTransparency: Bool
     let shared: LaunchOptions
     let settingsFile: URL?
     let credentialReference: URL?
     let proofDirectory: URL?
+    let allowLoginItem: Bool
 
     init(arguments: [String]) throws {
+        var appearance: FixtureAppearance?
+        var reduceTransparency = false
         var sharedArguments: [String] = []
         var paths: [String: URL] = [:]
         let pathOptions = ["--settings-file", "--credential-reference", "--proof-directory"]
+        var allowLoginItem = false
         var index = 0
         while index < arguments.count {
             let option = arguments[index]
-            if pathOptions.contains(option) {
+            if option == "--allow-login-item" {
+                guard !allowLoginItem else { throw ArgumentError.invalid("Repeated --allow-login-item.") }
+                allowLoginItem = true
+                index += 1
+            } else if option == "--fixture-appearance" {
+                guard appearance == nil else { throw ArgumentError.invalid("Duplicate --fixture-appearance.") }
+                appearance = try Self.parseAppearance(arguments, at: index + 1)
+                index += 2
+            } else if option == "--fixture-reduce-transparency" {
+                guard !reduceTransparency
+                else { throw ArgumentError.invalid("Duplicate --fixture-reduce-transparency.") }
+                reduceTransparency = true
+                index += 1
+            } else if pathOptions.contains(option) {
                 guard paths[option] == nil, index + 1 < arguments.count,
                       arguments[index + 1].hasPrefix("/")
                 else { throw ArgumentError.invalid("\(option) requires one absolute path.") }
@@ -26,6 +62,16 @@ struct AppLaunchOptions {
             }
         }
         self.shared = try LaunchOptions(arguments: sharedArguments)
+        self.fixtureAppearance = appearance
+        self.fixtureReduceTransparency = reduceTransparency
+        self.settingsFile = paths["--settings-file"]
+        self.credentialReference = paths["--credential-reference"]
+        self.proofDirectory = paths["--proof-directory"]
+        self.allowLoginItem = allowLoginItem
+        try self.validate(paths: paths)
+    }
+
+    private func validate(paths: [String: URL]) throws {
         guard !self.shared.showHelp || paths.isEmpty else { throw ArgumentError.invalid("Use --help on its own.") }
         guard paths["--settings-file"] == nil || self.shared.fixture != nil else {
             throw ArgumentError.invalid("--settings-file requires --fixture.")
@@ -33,8 +79,20 @@ struct AppLaunchOptions {
         guard self.shared.fixture == nil
             || (paths["--credential-reference"] == nil && paths["--proof-directory"] == nil)
         else { throw ArgumentError.invalid("Credential and proof paths cannot be used with --fixture.") }
-        self.settingsFile = paths["--settings-file"]
-        self.credentialReference = paths["--credential-reference"]
-        self.proofDirectory = paths["--proof-directory"]
+        guard !self.allowLoginItem || (self.shared.fixture != nil && paths["--settings-file"] != nil) else {
+            throw ArgumentError.invalid("--allow-login-item requires --fixture and --settings-file.")
+        }
+        guard self.fixtureAppearance == nil && !self.fixtureReduceTransparency || self.shared.fixture != nil else {
+            throw ArgumentError.invalid("Fixture appearance options require --fixture.")
+        }
+    }
+
+    private static func parseAppearance(_ arguments: [String], at index: Int) throws -> FixtureAppearance {
+        guard arguments.indices.contains(index), let value = FixtureAppearance(rawValue: arguments[index]) else {
+            throw ArgumentError.invalid(
+                "--fixture-appearance requires light, dark, high-contrast-light, or high-contrast-dark.",
+            )
+        }
+        return value
     }
 }

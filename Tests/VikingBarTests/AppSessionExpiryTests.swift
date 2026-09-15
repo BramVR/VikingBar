@@ -83,7 +83,7 @@ struct AppSessionExpiryTests {
             model.refresh()
             try await AppSessionTests.until { model.activity == .idle && model.activeOptional == nil }
         } else if action == "connect" {
-            model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
+            model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
             try await AppSessionTests.until { model.activity == .idle && model.activeOptional == nil }
         } else {
             await model.stop()

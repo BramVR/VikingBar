@@ -1,4 +1,5 @@
 import AppKit
+import Dispatch
 import SwiftUI
 import VikingBarCore
 
@@ -8,12 +9,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let session: AppSession
     private let options: AppLaunchOptions
+    private var wakeObserver: NSObjectProtocol?
     private var terminationPending = false
     private var terminationReplySent = false
 
     init(options: AppLaunchOptions, preferences: MenuBarPreferences) {
         self.session = AppSession(
             options: options.shared, preferences: preferences,
+            loginItems: options.shared.fixture == nil || options.allowLoginItem
+                ? SystemLoginItemManager() : DisabledLoginItemManager(),
             clientFactory: {
                 try SessionProcessClient(executableURL: Self.bundledURL("MacOS/vikingbar"))
             },
@@ -37,13 +41,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.action = #selector(self.togglePopover)
         item.button?.setAccessibilityIdentifier("vikingbar.status")
         self.updateStatus()
+        if let appearance = self.options.fixtureAppearance?.appearance {
+            NSApplication.shared.appearance = appearance
+            self.popover.appearance = appearance
+        }
         self.popover.behavior = .transient
-        self.popover.contentSize = NSSize(width: 360, height: self.session.isFixtureLaunch ? 570 : 760)
-        self.popover.contentViewController = NSHostingController(rootView: PopoverView(
+        let hosting = NSHostingController(rootView: PopoverView(
             session: self.session,
             connect: self.connect,
+            connectResultURL: self.options.proofDirectory?.appending(path: "connect-result.json"),
+            fixtureReduceTransparency: self.options.fixtureReduceTransparency,
         ))
+        hosting.sizingOptions = [.preferredContentSize]
+        self.popover.contentViewController = hosting
+        self.popover.contentSize = hosting.view.fittingSize
+        self.wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main,
+        ) { [weak self] _ in
+            Task { @MainActor in self?.session.didWake() }
+        }
         self.session.start()
+    }
+
+    func applicationDidBecomeActive(_: Notification) {
+        self.session.checkLoginItem()
     }
 
     private static func bundledURL(_ path: String) throws -> URL {
@@ -53,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func connect() {
+        guard !self.session.isFixtureLaunch else { return }
         if let reference = self.options.credentialReference {
             self.connect(reference: reference)
             return
@@ -70,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func connect(reference: URL) {
         self.session.connect(
-            reference: reference,
+            input: .reference(reference),
             resultURL: self.options.proofDirectory?.appending(path: "connect-result.json"),
         )
     }
@@ -78,6 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !self.terminationPending else { return .terminateLater }
         self.terminationPending = true
+        if let wakeObserver = self.wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
         Task {
             await self.session.stop()
             self.completeTermination(sender)
@@ -110,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if self.popover.isShown {
             self.popover.performClose(nil)
         } else {
+            self.session.checkLoginItem()
             NSApplication.shared.activate()
             self.popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             self.popover.contentViewController?.view.window?.makeKey()
@@ -122,24 +149,48 @@ struct VikingBarApp {
     @MainActor
     static func main() {
         do {
-            let appOptions = try AppLaunchOptions(arguments: Array(CommandLine.arguments.dropFirst()))
-            let options = appOptions.shared
-            if options.showHelp {
-                print(LaunchOptions.usage.replacingOccurrences(of: "vikingbar", with: "VikingBar"))
-                print("App fixture option: --settings-file ABSOLUTE_PATH saves the menu bar setting.")
-                print("Live options: --credential-reference ABSOLUTE_PATH --proof-directory ABSOLUTE_PATH")
-                return
+            let arguments = Array(CommandLine.arguments.dropFirst())
+            if let command = try LoginItemCommand.parse(arguments) {
+                Task { @MainActor in
+                    do {
+                        let report = await command.run(manager: SystemLoginItemManager())
+                        let data = try JSONEncoder().encode(report)
+                        FileHandle.standardOutput.write(data + Data("\n".utf8))
+                        exit(report.passed ? 0 : 1)
+                    } catch {
+                        FileHandle.standardError.write(Data("VikingBar: \(error)\n".utf8))
+                        exit(2)
+                    }
+                }
+                dispatchMain()
             }
-            let application = NSApplication.shared
-            let settingsFile = options.fixture == nil
-                ? URL.applicationSupportDirectory.appending(path: "VikingBar/menu-bar-preferences.json")
-                : appOptions.settingsFile
-            let delegate = AppDelegate(options: appOptions, preferences: MenuBarPreferences(fileURL: settingsFile))
-            application.delegate = delegate
-            withExtendedLifetime(delegate) { application.run() }
+            try self.runApplication(arguments: arguments)
         } catch {
             FileHandle.standardError.write(Data("VikingBar: \(error)\n".utf8))
             exit(2)
         }
+    }
+
+    @MainActor
+    private static func runApplication(arguments: [String]) throws {
+        let appOptions = try AppLaunchOptions(arguments: arguments)
+        let options = appOptions.shared
+        if options.showHelp {
+            print(LaunchOptions.usage.replacingOccurrences(of: "vikingbar", with: "VikingBar"))
+            print("App fixture options: --settings-file ABSOLUTE_PATH [--allow-login-item]")
+            print("Fixture appearance: --fixture-appearance light|dark|high-contrast-light|high-contrast-dark")
+            print("Fixture material: --fixture-reduce-transparency")
+            print("Login item maintenance: --login-item status|disable (use alone).")
+            print("Live options: --credential-reference ABSOLUTE_PATH --proof-directory ABSOLUTE_PATH")
+            return
+        }
+        let application = NSApplication.shared
+        application.mainMenu = AppEditingMenu.make()
+        let settingsFile = options.fixture == nil
+            ? URL.applicationSupportDirectory.appending(path: "VikingBar/menu-bar-preferences.json")
+            : appOptions.settingsFile
+        let delegate = AppDelegate(options: appOptions, preferences: MenuBarPreferences(fileURL: settingsFile))
+        application.delegate = delegate
+        withExtendedLifetime(delegate) { application.run() }
     }
 }

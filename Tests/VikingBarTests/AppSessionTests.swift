@@ -19,7 +19,11 @@ struct AppSessionTests {
         model.refresh()
         model.selectSubscription("synthetic")
         model.selectBundle(0)
-        model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
+        model.loadInvoices()
+        model.openInvoice("synthetic")
+        #expect(model.pendingOptional.isEmpty)
+        #expect(model.activeOptional == nil)
+        model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         await model.stop()
         #expect(model.isFixtureLaunch)
         #expect(model.snapshot == .notConnected)
@@ -102,7 +106,7 @@ struct AppSessionTests {
         let model = try Self.model(client: client, connector: connector)
         model.start()
         try await Self.until { client.pendingRefresh != nil }
-        model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
+        model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         #expect(model.liveState.connectionID == nil)
         #expect(model.snapshot.allowance == .unavailable)
         try await Self.until { model.activity == .idle }
@@ -135,7 +139,7 @@ struct AppSessionTests {
         try await Self.until { model.activity == .idle }
         let reference = URL(fileURLWithPath: "/synthetic/reference")
         let result = URL(fileURLWithPath: "/synthetic/proof/connect-result.json")
-        model.connect(reference: reference, resultURL: result)
+        model.connect(input: .reference(reference), resultURL: result)
         try await Self.until { model.activity == .idle && second.requests.last == "refreshPoints" }
         #expect(first.shutdowns == 1)
         #expect(creations == 2)
@@ -171,7 +175,7 @@ struct AppSessionTests {
             clientFactory: { creations += 1; return ModelTestClient() },
             connectorFactory: { connector },
         )
-        model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
+        model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         try await Self.until { connector.pendingConnect != nil }
         await model.stop()
         #expect(connector.pendingConnect == nil)
@@ -223,7 +227,7 @@ struct AppSessionTests {
         model.start()
         try await Self.until { model.activity == .idle }
         client.holdShutdown = true
-        model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
+        model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         try await Self.until { client.pendingShutdown != nil }
         var stopped = false
         let stop = Task { await model.stop(); stopped = true }

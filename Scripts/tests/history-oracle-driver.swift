@@ -80,7 +80,11 @@ struct SyntheticHistoryTransport: ProofHTTPTransport {
         state.connectionID = ConnectionID()
         state.subscriptions = [MobileSubscription(id: "sim-one", displayName: "Synthetic", type: "postpaid")]
         state.selectedSubscriptionID = "sim-one"
-        state.publish(LiveBalance(bundles: [bundle], regionality: "national", outOfBundleCost: 0), at: now)
+        state.publish(
+            LiveBalance(bundles: [bundle], regionality: "national", outOfBundleCost: 0),
+            at: now,
+            interval: .fiveMinutes,
+        )
         let oracle = HistoryOracleTransport(base: SyntheticHistoryTransport(missing: missing))
         var request = try ProofEndpoint.token.request()
         request.httpBody = Data("grant_type=refresh_token".utf8)

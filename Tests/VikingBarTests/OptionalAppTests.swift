@@ -176,7 +176,7 @@ struct OptionalAppTests {
         model.start()
         try await AppSessionTests.until { client.pending["points"] != nil }
         model.loadInvoices()
-        model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
+        model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         try await AppSessionTests.until { model.activity == .idle }
         #expect(model.liveState.connectionID == nil)
         #expect(model.liveState.points == nil)
@@ -189,7 +189,11 @@ struct OptionalAppTests {
     @Test func `history and Bills survive foreground refresh in the shared points queue`() async throws {
         let client = try OptionalModelClient()
         client.state.subscriptions = [MobileSubscription(id: "sim-a", displayName: "Synthetic", type: "postpaid")]
-        try client.state.publish(LiveAPI.decodeBalance(Data(LiveModelsTests.balanceJSON.utf8)), at: LiveModelsTests.now)
+        try client.state.publish(
+            LiveAPI.decodeBalance(Data(LiveModelsTests.balanceJSON.utf8)),
+            at: LiveModelsTests.now,
+            interval: .fiveMinutes,
+        )
         client.hold = ["points", "history", "cancel"]
         let model = try Self.model(client)
         model.start()
@@ -234,7 +238,7 @@ struct OptionalAppTests {
         await model.stop()
     }
 
-    private static func model(
+    static func model(
         _ client: OptionalModelClient, sleeper: ModelTestSleeper = ModelTestSleeper(),
         open: @escaping (URL) -> Bool = { _ in false },
     ) throws -> AppSession {
@@ -248,12 +252,14 @@ struct OptionalAppTests {
 }
 
 @MainActor
-private final class OptionalModelClient: SessionClient {
+final class OptionalModelClient: SessionClient {
     var state = AppSessionTests.connected()
     var requests: [String] = []
     var hold: Set<String> = []
     var pending: [String: CheckedContinuation<LiveSessionState, any Error>] = [:]
     var shutdowns = 0
+    var completeOnShutdown = false
+    private var restored = false
     let document = InvoiceDocument(invoiceID: "inv-1", fileURL: URL(fileURLWithPath: "/private/synthetic/invoice.pdf"))
 
     init() throws {
@@ -264,15 +270,14 @@ private final class OptionalModelClient: SessionClient {
     }
 
     func request(_ request: SessionRequest) async throws -> LiveSessionState {
-        let name = switch request {
-        case .restore: "restore"
-        case .refresh: "refresh"
-        case .cancel: "cancel"
-        case .shutdown: "shutdown"
-        case .selectSubscription, .selectBundle: "selection"
-        default: self.optionalName(request)
-        }
+        let name = self.name(for: request)
         self.requests.append(name)
+        if name == "restore" {
+            self.restored = true
+        }
+        if name == "configure", !self.restored {
+            return LiveSessionState()
+        }
         if self.hold.contains(name) {
             return try await withCheckedThrowingContinuation {
                 #expect(self.pending[name] == nil)
@@ -286,13 +291,18 @@ private final class OptionalModelClient: SessionClient {
         return state
     }
 
-    private func optionalName(_ request: SessionRequest) -> String {
+    private func name(for request: SessionRequest) -> String {
         switch request {
+        case .restore: "restore"
+        case .refresh: "refresh"
+        case .configure: "configure"
         case .refreshPoints: "points"
         case .refreshHistory: "history"
         case .refreshInvoices: "invoices"
         case .downloadInvoice: "pdf"
-        default: preconditionFailure("Expected optional request")
+        case .cancel: "cancel"
+        case .shutdown: "shutdown"
+        case .selectSubscription, .selectBundle: "selection"
         }
     }
 
@@ -302,10 +312,15 @@ private final class OptionalModelClient: SessionClient {
 
     func shutdown() async {
         self.shutdowns += 1
+        self.restored = false
         let pending = self.pending
         self.pending.removeAll()
         for continuation in pending.values {
-            continuation.resume(throwing: CancellationError())
+            if self.completeOnShutdown {
+                continuation.resume(returning: self.state)
+            } else {
+                continuation.resume(throwing: CancellationError())
+            }
         }
     }
 }

@@ -1,4 +1,3 @@
-"""Inert subprocess driver for the real history retry and launch boundaries."""
 import hashlib
 import importlib.util
 import json

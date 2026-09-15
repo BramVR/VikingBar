@@ -8,6 +8,16 @@ public struct ConnectionID: Codable, Hashable, Sendable {
     }
 }
 
+public struct AccountConnectionSummary: Codable, Equatable, Sendable {
+    public let clientID: String
+    public let username: String?
+
+    public init(clientID: String, username: String?) {
+        self.clientID = clientID
+        self.username = username
+    }
+}
+
 public enum LiveFailure: String, Codable, Error, Sendable {
     case notConnected = "not_connected"
     case reconnectRequired = "reconnect_required"
@@ -90,6 +100,7 @@ public struct LiveBalance: Codable, Equatable, Sendable {
 
 public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var connectionID: ConnectionID?
+    public internal(set) var connectionSummary: AccountConnectionSummary?
     public internal(set) var subscriptions: [MobileSubscription] = []
     public internal(set) var selectedSubscriptionID: String?
     public internal(set) var balance: LiveBalance?

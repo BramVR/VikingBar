@@ -62,10 +62,12 @@ class ConnectDiagnosticsTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(receipt, {"passed": False, "error": "credential-input"})
 
-    def test_success_receipt_is_unchanged(self):
+    def test_success_receipt_binds_the_stored_connection(self):
         exit_code, receipt = self.receipt("success")
         self.assertEqual(exit_code, 0)
-        self.assertEqual(receipt, {"schema_version": 1, "check": "connect", "passed": True, "connected": True})
+        self.assertEqual(receipt, {"schema_version": 1, "check": "connect", "passed": True, "connected": True,
+                                   "connection_sha256":
+                                       "7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052"})
 
 
 DRIVER = r'''
@@ -84,7 +86,10 @@ actor VikingSession {
 
     func bootstrapWithDiagnostics(credentials: ProofCredentials) async throws -> LiveSessionState {
         let mode = CommandLine.arguments[1]
-        if mode == "success" { return LiveSessionState() }
+        if mode == "success" {
+            let raw = #"{"connectionID":{"rawValue":"00000000-0000-0000-0000-000000000001"},"subscriptions":[],"snapshot":{"source":{"notConnected":{}},"subscriptionName":"No account connected","allowance":{"unavailable":{}},"freshness":{"unavailable":{}}},"isRefreshing":false,"scopeMismatch":false}"#
+            return try! JSONDecoder().decode(LiveSessionState.self, from: Data(raw.utf8))
+        }
         if let failure = BootstrapFailure(rawValue: mode) { throw failure }
         throw Self.privateError()
     }

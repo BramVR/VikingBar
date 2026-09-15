@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Verify real daily summaries, the cycle estimate, and the native history chart."""
-
 import datetime
 import hashlib
 import importlib.util
@@ -174,7 +172,12 @@ class HistoryProof(UI.NativeProof):
         validate_api_receipt(api)
         self.screens = self.peek(["screen", "list"], "screens.json")["screens"]
         self.launch(first=False, label="history")
-        UI.wait_for(self.inspect, lambda tree: any(element.get("AXIdentifier") == "vikingbar.historyDisclosure"
+        UI.wait_for(self.inspect, lambda tree: all(any(element.get("AXIdentifier") == identifier
+                                                       for element in tree.get("elements", []))
+                                                  for identifier in ("vikingbar.bundleDetails",
+                                                                     "vikingbar.historyDisclosure")))
+        self.press("vikingbar.bundleDetails")
+        UI.wait_for(self.inspect, lambda tree: any(element.get("AXIdentifier") == "vikingbar.bundleDescription"
                                                   for element in tree.get("elements", [])))
         self.press("vikingbar.historyDisclosure")
         initial = self.matched_history("history")

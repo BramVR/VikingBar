@@ -22,7 +22,7 @@ Use Swift 6.2 and target macOS 14+ initially. Begin with Apple Silicon. Availabi
 
 Keep HTTP, credential storage, time, and persistence injectable. A serial auth owner coordinates refresh and token rotation. Optional points, history, or invoice failures must not discard a successful data balance.
 
-Use 1Password to bootstrap authentication and Keychain for refresh tokens. Never embed the 1Password service-account token in the app. Fixture mode must never read real credentials or masquerade as live data.
+Use direct credential entry or optional 1Password to bootstrap authentication, and Keychain for refresh tokens. Never embed the 1Password service-account token in the app. Fixture mode must never read real credentials or masquerade as live data.
 
 ## Why
 
@@ -46,13 +46,21 @@ The core owns immutable allowance snapshots and their menu presentation. The CLI
 
 The app draws one fixed native template helmet. Its inset bar drains from right to left as the remaining fraction decreases. Unlimited and unavailable balances use distinct internal marks. A zero total has no fraction, and stale data keeps its known fill. The tooltip and accessibility label expose allowance, subscription, freshness, and fixture provenance. The card retains its visible fixture marker. No-argument launch restores a live session and refreshes it when connected. Without a stored connection, it shows account setup.
 
-The session owns status updates, so changing a fixture or the display preference updates AppKit independently of the mounted SwiftUI tab. The Settings tab binds to the default-off **Show remaining GB in menu bar** preference. The app stores that preference in a new settings file with no migration from other applications. Fixture launches use memory unless an explicit isolated settings file is supplied for relaunch proof. Tests inject their persistence inputs and never discover real user state.
+The session owns status updates, so changing a fixture or the display preference updates AppKit independently of the mounted SwiftUI view. The Settings destination binds to the default-off **Show remaining GB in menu bar** preference. The app stores that preference in a new settings file with no migration from other applications. Fixture launches use memory unless an explicit isolated settings file is supplied for relaunch proof. Tests inject their persistence inputs and never discover real user state.
 
 ## Live session ownership
 
+The existing preference file also stores typed data-card display and refresh interval values. Missing keys use the original remaining display and five-minute cadence. `DataCardPresentation` applies the selected card mode without changing the raw allowance or the helmet's remaining-fraction meaning.
+
+`AppSession` sends the latest interval to the worker between account operations. `VikingSession` uses one interval calculation for restored, published, and selected bundle deadlines. Failure retry deadlines remain authoritative. Startup still refreshes a successful restored connection. Wake uses the existing scheduler and does not interrupt token rotation.
+
+The app's injectable login-item manager owns ServiceManagement calls. Preferences never contain a launch-enabled Boolean. The control displays actual registration status and separate operation errors. Ordinary fixtures use a disabled manager; the installed smoke opts into production registration explicitly and restores its absent baseline.
+
 `AppSession` restores live state, schedules refresh, and publishes presentation changes. `SessionProcessClient` sends JSON-lines commands to the bundled `vikingbar session` process over private pipes. The CLI owns `VikingSession`, the token store, and the account cache. The app never reads the token directly.
 
-`AccountConnector` starts the packaged `connect-account.py` helper. The helper creates one private named tmux session, sources the approved profile there, and reads one approved 1Password item. It passes the three credential fields to the same bundled CLI's `connect` command through stdin. Only the 1Password child receives the service-account token. Passwords are released before balance retrieval.
+`AccountConnector` accepts either direct credentials or a 1Password reference. Direct credentials go through stdin to the bundled `vikingbar connect` command. The native form owns temporary input and clears its password on submission or dismissal. Both methods return to the same session restoration and refresh lifecycle. This preserves one token store, one connection identity model, and one request allowlist.
+
+For the optional 1Password method, `AccountConnector` starts the packaged `connect-account.py` helper. The helper creates one private named tmux session, sources the approved profile there, and reads one approved 1Password item. It passes the three credential fields to the same bundled CLI's `connect` command through stdin. Only the 1Password child receives the service-account token. Passwords are released before balance retrieval.
 
 Each successful connection receives a new connection ID. Cached subscription state belongs to that connection, and each SIM retains its own bundles. The selected active data bundle supplies the helmet and allowance card. Applicability, expiry, and extra charges remain separate display values. Missing amounts stay unavailable.
 

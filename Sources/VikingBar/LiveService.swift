@@ -6,28 +6,41 @@ enum SessionRequest: Encodable, Sendable {
     case downloadInvoice(String)
     case selectSubscription(String)
     case selectBundle(Int)
+    case configure(RefreshInterval)
 
-    private enum CodingKeys: String, CodingKey { case command, id, index }
+    private enum CodingKeys: String, CodingKey { case command, id, index, refreshInterval }
 
     func encode(to encoder: any Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .restore: try values.encode("restore", forKey: .command)
-        case .refresh: try values.encode("refresh", forKey: .command)
-        case .refreshHistory: try values.encode("refreshHistory", forKey: .command)
-        case .refreshInvoices: try values.encode("refreshInvoices", forKey: .command)
+        case let .configure(interval):
+            try values.encode("configure", forKey: .command)
+            try values.encode(interval, forKey: .refreshInterval)
         case let .downloadInvoice(id):
             try values.encode("downloadInvoice", forKey: .command)
             try values.encode(id, forKey: .id)
-        case .refreshPoints: try values.encode("refreshPoints", forKey: .command)
-        case .cancel: try values.encode("cancel", forKey: .command)
-        case .shutdown: try values.encode("shutdown", forKey: .command)
         case let .selectSubscription(id):
             try values.encode("selectSubscription", forKey: .command)
             try values.encode(id, forKey: .id)
         case let .selectBundle(index):
             try values.encode("selectBundle", forKey: .command)
             try values.encode(index, forKey: .index)
+        case .restore, .refresh, .refreshPoints, .refreshInvoices, .refreshHistory, .cancel, .shutdown:
+            try values.encode(self.simpleCommand, forKey: .command)
+        }
+    }
+
+    private var simpleCommand: String {
+        switch self {
+        case .restore: "restore"
+        case .refresh: "refresh"
+        case .refreshPoints: "refreshPoints"
+        case .refreshInvoices: "refreshInvoices"
+        case .refreshHistory: "refreshHistory"
+        case .cancel: "cancel"
+        case .shutdown: "shutdown"
+        case .downloadInvoice, .selectSubscription, .selectBundle, .configure:
+            preconditionFailure("Payload commands encode their names directly")
         }
     }
 }
@@ -37,17 +50,36 @@ protocol SessionClient: Sendable {
     func shutdown() async
 }
 
+enum AccountConnectionInput: Sendable {
+    case credentials(ConnectionCredentials)
+    case reference(URL)
+}
+
 protocol AccountConnecting: Sendable {
-    func connect(reference: URL, resultURL: URL?) async throws
+    func connect(input: AccountConnectionInput, resultURL: URL?) async throws
     func cancel() async
 }
 
 enum LiveBridgeFailure: Error, Sendable {
     case unavailable, invalidReply, stopped, connectFailed
+    case bootstrap(BootstrapFailure)
 
     var message: String {
         switch self {
-        case .connectFailed: "Could not connect. Check the approved credential setup and try again."
+        case .connectFailed: "Could not connect. Check your sign-in details and try again."
+        case let .bootstrap(failure):
+            switch failure {
+            case .credentialInput: "Enter your public client ID, username, and password."
+            case .tokenRejected: "Sign-in was rejected. Check your credentials and API access approval."
+            case .tokenNetwork: "Could not reach Mobile Vikings. Check your connection and try again."
+            case .tokenRateLimited: "Too many sign-in attempts. Wait before trying again."
+            case .tokenServer: "Mobile Vikings is unavailable. Try again later."
+            case .keychainWrite: "Could not save the connection in Keychain. Check access and try again."
+            case .sessionBusy: "Another account operation is running. Try again when it finishes."
+            case .connectCancelled: "Connection cancelled."
+            case .localFilesystem: "Could not save the account locally. Check file access and try again."
+            case .tokenResponse, .connectFailed: "Could not complete sign-in. Try again later."
+            }
         case .unavailable, .invalidReply, .stopped: "The account worker stopped. Refresh to try again."
         }
     }

@@ -49,21 +49,26 @@ def child_environment(environment):
 def run(check, environment, execute=subprocess.run):
     if check == "invoices":
         return run_invoices(environment, execute)
-    if check == "points":
-        spec = importlib.util.spec_from_file_location("points_proof", Path(__file__).with_name("points-proof.py"))
+    if check in ("points", "installed-balance"):
+        filename = "points-proof.py" if check == "points" else "installed-app-proof.py"
+        spec = importlib.util.spec_from_file_location("native_proof", Path(__file__).with_name(filename))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         try:
             return module.run(environment)
         except module.UIFailure as error:
             raise ProofFailure(str(error)) from None
-    if check in ("balance-ui", "history"):
+    if check in {"balance-ui", "direct-connect-ui", "history"}:
         filename = "balance-ui-proof.py" if check == "balance-ui" else "history-proof.py"
+        if check == "direct-connect-ui":
+            filename = "balance-ui-proof.py"
         spec = importlib.util.spec_from_file_location("native_proof", Path(__file__).with_name(filename))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         try:
-            return module.run(environment)
+            if check == "history":
+                return module.run(environment)
+            return module.run(environment, direct_connect=check == "direct-connect-ui")
         except module.UIFailure as error:
             raise ProofFailure(str(error)) from None
     if check != "auth-balance":

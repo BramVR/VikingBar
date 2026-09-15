@@ -35,7 +35,7 @@ struct PointsAppTests {
         let model = try AppSessionTests.model(client: client, connector: ModelTestConnector(fails: true))
         model.start()
         try await AppSessionTests.until { client.pendingPoints != nil }
-        model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
+        model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         try await AppSessionTests.until { model.activity == .idle }
         client.pendingPoints?.resume(returning: client.state)
         client.pendingPoints = nil

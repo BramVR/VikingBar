@@ -8,6 +8,8 @@ final class ModelTestClient: SessionClient {
     var state: LiveSessionState
     var requests: [String] = []
     var shutdowns = 0
+    var holdRestore = false
+    var pendingRestore: CheckedContinuation<LiveSessionState, any Error>?
     var holdRefresh = false
     var holdPoints = false
     var pendingPoints: CheckedContinuation<LiveSessionState, any Error>?
@@ -21,7 +23,12 @@ final class ModelTestClient: SessionClient {
 
     func request(_ request: SessionRequest) async throws -> LiveSessionState {
         switch request {
-        case .restore: self.requests.append("restore")
+        case let .configure(interval): self.requests.append("configure-\(interval.rawValue)")
+        case .restore:
+            self.requests.append("restore")
+            if self.holdRestore {
+                return try await withCheckedThrowingContinuation { self.pendingRestore = $0 }
+            }
         case .refreshPoints:
             self.requests.append("refreshPoints")
             if self.holdPoints {
@@ -44,6 +51,8 @@ final class ModelTestClient: SessionClient {
 
     func shutdown() async {
         self.shutdowns += 1
+        self.pendingRestore?.resume(throwing: LiveBridgeFailure.stopped)
+        self.pendingRestore = nil
         if self.holdShutdown {
             await withCheckedContinuation { self.pendingShutdown = $0 }
         }
@@ -55,6 +64,7 @@ final class ModelTestConnector: AccountConnecting {
     var fails: Bool
     var connects = 0
     var cancels = 0
+    var input: AccountConnectionInput?
     var reference: URL?
     var resultURL: URL?
     var holdConnect = false
@@ -64,9 +74,13 @@ final class ModelTestConnector: AccountConnecting {
         self.fails = fails
     }
 
-    func connect(reference: URL, resultURL: URL?) async throws {
+    func connect(input: AccountConnectionInput, resultURL: URL?) async throws {
         self.connects += 1
-        self.reference = reference
+        self.input = input
+        switch input {
+        case let .reference(reference): self.reference = reference
+        case let .credentials(credentials): _ = try credentials.takePayload()
+        }
         self.resultURL = resultURL
         if self.holdConnect {
             await withCheckedContinuation { self.pendingConnect = $0 }

@@ -11,7 +11,7 @@ Mobile Vikings support confirmed a public OAuth application with no client secre
 - API base: `https://uwa.mobilevikings.be/mv`.
 - Token endpoint: `POST /oauth2/token/`, form-encoded password or refresh grant.
 - Public client ID and login fields are held in the configured 1Password item. The client ID is not a secret; keep account-specific setup out of source defaults.
-- Initial connection retrieves the approved username/password through 1Password. Discard the password after the exchange; do not repeatedly read it during background refresh.
+- Initial connection accepts direct native credential entry or retrieves the approved username/password through optional 1Password. Discard the password after the exchange; do not repeatedly read it during background refresh.
 - Planned refresh-token persistence: macOS Keychain, with rotation handled atomically. The probe did not persist its tokens.
 - The observed access-token lifetime was 599 seconds. Always honor `expires_in`.
 - MFA behavior remains unverified. Never disable MFA to make the integration work.

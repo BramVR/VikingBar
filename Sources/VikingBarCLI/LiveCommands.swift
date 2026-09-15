@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import VikingBarCore
 
@@ -32,9 +33,17 @@ struct ConnectReceipt: Encodable {
     let check = "connect"
     let passed = true
     let connected = true
+    let connectionSHA256: String
+
+    init(connectionID: ConnectionID) {
+        self.connectionSHA256 = SHA256.hash(data: Data(connectionID.rawValue.uuidString.lowercased().utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
+        case connectionSHA256 = "connection_sha256"
         case check, passed, connected
     }
 }
@@ -122,20 +131,22 @@ extension VikingBarCLI {
     static func connect(arguments: [String]) async {
         do {
             guard arguments == ["connect"] else { throw BootstrapFailure.credentialInput }
-            try await self.bootstrapFromInput()
-            self.writeJSON(ConnectReceipt())
+            let connectionID = try await self.bootstrapFromInput()
+            self.writeJSON(ConnectReceipt(connectionID: connectionID))
         } catch {
             self.writeJSON(CommandFailure(error: (error as? BootstrapFailure ?? .connectFailed).rawValue))
             exit(1)
         }
     }
 
-    private static func bootstrapFromInput() async throws {
+    private static func bootstrapFromInput() async throws -> ConnectionID {
         let credentials: ProofCredentials
         do { credentials = try self.readCredentials() } catch { throw BootstrapFailure.credentialInput }
         let session: VikingSession
         do { session = try VikingSession.production() } catch { throw BootstrapFailure.localFilesystem }
-        _ = try await session.bootstrapWithDiagnostics(credentials: credentials)
+        let state = try await session.bootstrapWithDiagnostics(credentials: credentials)
+        guard let connectionID = state.connectionID, state.failure == nil else { throw BootstrapFailure.connectFailed }
+        return connectionID
     }
 
     static func live(arguments: [String]) async {

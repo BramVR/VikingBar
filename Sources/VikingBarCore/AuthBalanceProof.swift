@@ -4,7 +4,7 @@ public enum ProofCheck: String, Codable, Sendable {
     case authBalance = "auth-balance"
 }
 
-public struct ProofCredentials: Decodable, Sendable {
+public struct ProofCredentials: Codable, Sendable {
     public let clientID: String
     public let username: String
     public let password: String

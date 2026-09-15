@@ -151,7 +151,11 @@ private final class HistoryModelClient: SessionClient {
         state.connectionID = ConnectionID()
         state.subscriptions = [MobileSubscription(id: "sim-a", displayName: "Synthetic", type: "postpaid")]
         state.selectedSubscriptionID = "sim-a"
-        try state.publish(LiveAPI.decodeBalance(Data(LiveModelsTests.balanceJSON.utf8)), at: LiveModelsTests.now)
+        try state.publish(
+            LiveAPI.decodeBalance(Data(LiveModelsTests.balanceJSON.utf8)),
+            at: LiveModelsTests.now,
+            interval: .fiveMinutes,
+        )
         state.history = UsageHistory(
             context: state.historyContext!, observations: [], attemptedAt: LiveModelsTests.now,
         )
