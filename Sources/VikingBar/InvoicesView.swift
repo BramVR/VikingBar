@@ -17,6 +17,7 @@ struct InvoicesView: View {
             }
             .disabled(!self.session.canLoadInvoices || self.session.isLoadingInvoices)
             .accessibilityIdentifier("vikingbar.invoices.load")
+            .buttonStyle(.menuAction)
             if let error = self.session.invoiceError {
                 Text(error).foregroundStyle(.red)
             }
@@ -35,6 +36,7 @@ struct InvoicesView: View {
                     Button("Open PDF") { self.session.openInvoice(row.id) }
                         .disabled(!self.session.canLoadInvoices || self.session.isLoadingInvoices)
                         .accessibilityIdentifier("vikingbar.invoice.pdf")
+                        .buttonStyle(.menuAction)
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("vikingbar.invoice.latest")

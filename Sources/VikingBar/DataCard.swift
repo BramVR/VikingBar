@@ -156,6 +156,7 @@ struct DataCard: View {
         .disabled(!self.session.canRefresh)
         .keyboardShortcut("r")
         .accessibilityIdentifier("vikingbar.refresh")
+        .buttonStyle(.menuAction)
     }
 
     private var myViking: some View {
@@ -163,11 +164,13 @@ struct DataCard: View {
             Label("Open My Viking", systemImage: "link")
         }
         .accessibilityIdentifier("vikingbar.openMyViking")
+        .buttonStyle(.menuAction)
     }
 
     private var directConnect: some View {
         Button("Connect account", action: self.presentConnection)
             .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
             .accessibilityIdentifier("vikingbar.connect.direct")
+            .buttonStyle(.menuAction)
     }
 }

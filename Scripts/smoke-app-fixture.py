@@ -81,6 +81,34 @@ def press(selector, name):
     run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'press', selector], f'{name}.json')
 
 
+def validate_pointer_receipt(receipt, action, selector, normalized, target_frame):
+    assert receipt.get(action) == selector, f'{action} receipt targets the wrong control.'
+    assert receipt.get('pid') == process.pid, f'{action} receipt uses the wrong process.'
+    assert receipt.get('normalized') == list(normalized), f'{action} receipt uses the wrong point.'
+    assert receipt.get('frame') == target_frame, f'{action} receipt frame changed before dispatch.'
+    x, y = receipt['destination']
+    (left, top), (width, height) = target_frame
+    assert left < x < left + width and top < y < top + height, f'{action} destination is outside the control.'
+
+
+def pointer_action(action, selector, name, x=0.5, y=0.5, target_frame=None):
+    if target_frame is None:
+        target_frame = element(inspect(f'{name}-target.json'), selector)['frame']
+    output = run([str(ROOT / '.build/inspect-ui'), str(process.pid), action, selector, str(x), str(y)],
+                 f'{name}.json')
+    receipt = json.loads(output)
+    validate_pointer_receipt(receipt, action + 'ed', selector, (x, y), target_frame)
+    return receipt
+
+
+def hover(selector, name, x=0.5, y=0.5, target_frame=None):
+    return pointer_action('hover', selector, name, x, y, target_frame)
+
+
+def click(selector, name, x=0.5, y=0.5, target_frame=None):
+    return pointer_action('click', selector, name, x, y, target_frame)
+
+
 def choose_popup(selector, value, name):
     run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'choose', selector, value], f'{name}-choose.json')
 
@@ -131,6 +159,50 @@ def capture_card(name, fixture=True):
         return json.loads(run(arguments, f'{name}-image.json'))
 
     UI.capture_exact_window(PB, process.pid, window['kCGWindowNumber'], PROOF / f'{name}.png', invoke)
+
+
+def control_geometry(data, selector):
+    target = element(data, selector)
+    assert target, f'Missing pointer target {selector}.'
+    boundary, window = UI.popover_window(data, screens)
+    assert UI.contained(target, boundary), f'Pointer target {selector} is clipped.'
+    return target['frame'], window['kCGWindowBounds']
+
+
+def enabled_state(target):
+    value = target.get('AXEnabled')
+    assert value in (True, False, 'true', 'false', '1', '0', 1, 0), 'Control has no declared enabled state.'
+    return value in (True, 'true', '1', 1)
+
+
+def hover_triplet(selector, exit_selector, name, *, enabled=True, x=0.5, y=0.5):
+    prime = inspect(f'{name}-prime.json')
+    reset_frame, _ = control_geometry(prime, 'vikingbar.fixtureMarker')
+    reset_receipt = hover('vikingbar.fixtureMarker', f'{name}-reset-receipt', target_frame=reset_frame)
+    normal = inspect(f'{name}-normal.json')
+    frame, window = control_geometry(normal, selector)
+    assert enabled_state(element(normal, selector)) is enabled, f'Unexpected enabled state for {selector}.'
+    capture_card(f'{name}-normal')
+    hover_receipt = hover(selector, f'{name}-hover-receipt', x, y, frame)
+    hovered = inspect(f'{name}-hovered.json')
+    assert control_geometry(hovered, selector) == (frame, window), f'Hover changed geometry for {selector}.'
+    assert enabled_state(element(hovered, selector)) is enabled, f'Hover changed enabled state for {selector}.'
+    capture_card(f'{name}-hover')
+    exit_frame, _ = control_geometry(hovered, exit_selector)
+    exit_receipt = hover(exit_selector, f'{name}-exit-receipt', target_frame=exit_frame)
+    exited = inspect(f'{name}-exited.json')
+    assert control_geometry(exited, selector) == (frame, window), f'Pointer exit changed geometry for {selector}.'
+    assert enabled_state(element(exited, selector)) is enabled, f'Pointer exit changed enabled state for {selector}.'
+    capture_card(f'{name}-exit')
+    coverage.append({
+        'scenario': 'menu action hover', 'appearance': launches[-1]['appearance'], 'selector': selector,
+        'exitSelector': exit_selector, 'enabled': enabled, 'normalized': [x, y],
+        'captures': [f'{name}-normal.png', f'{name}-hover.png', f'{name}-exit.png'],
+        'receipts': [f'{name}-reset-receipt.json', f'{name}-hover-receipt.json', f'{name}-exit-receipt.json'],
+        'frameStable': True, 'windowStable': True,
+        'resetDestination': reset_receipt['destination'], 'hoverDestination': hover_receipt['destination'],
+        'exitDestination': exit_receipt['destination'],
+    })
 
 
 def check_status(state, amount, name):
@@ -295,19 +367,63 @@ def check_layout(name):
     assert window, 'Balance popover missing.'
     boundary, _ = UI.popover_window(data, screens)
     bounds = window['kCGWindowBounds']
-    previous_y = bounds['Y']
-    for identifier in ['vikingbar.subscriptionPicker', 'vikingbar.bundlePicker', 'vikingbar.remaining',
-                       'vikingbar.bundleDetails', 'vikingbar.refresh', 'vikingbar.openMyViking',
-                       'vikingbar.settings']:
-        item = element(data, identifier)
-        assert item, f'Missing balance control {identifier}.'
-        assert UI.contained(item, boundary), f'Clipped or invalid control {identifier}.'
-        x, y, width, height = UI.frame(item)
-        assert y >= previous_y, f'Approved order violated at {identifier}.'
-        assert x >= bounds['X'] and y >= bounds['Y'] and width > 0 and height > 0
-        assert x + width <= bounds['X'] + bounds['Width'] + 1
-        assert y + height <= bounds['Y'] + bounds['Height'] + 1, f'Clipped control {identifier}.'
-        previous_y = y
+    rows = [
+        ['vikingbar.subscriptionPicker'], ['vikingbar.bundlePicker'], ['vikingbar.remaining'],
+        ['vikingbar.bundleDetails'], ['vikingbar.refresh', 'vikingbar.openMyViking'],
+        ['vikingbar.bills', 'vikingbar.points', 'vikingbar.settings'],
+    ]
+    previous_center = bounds['Y']
+    for row in rows:
+        centers = []
+        for identifier in row:
+            item = element(data, identifier)
+            assert item, f'Missing balance control {identifier}.'
+            assert UI.contained(item, boundary), f'Clipped or invalid control {identifier}.'
+            x, y, width, height = UI.frame(item)
+            assert x >= bounds['X'] and y >= bounds['Y'] and width > 0 and height > 0
+            assert x + width <= bounds['X'] + bounds['Width'] + 1
+            assert y + height <= bounds['Y'] + bounds['Height'] + 1, f'Clipped control {identifier}.'
+            centers.append(y + height / 2)
+        assert max(centers) - min(centers) <= 2, f'Controls do not share a logical row: {row}.'
+        center = sum(centers) / len(centers)
+        assert center > previous_center, f'Approved row order violated at {row}.'
+        previous_center = center
+
+
+def prove_light_hover_actions():
+    hover_triplet('vikingbar.refresh', 'vikingbar.source', 'light-refresh')
+    hover_triplet('vikingbar.openMyViking', 'vikingbar.source', 'light-open-my-viking', x=0.95)
+    hover_triplet('vikingbar.bills', 'vikingbar.points', 'light-bills-transfer')
+    hover_triplet('vikingbar.points', 'vikingbar.settings', 'light-points-transfer')
+    hover_triplet('vikingbar.settings', 'vikingbar.source', 'light-settings')
+
+    settings_frame, _ = control_geometry(inspect('light-settings-edge-before.json'), 'vikingbar.settings')
+    receipt = click('vikingbar.settings', 'light-settings-edge-click', x=0.05, target_frame=settings_frame)
+    wait_for(lambda: inspect('light-settings-edge-result.json'),
+             lambda d: bool(element(d, 'vikingbar.showRemainingGB')))
+    coverage.append({
+        'scenario': 'near-edge pointer activation', 'appearance': 'light', 'selector': 'vikingbar.settings',
+        'normalized': [0.05, 0.5], 'receipt': 'light-settings-edge-click.json',
+        'destination': receipt['destination'], 'result': 'Settings shown',
+    })
+    hover_triplet('vikingbar.back', 'vikingbar.source', 'light-back')
+    back_to_balance('light-back')
+    prove_disabled_bills('light')
+
+
+def prove_disabled_bills(name):
+    press('vikingbar.bills', f'{name}-bills-open')
+    data = wait_for(lambda: inspect(f'{name}-bills-ready.json'),
+                    lambda d: bool(element(d, 'vikingbar.invoices.load')))
+    assert enabled_state(element(data, 'vikingbar.invoices.load')) is False
+    hover_triplet('vikingbar.invoices.load', 'vikingbar.invoices.message', f'{name}-load-bills-disabled',
+                  enabled=False)
+    back_to_balance(f'{name}-bills')
+
+
+def prove_appearance_hover(name, selector, x=0.5):
+    hover_triplet(selector, 'vikingbar.source', f'{name}-representative', x=x)
+    prove_disabled_bills(name)
 
 
 def selection_and_refresh():
@@ -361,7 +477,8 @@ def launch(name, appearance=None, reduce_transparency=False):
         arguments.append('--fixture-reduce-transparency')
     app_log = (PROOF / f'{name}-app.log').open('w')
     process = subprocess.Popen([str(executable), *arguments], cwd=ROOT, stdout=app_log, stderr=subprocess.STDOUT)
-    receipt = {'launch': name, 'pid': process.pid, 'parentPID': os.getpid(), 'bundle': str(bundle),
+    receipt = {'launch': name, 'appearance': appearance, 'reduceTransparency': reduce_transparency,
+               'pid': process.pid, 'parentPID': os.getpid(), 'bundle': str(bundle),
                'executable': str(executable), 'executableSHA256': executable_hash,
                'startedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'arguments': arguments}
     launches.append(receipt)
@@ -404,7 +521,8 @@ try:
         assert plistlib.load(stream)['LSUIElement'] is True
     screens = peek(['screen', 'list'], 'screens.json')['screens']
     assert not SETTINGS.exists(), 'Default proof requires a new isolated store.'
-    launch('default')
+    launch('default', appearance='light')
+    prove_light_hover_actions()
     settings_toggle(False, 'default')
     connected_account_summary()
     direct_connection_choices()
@@ -432,15 +550,18 @@ try:
     assert SETTINGS.is_file(), 'Settings were not saved to the isolated store.'
     quit_app('default')
     launch('persist-on', appearance='dark')
+    prove_appearance_hover('dark', 'vikingbar.refresh')
     settings_toggle(True, 'persist-on')
     select_state('Error', True, 'dark-error')
     select_state('Finite', True, 'dark-finite')
     settings_toggle(False, 'disable', change=True)
     quit_app('persist-on')
     launch('persist-off', appearance='high-contrast-light')
+    prove_appearance_hover('high-contrast-light', 'vikingbar.openMyViking', x=0.05)
     settings_toggle(False, 'persist-off')
     quit_app('persist-off')
     launch('contrast-dark', appearance='high-contrast-dark', reduce_transparency=True)
+    prove_appearance_hover('high-contrast-dark', 'vikingbar.settings')
     settings_toggle(False, 'contrast-dark')
     select_state('Error', False, 'contrast-dark-error')
     select_state('Finite', False, 'contrast-dark-finite')
@@ -469,8 +590,10 @@ assert len(launches) == 4 and all(p.get('quitVerified') for p in launches)
                                'GB/GiB units', 'Quit', 'isolated persistence', 'status captures',
                                'connected account summary and change cancellation', 'direct form validation and cancellation', 'optional 1Password fixture rejection',
                                'SIM and bundle selection', 'refresh', 'details', 'Points navigation',
+                               'menu action hover and pointer activation', 'disabled Bills action',
                                'light and dark', 'high contrast', 'reduced transparency'],
     'modes': ['iconOnly', 'amount'], 'coverage': coverage, 'iconOnlyWidth': icon_width,
     'persistence': {'default': False, 'relaunchOn': True, 'relaunchOff': False, 'settingsFile': str(SETTINGS)},
-    'visualInspection': 'Status crops retained for native appearance inspection; no raster comparison performed.',
+    'visualInspection': 'Native normal, hover, and exit captures retained for manual appearance inspection; '
+                        'no raster comparison performed.',
 }, indent=2))

@@ -19,7 +19,7 @@ struct HistoryCard: View {
             Button(action: self.companion.activate) {
                 Text("Last 30 days").font(.body.weight(.medium))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.menuAction)
             .focused(self.$focused)
             .onMoveCommand { self.companion.moveSelection($0) }
             .onExitCommand { self.companion.dismiss() }
