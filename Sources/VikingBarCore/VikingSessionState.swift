@@ -31,13 +31,22 @@ extension LiveSessionState {
             && (self.selectedBundleIndex.map { self.balance?.bundles.indices.contains($0) == true } ?? true)
     }
 
-    func freshDeadline(at date: Date) -> Date? {
+    mutating func updateRefreshDeadline(interval: RefreshInterval) {
+        guard self.failure == nil else { return }
+        switch self.snapshot.freshness {
+        case let .current(updated), let .stale(updated):
+            self.nextRefreshAt = interval.deadline(updated: updated, expiry: self.snapshot.expiresAt)
+        case .unavailable: break
+        }
+    }
+
+    func freshDeadline(at date: Date, interval: RefreshInterval) -> Date? {
         guard case let .current(updated) = self.snapshot.freshness, self.failure == nil else { return nil }
-        let deadline = min(updated.addingTimeInterval(300), self.selectedBundle?.validUntil ?? .distantFuture)
+        let deadline = interval.deadline(updated: updated, expiry: self.selectedBundle?.validUntil)
         return date < deadline ? deadline : nil
     }
 
-    mutating func selectBundle(index: Int, at now: Date) throws {
+    mutating func selectBundle(index: Int, at now: Date, interval: RefreshInterval) throws {
         guard let balance = self.balance, balance.bundles.indices.contains(index),
               balance.bundles[index].isActive(at: now) else { throw LiveFailure.invalidSelection }
         self.selectedBundleIndex = index
@@ -51,11 +60,11 @@ extension LiveSessionState {
             self.markStaleSnapshot(failure: self.failure, at: now)
         }
         if self.failure == nil {
-            self.nextRefreshAt = min(updated.addingTimeInterval(300), balance.bundles[index].validUntil)
+            self.nextRefreshAt = interval.deadline(updated: updated, expiry: balance.bundles[index].validUntil)
         }
     }
 
-    mutating func publish(_ balance: LiveBalance, at now: Date) {
+    mutating func publish(_ balance: LiveBalance, at now: Date, interval: RefreshInterval) {
         let previous = self.selectedBundle
         self.balance = balance
         let matching = previous.flatMap { selected in
@@ -70,7 +79,7 @@ extension LiveSessionState {
         }
         self.selectedBundleIndex = matching ?? balance.bundles.firstIndex(where: { $0.isActive(at: now) })
         self.failure = nil
-        self.nextRefreshAt = min(now.addingTimeInterval(300), self.selectedBundle?.validUntil ?? .distantFuture)
+        self.nextRefreshAt = interval.deadline(updated: now, expiry: self.selectedBundle?.validUntil)
         self.project(updated: now, now: now)
     }
 

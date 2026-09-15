@@ -49,8 +49,9 @@ def child_environment(environment):
 def run(check, environment, execute=subprocess.run):
     if check == "invoices":
         return run_invoices(environment, execute)
-    if check == "points":
-        spec = importlib.util.spec_from_file_location("points_proof", Path(__file__).with_name("points-proof.py"))
+    if check in ("points", "installed-balance"):
+        filename = "points-proof.py" if check == "points" else "installed-app-proof.py"
+        spec = importlib.util.spec_from_file_location("native_proof", Path(__file__).with_name(filename))
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         try:

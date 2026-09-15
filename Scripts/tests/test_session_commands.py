@@ -76,6 +76,26 @@ class SessionCommandTests(unittest.TestCase):
         self.assertNotIn("error", json.loads(self.line(process.stdout)))
         self.assertEqual(process.wait(timeout=3), 0)
 
+    def test_configure_accepts_supported_interval(self):
+        process = self.start()
+        self.send(process, {"command": "configure", "refreshInterval": 900})
+        reply = json.loads(self.line(process.stdout))
+        self.assertNotIn("error", reply)
+        self.assertEqual(reply["state"]["nextRefreshAt"], "1970-01-01T00:15:00Z")
+        self.send(process, {"command": "shutdown"})
+        self.line(process.stdout)
+        self.assertEqual(process.wait(timeout=3), 0)
+
+    def test_configure_rejects_invalid_or_extra_fields(self):
+        for fields in ({}, {"refreshInterval": None}, {"refreshInterval": 42},
+                       {"refreshInterval": "900"}, {"refreshInterval": True},
+                       {"refreshInterval": 900, "index": 1}):
+            with self.subTest(fields=fields):
+                process = self.start()
+                self.send(process, dict(command="configure", **fields))
+                self.assertEqual(json.loads(self.line(process.stdout))["error"], "invalid-session-command")
+                self.assertEqual(process.wait(timeout=3), 1)
+
     def test_shutdown_interrupts_refresh_and_drains_ordered_responses(self):
         process = self.refreshing()
         self.send(process, {"command": "shutdown"})

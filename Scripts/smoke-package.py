@@ -61,6 +61,16 @@ def verify_connect_helper(resources, manifest):
     assert digest(helper) == expected, "Connection helper differs from build manifest"
 
 
+def verify_bundle_metadata(plist, manifest):
+    expected = dict(CFBundleExecutable="VikingBarApp", CFBundleIdentifier="be.bram.vikingbar",
+                    CFBundleName="VikingBar", CFBundlePackageType="APPL",
+                    CFBundleShortVersionString=manifest["version"].split("-")[0],
+                    CFBundleVersion=manifest["version"].split("-")[0],
+                    LSMinimumSystemVersion="14.0", LSUIElement=True)
+    for key, value in expected.items():
+        assert plist[key] == value, key
+
+
 def verify(directory):
     verify_checksums(directory)
     manifest = json.loads((directory / "manifest.json").read_text())
@@ -93,12 +103,7 @@ def verify(directory):
         assert {p.name for p in app_root.iterdir()} == {"VikingBar.app"}
         bundle = app_root / "VikingBar.app/Contents"
         plist = plistlib.loads((bundle / "Info.plist").read_bytes())
-        expected = dict(CFBundleExecutable="VikingBarApp", CFBundleIdentifier="be.bram.vikingbar",
-                        CFBundleName="VikingBar", CFBundlePackageType="APPL",
-                        CFBundleShortVersionString=manifest["version"].split("-")[0],
-                        CFBundleVersion="1", LSMinimumSystemVersion="14.0", LSUIElement=True)
-        for key, value in expected.items():
-            assert plist[key] == value, key
+        verify_bundle_metadata(plist, manifest)
         resources = bundle / "Resources"
         verify_connect_helper(resources, manifest)
         for path in (resources, cli_root):

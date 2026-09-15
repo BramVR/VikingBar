@@ -15,11 +15,32 @@ func children(_ element: AXUIElement) -> [AXUIElement] {
     return result
 }
 
+func recordTraversal(
+    _ element: AXUIElement,
+    depth: Int,
+    elements: inout [AXUIElement],
+    shallowestDepths: inout [(element: AXUIElement, depth: Int)]) -> Bool
+{
+    guard depth < 15 else { return false }
+    if let index = shallowestDepths.firstIndex(where: { CFEqual($0.element, element) }) {
+        guard depth < shallowestDepths[index].depth else { return false }
+        shallowestDepths[index].depth = depth
+        return true
+    }
+    shallowestDepths.append((element, depth))
+    elements.append(element)
+    return true
+}
+
 func elements(_ element: AXUIElement) -> [AXUIElement] {
     var visited: [AXUIElement] = []
+    var shallowestDepths: [(element: AXUIElement, depth: Int)] = []
     func visit(_ current: AXUIElement, depth: Int) {
-        guard depth < 15, !visited.contains(where: { CFEqual($0, current) }) else { return }
-        visited.append(current)
+        guard recordTraversal(
+            current,
+            depth: depth,
+            elements: &visited,
+            shallowestDepths: &shallowestDepths) else { return }
         for child in children(current) { visit(child, depth: depth + 1) }
     }
     visit(element, depth: 0)

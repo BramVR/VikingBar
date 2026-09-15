@@ -21,6 +21,7 @@ final class ModelTestClient: SessionClient {
 
     func request(_ request: SessionRequest) async throws -> LiveSessionState {
         switch request {
+        case let .configure(interval): self.requests.append("configure-\(interval.rawValue)")
         case .restore: self.requests.append("restore")
         case .refreshPoints:
             self.requests.append("refreshPoints")

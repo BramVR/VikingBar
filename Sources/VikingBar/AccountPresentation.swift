@@ -74,3 +74,27 @@ extension AppSession {
             || self.liveState.connectionID == nil
     }
 }
+
+extension AppSession {
+    func selectSubscription(_ id: String) {
+        if self.isFixtureLaunch {
+            guard self.canSelectAccountData else { return }
+            self.fixtureAccount.selectSubscription(id)
+            self.onPresentationChange?()
+            return
+        }
+        guard self.liveState.selectedSubscriptionID != id else { return }
+        self.select(.selectSubscription(id))
+    }
+
+    func selectBundle(_ index: Int) {
+        if self.isFixtureLaunch {
+            guard self.canSelectAccountData else { return }
+            self.fixtureAccount.selectBundle(index)
+            self.onPresentationChange?()
+            return
+        }
+        guard self.liveState.selectedBundleIndex != index else { return }
+        self.select(.selectBundle(index))
+    }
+}

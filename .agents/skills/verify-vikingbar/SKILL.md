@@ -9,6 +9,8 @@ Use the logged-in Mac desktop. Read [the feature map](features/README.md) before
 
 For development archives and existing private drafts, use [Build artifacts and private drafts](features/packaged-artifacts.md). Package checks execute fixture CLIs and do not require native UI driving.
 
+For local installation, persisted card and refresh settings, and production login registration, read [Installed app and login preferences](features/installed-app.md). Its gates require an approved exact installation target and runtime slots. Registration proof cannot overwrite an existing user registration.
+
 The [website](features/website.md) has a separate synthetic browser preview. Verify it from its own `website/` source; the demo does not prove native app behavior.
 
 ## Launch
@@ -67,6 +69,8 @@ Close only the website tab created for the run and stop only its recorded Vite p
 - `make smoke-app-fixture` runs `Scripts/smoke-app-fixture.py` end to end.
 - `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action or `choose <picker-identifier> <exact-menu-title>` for picker selection in one invocation. Action errors are terminal; never retry successful or uncertain dispatch.
 - `make package-app` builds the bundle for interactive checks.
+- `make smoke-installed-app INSTALL_TARGET=ABSOLUTE_APP_PATH` requires an unused approved target and proves native preferences and production login registration with restoration.
+- `make proof-live CHECK=installed-balance INSTALL_TARGET=ABSOLUTE_APP_PATH` verifies the retained installed artifact with authorized stored-session access.
 - `PEEKABOO_BIN="$PWD/.agents/skills/verify-vikingbar/peekaboo-classic.sh" make proof-live CHECK=points` uses classic capture when the Bridge owner prevents the stored-session native gate. The helper is executable and otherwise passes Peekaboo commands through.
 - From `website/`, `npm ci`, `npm run build`, and `npm test` prepare the local page; `npm run dev -- --host 127.0.0.1 --port 4173 --strictPort` serves it for browser proof. Check that the port is free before launch.
 

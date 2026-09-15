@@ -63,6 +63,22 @@ def compare_menu(tree, report, screens):
     status_elements = [element for element in elements
                        if visible_status({"elements": [element]}, screens)]
     expected = dict(menu)
+    titles = [item for item in elements if item.get("AXIdentifier") == "vikingbar.balanceTitle"]
+    if titles:
+        if len(titles) != 1:
+            raise UIFailure("native-menu-mismatch")
+        title_values = [titles[0].get(key) for key in ("AXTitle", "AXValue", "AXDescription")]
+        if "Data used" in title_values:
+            expected["balanceTitle"] = "Data used"
+            expected["usedText"] = menu["remainingText"] + " remaining"
+            if menu["usedText"] == "Usage unavailable":
+                expected["remainingText"] = "Unavailable"
+            elif menu["usedText"].endswith(" used"):
+                expected["remainingText"] = menu["usedText"][:-5]
+            else:
+                raise UIFailure("native-menu-mismatch")
+        elif menu["balanceTitle"] not in title_values:
+            raise UIFailure("native-menu-mismatch")
     expected["accessibilityLabel"] = f'{menu["accessibilityLabel"]}, {menu["title"]}, {menu["freshnessText"]}'
     for identifier, field in (("vikingbar.remaining", "remainingText"),
                               ("vikingbar.freshness", "freshnessText"),
@@ -75,7 +91,7 @@ def compare_menu(tree, report, screens):
     visible_text = {element.get(key) for element in card_elements
                     for key in ("AXTitle", "AXValue", "AXDescription") if isinstance(element.get(key), str)}
     for field in ("title", "balanceTitle", "usedText", "totalText", "expiryText", "sourceLabel"):
-        if menu[field] not in visible_text:
+        if expected[field] not in visible_text:
             raise UIFailure("native-menu-mismatch")
     for text in report["balanceDetails"].values():
         if text and text not in visible_text:

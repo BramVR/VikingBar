@@ -140,6 +140,27 @@ class BalanceUIProofTests(unittest.TestCase):
         with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
             UI.compare_menu(self.tree, self.report, self.screens)
 
+    def test_used_mode_matches_exact_hero_without_changing_preferences(self):
+        self.tree["elements"].append({"AXIdentifier": "vikingbar.balanceTitle", "AXValue": "Data used",
+                                      "frame": [[120, 100], [200, 20]]})
+        self.tree["elements"][1]["AXValue"] = "20.00 GB"
+        next(item for item in self.tree["elements"]
+             if item.get("AXValue") == self.menu["usedText"])["AXValue"] = "30.00 GB remaining"
+        UI.compare_menu(self.tree, self.report, self.screens)
+        self.tree["elements"][1]["AXValue"] = "30.00 GB"
+        with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
+            UI.compare_menu(self.tree, self.report, self.screens)
+
+    def test_unknown_or_duplicate_balance_title_cannot_choose_display_mode(self):
+        self.tree["elements"].append({"AXIdentifier": "vikingbar.balanceTitle", "AXValue": "Wrong title",
+                                      "frame": [[120, 100], [200, 20]]})
+        with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
+            UI.compare_menu(self.tree, self.report, self.screens)
+        self.tree["elements"][-1]["AXValue"] = self.menu["balanceTitle"]
+        self.tree["elements"].append(dict(self.tree["elements"][-1]))
+        with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
+            UI.compare_menu(self.tree, self.report, self.screens)
+
     def test_offscreen_fixture_stale_and_cross_sim_reports_fail(self):
         tree = copy.deepcopy(self.tree)
         tree["elements"][0]["frame"] = [[2000, 0], [50, 24]]

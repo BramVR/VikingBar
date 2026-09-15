@@ -11,6 +11,7 @@ public actor VikingSession {
     var generation: UInt64 = 0
     var flight: InFlight?
     private var failures = 0
+    private var refreshInterval: RefreshInterval = .fiveMinutes
 
     public init(
         transport: any ProofHTTPTransport, store: any SessionStore,
@@ -60,7 +61,7 @@ public actor VikingSession {
             if let cached, cached.canRestore(connectionID: self.current.connectionID) {
                 self.current = cached
                 self.current.isRefreshing = false
-                if let deadline = cached.freshDeadline(at: self.api.now()) {
+                if let deadline = cached.freshDeadline(at: self.api.now(), interval: self.refreshInterval) {
                     self.current.nextRefreshAt = deadline
                 } else {
                     if cached.failure == nil {
@@ -116,10 +117,16 @@ public actor VikingSession {
     public func selectBundle(index: Int) throws -> LiveSessionState {
         guard self.flight == nil else { throw LiveFailure.busy }
         return try self.withConnectionLease(expected: self.current.connectionID) { _ in
-            try self.current.selectBundle(index: index, at: self.api.now())
+            try self.current.selectBundle(index: index, at: self.api.now(), interval: self.refreshInterval)
             try? self.cache.save(self.current)
             return self.current
         }
+    }
+
+    public func configure(refreshInterval: RefreshInterval) -> LiveSessionState {
+        self.refreshInterval = refreshInterval
+        self.current.updateRefreshDeadline(interval: refreshInterval)
+        return self.current
     }
 
     public func cancel() {
@@ -209,7 +216,7 @@ extension VikingSession {
         return try self.withConnectionLease(expected: connectionID) { record in
             try self.checkGeneration(generation)
             guard !record.rotationPending else { throw LiveFailure.reconnectRequired }
-            self.current.publish(balance, at: self.api.now())
+            self.current.publish(balance, at: self.api.now(), interval: self.refreshInterval)
             self.failures = 0
             try? self.cache.save(self.current)
             return self.current

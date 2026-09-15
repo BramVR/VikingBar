@@ -73,27 +73,29 @@ struct DataCard: View {
 
     private var balance: some View {
         let menu = self.session.menu
+        let card = self.session.card
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(menu.remainingText)
+                Text(card.value)
                     .font(.system(size: 30, weight: .semibold))
                     .accessibilityIdentifier("vikingbar.remaining")
                 Spacer(minLength: 8)
                 Text(menu.totalText).font(.subheadline).foregroundStyle(.secondary)
                     .accessibilityIdentifier("vikingbar.total")
             }
-            Text(menu.balanceTitle).font(.caption).foregroundStyle(.secondary)
-            if let percentage = menu.percentageRemaining {
+            Text(card.title).font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("vikingbar.balanceTitle")
+            if let percentage = card.percentage {
                 ProgressView(value: percentage, total: 100)
-                    .tint(percentage == 0 ? .orange : .cyan)
-                    .accessibilityLabel("Data remaining")
-                    .accessibilityValue(menu.percentageText ?? "")
+                    .tint(menu.percentageRemaining == 0 ? .orange : .cyan)
+                    .accessibilityLabel(card.title)
+                    .accessibilityValue(card.percentageText ?? "")
                     .accessibilityIdentifier("vikingbar.progress")
             }
             HStack {
-                Text(menu.usedText)
+                Text(self.session.dataDisplayMode == .remaining ? menu.usedText : "\(menu.remainingText) remaining")
                 Spacer()
-                if let percentageText = menu.percentageText {
+                if let percentageText = card.percentageText {
                     Text(percentageText)
                 }
             }
