@@ -148,7 +148,9 @@ The [points feature map](../.agents/skills/verify-vikingbar/features/points.md) 
 
 ## Direct sign-in proof
 
-`make proof-live CHECK=direct-connect-ui` extends the native balance proof. This new entry method requires explicit approval of its concrete private proof configuration, plus the coordinator's credential and Mac UI slots. Existing retry authorization does not approve this new configuration. The direct native gate has not yet passed.
+`make proof-live CHECK=direct-connect-ui` extends the native balance proof. This new entry method requires explicit approval of its concrete private proof configuration, plus the coordinator's credential and Mac UI slots. Existing retry authorization does not approve this new configuration.
+
+Both native entry methods passed on 2026-09-15. Direct sign-in passed on `4f8f0c9`; the optional 1Password method passed on `0471b6f`, whose changes only affect proof automation and its tests. Both runs verified a new connection, API comparison, native Refresh, stored-session relaunch, release rebuild, visible balance and owned-process cleanup. Private receipts remain under `.build/proof/8cc571f7200244f988a52220469d24d2/` and `.build/proof/05316b20c8694eaebef40df336b3415e/`. Native keyboard navigation remains unverified because automation could not obtain a complete exact-window snapshot.
 
 The private configuration identifies the reviewed source digest, the approved credential-reference digest, one named tmux session, slot owners, and a short expiry. `VIKINGBAR_DIRECT_CONNECT_CONFIG` names that file outside the checkout. `VIKINGBAR_DIRECT_CONNECT_CONFIG_SHA256` acknowledges its exact contents. The coordinator supplies fresh `VIKINGBAR_CREDENTIAL_SLOT`, `VIKINGBAR_MAC_UI_SLOT`, and `VIKINGBAR_SLOT_BINDINGS_EXPIRES_AT` bindings. They must match the configuration's slots and expiry; inactive placeholders fail. The expiry must be in the next hour. These are operator checks against supplied bindings. The runner cannot verify a coordinator grant independently, and setting variables does not grant authorization.
 

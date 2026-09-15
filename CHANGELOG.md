@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add default native direct sign-in for approved public-client accounts, retain optional 1Password connection, and reuse the CLI-owned Keychain session; required direct-form live proof remains pending.
+- Add default native direct sign-in for approved public-client accounts, retain optional 1Password connection, and reuse the CLI-owned Keychain session.
 
 - Preserve missing login-service records as a distinct status; accept them only in fresh task-owned installation proof and retain strict registration cleanup.
 - Add local installation with ad-hoc bundle sealing, saved used/remaining card display and refresh interval, wake refresh, and launch-at-login controls with actual macOS status and restoration-aware installed proof.
