@@ -104,7 +104,8 @@ def validate_capture(data, window, path):
 
 def compare_history(tree, report, screens):
     history_timestamp(report)
-    UI.compare_menu(tree, report, screens)
+    if not UI.visible_status(tree, screens):
+        raise UIFailure("status-not-visible")
     boundary, window = history_window(tree, screens)
     capture_boundary = window_frame(window)
     presentation = report["historyPresentation"]
@@ -136,6 +137,8 @@ class HistoryProof(UI.NativeProof):
         super().__init__(environment, stored_session=True)
 
     def matched_history(self, label, after=None):
+        self.press("vikingbar.historyDisclosure")
+
         def observe():
             try:
                 report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
@@ -158,6 +161,17 @@ class HistoryProof(UI.NativeProof):
         if (settled["kCGWindowNumber"] != window["kCGWindowNumber"]
                 or not same_frame(window_frame(settled), window_frame(window))):
             raise UIFailure("native-history-capture-mismatch")
+        self.press("vikingbar.historyDisclosure")
+
+        def balance_visible():
+            try:
+                tree = self.inspect(label + "-balance-card.json")
+                UI.compare_menu(tree, report, self.screens)
+                return True
+            except UIFailure:
+                return False
+
+        UI.wait_for(balance_visible, bool)
         return report
 
     def perform(self):
@@ -179,7 +193,6 @@ class HistoryProof(UI.NativeProof):
         self.press("vikingbar.bundleDetails")
         UI.wait_for(self.inspect, lambda tree: any(element.get("AXIdentifier") == "vikingbar.bundleDescription"
                                                   for element in tree.get("elements", [])))
-        self.press("vikingbar.historyDisclosure")
         initial = self.matched_history("history")
         self.press("vikingbar.refresh")
         refreshed = self.matched_history("refreshed", after=UI.successful_timestamp(initial))

@@ -25,6 +25,8 @@ The gate first runs bundled `vikingbar proof history-api`. This forces real dail
 
 Keep the generated `.build/proof/<run>/` directory private. It contains API receipts, typed private reports, native trees, initial and refreshed chart PNGs, exact process and executable identities, and cleanup receipts. Inspect both PNGs for visible bars, date labels, units, gap markers, estimate wording, and readable layout. Evidence must survive cleanup. Publish only redacted results and build identity.
 
+After each chart capture, the runner collapses history and compares the visible balance and freshness text against that exact report. Refresh runs with history collapsed. The next chart check opens it again. Expanded history and the lower balance controls cannot all fit in one viewport.
+
 For source-only checks, run `make check SWIFTFORMAT=/tmp/vikingbar-tools-issue1/swiftformat`, `Scripts/test.sh --filter History`, and `python3 -m unittest discover -s Scripts/tests -p test_history_proof.py`. These tests inject synthetic HTTP and stores. They do not drive the native app, use Keychain, invoke 1Password, or contact the account API.
 
 ## Gotchas

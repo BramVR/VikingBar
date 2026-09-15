@@ -7,7 +7,7 @@ struct HistoryCard: View {
     let isLoading: Bool
     let error: String?
     let reportedUsedText: String
-    @State private var expanded = false
+    @Binding var expanded: Bool
 
     var body: some View {
         DisclosureGroup("Daily SIM data and estimate", isExpanded: self.$expanded) {
@@ -33,6 +33,7 @@ struct HistoryCard: View {
             .padding(.top, 5)
         }
         .font(.caption)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("vikingbar.historyDisclosure")
     }
 
@@ -57,7 +58,15 @@ struct HistoryCard: View {
             AxisMarks(values: self.presentation.days.enumerated().compactMap { index, day in
                 index % max(1, self.presentation.days.count / 3) == 0
                     || index == self.presentation.days.count - 1 ? day.label : nil
-            })
+            }) { value in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel(collisionResolution: .greedy) {
+                    if let label = value.as(String.self) {
+                        Text(label).fixedSize()
+                    }
+                }
+            }
         }
         .chartYAxisLabel(self.presentation.unit)
         .frame(height: 90)

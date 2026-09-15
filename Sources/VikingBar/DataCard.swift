@@ -4,6 +4,7 @@ import VikingBarCore
 struct DataCard: View {
     @Bindable var session: AppSession
     @Binding var detailsExpanded: Bool
+    @Binding var historyExpanded: Bool
     var presentConnection: () -> Void = {}
 
     var body: some View {
@@ -35,6 +36,7 @@ struct DataCard: View {
                         isLoading: self.session.isHistoryLoading,
                         error: self.session.historyError,
                         reportedUsedText: self.session.menu.usedText,
+                        expanded: self.$historyExpanded,
                     )
                 }
                 Divider().padding(.vertical, 6)

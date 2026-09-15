@@ -36,8 +36,11 @@ struct CompactBundleTests {
         #expect(!model.canSelectAccountData)
         model.refresh()
         model.selectSubscription("travel")
-        try await Task.sleep(for: .milliseconds(3200))
-        #expect(model.activity == .idle)
+        let deadline = ContinuousClock.now + .seconds(10)
+        while model.activity != .idle, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(model.activity == .idle, "Fixture refresh did not finish")
         #expect(model.snapshot.allowance == previous.allowance)
         #expect(model.snapshot.subscriptionName == "Example SIM")
         #expect(model.fixtureAccount.refreshCount == 1)

@@ -23,6 +23,7 @@ struct PopoverView: View {
     @Bindable var session: AppSession
     @State private var destination = Destination.balance
     @State private var detailsExpanded = false
+    @State private var historyExpanded = false
     @State private var pointsExpanded = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var connect: () -> Void = {}
@@ -93,6 +94,7 @@ struct PopoverView: View {
                 DataCard(
                     session: self.session,
                     detailsExpanded: self.$detailsExpanded,
+                    historyExpanded: self.$historyExpanded,
                     presentConnection: { self.destination = .connection(.balance) },
                 )
                 Divider().padding(.vertical, 6)

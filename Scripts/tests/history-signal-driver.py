@@ -89,6 +89,9 @@ class InertProof(HISTORY.HistoryProof):
     def inspect(self, *args):
         raise AssertionError("native inspection attempted after cancellation")
 
+    def press(self, *args):
+        return None
+
     def capture_worker(self, process, launch, **kwargs):
         return [UI.process_identity(process.pid)]
 

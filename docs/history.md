@@ -41,6 +41,8 @@ History uses the access token obtained by balance refresh. It does not bootstrap
 
 `make proof-live CHECK=history` uses a stored connection. It requires fresh coordinator grants for account access and Mac UI driving. It builds the native bundle, runs the independent `proof history-api` comparison, opens the chart, verifies displayed values, presses Refresh, and retains chart captures and process cleanup receipts.
 
+The chart and balance checks use separate visible views of the same report. After capturing the expanded chart, the runner collapses history and verifies the balance and freshness text before pressing Refresh. All chart labels and required history text must fit inside the captured popover.
+
 The API comparison requires real summaries with sufficient evidence for a calculable forecast. Missing evidence fails the gate; a synthetic result or unavailable estimate cannot substitute for the required live proof. No 1Password read is part of this history gate. A missing stored connection must be established separately through the approved connection workflow.
 
 The source and synthetic gate pass. Required live history proof has not passed. On 15 September 2026, the integrated build at `47c5a4d` timed out during the API proof before native launch. SecurityAgent appeared while the CLI waited, which suggests a Keychain authorization wait. No API receipt or chart capture was produced. Cleanup passed. See the [history feature map](../.agents/skills/verify-vikingbar/features/history.md) for commands, evidence, and coverage boundaries.

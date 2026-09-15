@@ -95,6 +95,13 @@ class HistoryProofTests(unittest.TestCase):
         with self.assertRaisesRegex(HISTORY.UIFailure, "native-history-chart-values-mismatch"):
             HISTORY.compare_history(self.tree, self.report, self.screens)
 
+    def test_expanded_history_still_requires_visible_menu_bar_status(self):
+        tree = copy.deepcopy(self.tree)
+        tree["elements"] = [element for element in tree["elements"]
+                            if element.get("AXIdentifier") != "vikingbar.status"]
+        with self.assertRaisesRegex(HISTORY.UIFailure, "status-not-visible"):
+            HISTORY.compare_history(tree, self.report, self.screens)
+
     def test_chart_forecast_text_and_stale_samples_fail(self):
         tree = copy.deepcopy(self.tree)
         tree["elements"][1]["AXValue"] = "Not an estimate"
@@ -103,6 +110,17 @@ class HistoryProofTests(unittest.TestCase):
         self.presentation["days"][0]["isStale"] = True
         with self.assertRaises(HISTORY.UIFailure):
             HISTORY.compare_history(self.tree, self.report, self.screens)
+
+    def test_expanded_history_allows_balance_rows_below_the_scroll_view(self):
+        tree = copy.deepcopy(self.tree)
+        source = self.report["menu"]["sourceLabel"]
+        for element in tree["elements"]:
+            values = [element.get(key) for key in ("AXTitle", "AXValue", "AXDescription")]
+            if element.get("AXIdentifier") == "vikingbar.freshness" or source in values:
+                element["frame"] = [[210, 850], [300, 20]]
+        self.assertEqual(HISTORY.compare_history(tree, self.report, self.screens)["kCGWindowNumber"], 1)
+        with self.assertRaises(HISTORY.UIFailure):
+            HISTORY.UI.compare_menu(tree, self.report, self.screens)
 
     def test_every_required_history_element_must_be_fully_visible_in_same_popover(self):
         for index in range(5):
@@ -182,14 +200,70 @@ class HistoryProofTests(unittest.TestCase):
             with (patch.object(proof, "run", return_value=self.report),
                   patch.object(proof, "inspect", side_effect=[self.tree, after]),
                   patch.object(proof, "verify_worker"),
-                  patch.object(proof, "peek", return_value=capture) as peek):
+                  patch.object(proof, "peek", return_value=capture) as peek,
+                  patch.object(proof, "press") as press):
                 if changed:
                     with self.assertRaises(HISTORY.UIFailure):
                         proof.matched_history("history")
                 else:
+                    proof.inspect.side_effect = [self.tree, after, self.tree]
                     self.assertEqual(proof.matched_history("history"), self.report)
+                    self.assertEqual(
+                        [call.args[0] for call in press.call_args_list],
+                        ["vikingbar.historyDisclosure", "vikingbar.historyDisclosure"],
+                    )
                 command = peek.call_args.args[0]
                 self.assertEqual(command[command.index("--window-id") + 1], "1")
+
+    def test_balance_recheck_uses_captured_report_after_successful_collapse(self):
+        path = Path("/synthetic/history-chart.png")
+        capture = {"files": [{"window_id": 1, "path": str(path)}],
+                   "observations": [{"target": {"window_id": 1, "bounds": [[180, 50], [360, 760]]}}]}
+        proof = object.__new__(HISTORY.HistoryProof)
+        proof.directory, proof.cli, proof.screens = Path("/synthetic"), Path("/synthetic/cli"), self.screens
+
+        def compare_menu(_tree, report, _screens):
+            self.assertIs(report, self.report)
+
+        with (patch.object(proof, "run", return_value=self.report) as run,
+              patch.object(proof, "inspect", side_effect=[self.tree, self.tree, self.tree]),
+              patch.object(proof, "verify_worker"), patch.object(proof, "peek", return_value=capture),
+              patch.object(proof, "press") as press, patch.object(HISTORY.UI, "compare_menu", side_effect=compare_menu)):
+            self.assertIs(proof.matched_history("history"), self.report)
+            run.assert_called_once()
+            self.assertEqual(
+                [call.args[0] for call in press.call_args_list],
+                ["vikingbar.historyDisclosure", "vikingbar.historyDisclosure"],
+            )
+
+    def test_failed_collapse_or_balance_mismatch_cannot_complete_history_proof(self):
+        path = Path("/synthetic/history-chart.png")
+        capture = {"files": [{"window_id": 1, "path": str(path)}],
+                   "observations": [{"target": {"window_id": 1, "bounds": [[180, 50], [360, 760]]}}]}
+
+        for failure in ("collapse", "balance"):
+            with self.subTest(failure=failure):
+                proof = object.__new__(HISTORY.HistoryProof)
+                proof.directory = Path("/synthetic")
+                proof.cli = Path("/synthetic/cli")
+                proof.screens = self.screens
+
+                def wait_once(operation, predicate, seconds=90):
+                    value = operation()
+                    if predicate(value):
+                        return value
+                    raise HISTORY.UIFailure("native-proof-timeout")
+
+                presses = [None, HISTORY.UIFailure("collapse-failed")] if failure == "collapse" else [None, None]
+                menu_error = None if failure == "collapse" else HISTORY.UIFailure("native-menu-mismatch")
+                with (patch.object(proof, "run", return_value=self.report),
+                      patch.object(proof, "inspect", side_effect=[self.tree, self.tree, self.tree]),
+                      patch.object(proof, "verify_worker"), patch.object(proof, "peek", return_value=capture),
+                      patch.object(proof, "press", side_effect=presses),
+                      patch.object(HISTORY.UI, "compare_menu", side_effect=menu_error),
+                      patch.object(HISTORY.UI, "wait_for", side_effect=wait_once)):
+                    with self.assertRaises(HISTORY.UIFailure):
+                        proof.matched_history("history")
 
     def test_stored_session_proof_does_not_require_credential_reference(self):
         with tempfile.TemporaryDirectory() as directory:
