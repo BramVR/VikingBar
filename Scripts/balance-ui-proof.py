@@ -620,6 +620,11 @@ class NativeProof:
         if not any(item.get("AXIdentifier") == "vikingbar.connect" for item in tree["elements"]):
             self.press("vikingbar.connect.direct")
             tree = wait_for(self.inspect, lambda value: any(
+                item.get("AXIdentifier") in ("vikingbar.connect", "vikingbar.account.change")
+                for item in value.get("elements", [])))
+        if any(item.get("AXIdentifier") == "vikingbar.account.change" for item in tree.get("elements", [])):
+            self.press("vikingbar.account.change")
+            wait_for(self.inspect, lambda value: any(
                 item.get("AXIdentifier") == "vikingbar.connect" for item in value.get("elements", [])))
         self.press("vikingbar.connect")
         self.capture_worker(self.process, self.launch_record)
@@ -678,6 +683,7 @@ class NativeProof:
             "sandboxSHA256": hashlib.sha256(policy.encode()).hexdigest(), "processExecRestricted": True})
 
     def wait_for_direct_form(self):
+        change_requested = False
         deadline = time.monotonic() + 15
         if self.human_deadline is not None:
             deadline = min(deadline, self.human_deadline)
@@ -694,6 +700,10 @@ class NativeProof:
                 if str(error) != "native-popover-not-visible":
                     raise
             else:
+                if not change_requested and any(item.get("AXIdentifier") == "vikingbar.account.change"
+                                                and contained(item, boundary) for item in form.get("elements", [])):
+                    change_requested = True
+                    self.press("vikingbar.account.change", deadline=deadline)
                 if any(item.get("AXIdentifier") == "vikingbar.connect.password"
                        and item.get("AXRole") == "AXTextField" and item.get("AXSubrole") == "AXSecureTextField"
                        and contained(item, boundary) for item in form.get("elements", [])):

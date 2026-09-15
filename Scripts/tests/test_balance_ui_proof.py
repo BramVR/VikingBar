@@ -48,6 +48,21 @@ class BalanceUIProofTests(unittest.TestCase):
         form["elements"][-3].update(AXRole="AXTextField", AXSubrole="AXSecureTextField")
         return form
 
+    def test_direct_form_opens_account_change_once_before_waiting_for_fields(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.screens = self.screens
+        proof.human_deadline = None
+        form = self.direct_form()
+        account = copy.deepcopy(form)
+        account["elements"] = [item for item in account["elements"]
+                               if not item.get("AXIdentifier", "").startswith("vikingbar.connect.")]
+        account["elements"].append({"AXIdentifier": "vikingbar.account.change", "frame": [[120, 100], [200, 20]]})
+        with patch.object(proof, "inspect", side_effect=[account, account, form]), \
+                patch.object(proof, "press") as press, patch.object(UI.time, "sleep"):
+            observed, _ = proof.wait_for_direct_form()
+        self.assertEqual(observed, form)
+        press.assert_called_once_with("vikingbar.account.change", deadline=ANY)
+
     def test_direct_form_wait_observes_transient_mismatch_before_configuration(self):
         proof = object.__new__(UI.NativeProof)
         proof.screens = self.screens

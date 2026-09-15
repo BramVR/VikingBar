@@ -98,3 +98,42 @@ extension AppSession {
         self.select(.selectBundle(index))
     }
 }
+
+struct AccountPresentation {
+    let summary: AccountConnectionSummary?
+    let isConnected: Bool
+    let isDemo: Bool
+
+    var status: String {
+        if self.isDemo {
+            return "Demo · Mobile Vikings"
+        }
+        return self.isConnected ? "Connected to Mobile Vikings" : "Sign in to Mobile Vikings"
+    }
+
+    var username: String? {
+        self.summary?.username
+    }
+}
+
+extension AppSession {
+    var accountPresentation: AccountPresentation {
+        if self.isFixtureLaunch {
+            return AccountPresentation(
+                summary: AccountConnectionSummary(
+                    clientID: "demo-public-client", username: "alex@example.invalid",
+                ),
+                isConnected: self.fixture != nil, isDemo: true,
+            )
+        }
+        return AccountPresentation(
+            summary: self.liveState.connectionSummary,
+            isConnected: self.isConnected,
+            isDemo: false,
+        )
+    }
+
+    var hasAccount: Bool {
+        self.isFixtureLaunch ? self.fixture != nil : self.liveState.connectionID != nil
+    }
+}

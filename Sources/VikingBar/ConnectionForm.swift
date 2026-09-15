@@ -1,4 +1,5 @@
 import SwiftUI
+import VikingBarCore
 
 @MainActor
 struct ConnectionFormAttempt {
@@ -33,6 +34,17 @@ struct ConnectionForm: View {
     let resultURL: URL?
     let reference: () -> Void
     let dismiss: () -> Void
+
+    init(
+        session: AppSession, resultURL: URL?, initialAccount: AccountConnectionSummary? = nil,
+        reference: @escaping () -> Void, dismiss: @escaping () -> Void,
+    ) {
+        self.session = session
+        self.resultURL = resultURL
+        self.reference = reference
+        self.dismiss = dismiss
+        self._fields = State(initialValue: ConnectionFormModel(account: initialAccount))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

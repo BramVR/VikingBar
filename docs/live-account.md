@@ -78,3 +78,9 @@ Credential-read retries require explicit authorization. A successful connection,
 With the coordinator's credential and Mac UI slots, run `make proof-live CHECK=balance-ui`. Follow [the live proof guide](live-proof.md) and the project verification skill. The required gate drives a freshly built native app, compares API values with production output, presses native Refresh, and verifies recovery after relaunch. It must also rebuild in release configuration and relaunch with the stored token, without another 1Password read. See [recorded coverage and limits](live-proof.md#recorded-coverage). A missing credential, inaccessible Keychain item, failed request, or hidden status item fails the gate.
 
 Private account values and screenshots stay in the local proof directory. Publish only the redacted pass/fail receipt and build identity. Synthetic tests and fixture screenshots do not complete this live gate.
+
+## View or change the connected account
+
+Open **Settings → Account** to see connection status and username. **Change account…** opens the sign-in form with the known client ID and username filled in; the password is always empty. Cancel returns to the account summary without submitting a connection.
+
+New connections store the username alongside the refresh session in Keychain. VikingBar never saves the password. Older sessions keep working: their public client ID remains available to the change-account form, while the summary explains when the username is unavailable. Changing the connection records the username on the next successful sign-in. The account summary always belongs to the saved connection, not the selected SIM.

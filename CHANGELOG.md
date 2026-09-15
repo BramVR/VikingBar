@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show connection status and username in Settings, with explicit account changes and password-free saved details.
+
 - Restore standard macOS editing shortcuts in sign-in fields, including Command-V paste into the password field.
 
 - Add default native direct sign-in for approved public-client accounts, retain optional 1Password connection, and reuse the CLI-owned Keychain session.

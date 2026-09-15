@@ -88,7 +88,9 @@ struct LiveSessionIsolationTests {
         let url = directory.appendingPathComponent("cache.json")
         let cache = FileBalanceCache(url: url)
         try cache.save(state)
-        #expect(try cache.load(connectionID: #require(state.connectionID)) == state)
+        var cachedState = state
+        cachedState.connectionSummary = nil
+        #expect(try cache.load(connectionID: #require(state.connectionID)) == cachedState)
         #expect(try cache.load(connectionID: ConnectionID()) == nil)
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)

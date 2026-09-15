@@ -4,17 +4,18 @@ import VikingBarCore
 
 struct PopoverView: View {
     enum Destination: Equatable {
-        case balance, settings, points, bills
+        case balance, settings, account, points, bills
         case connection(ConnectionReturn)
     }
 
     enum ConnectionReturn: Equatable {
-        case balance, settings
+        case balance, settings, account
 
         var destination: Destination {
             switch self {
             case .balance: .balance
             case .settings: .settings
+            case .account: .account
             }
         }
     }
@@ -65,6 +66,7 @@ struct PopoverView: View {
             ConnectionForm(
                 session: self.session,
                 resultURL: self.connectResultURL,
+                initialAccount: returnTo == .account ? self.session.accountPresentation.summary : nil,
                 reference: self.connect,
                 dismiss: { self.destination = returnTo.destination },
             )
@@ -79,7 +81,7 @@ struct PopoverView: View {
     private var adaptiveDestination: some View {
         VStack(alignment: .leading, spacing: 6) {
             if self.destination != .balance {
-                Button { self.destination = .balance } label: {
+                Button { self.destination = self.destination == .account ? .settings : .balance } label: {
                     Label("Back", systemImage: "chevron.left")
                 }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
@@ -106,6 +108,10 @@ struct PopoverView: View {
                     .accessibilityIdentifier("vikingbar.settings")
             case .settings:
                 self.settings
+            case .account:
+                AccountView(account: self.session.accountPresentation) {
+                    self.destination = .connection(.account)
+                }
             case .points:
                 PointsCard(session: self.session, expanded: self.$pointsExpanded)
             case .bills:
@@ -164,11 +170,12 @@ struct PopoverView: View {
                     ForEach(FixtureState.allCases, id: \.self) { Text($0.rawValue.capitalized).tag(Optional($0)) }
                 }
                 .accessibilityIdentifier("vikingbar.fixturePicker")
-            } else {
-                Button("Connect account") { self.destination = .connection(.settings) }
-                    .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
-                    .accessibilityIdentifier("vikingbar.connect.direct")
             }
+            Button(self.session.hasAccount ? "Account…" : "Connect account") {
+                self.destination = self.session.hasAccount ? .account : .connection(.settings)
+            }
+            .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
+            .accessibilityIdentifier("vikingbar.connect.direct")
             Divider()
             Button("Quit VikingBar") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")

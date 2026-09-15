@@ -10,6 +10,11 @@ final class ConnectionFormModel {
     var password = ""
     private(set) var error: String?
 
+    init(account: AccountConnectionSummary? = nil) {
+        self.clientID = account?.clientID ?? ""
+        self.username = account?.username ?? ""
+    }
+
     func takeCredentials(isFixture: Bool) -> ConnectionCredentials? {
         defer { self.password = "" }
         do {

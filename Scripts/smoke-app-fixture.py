@@ -187,6 +187,31 @@ def select_state(state, amount, name):
     coverage.append({'state': state, 'mode': 'amount' if amount else 'iconOnly', 'capture': f'{name}-status.png'})
 
 
+def connected_account_summary():
+    select_state('Finite', False, 'account-preview-balance')
+    press('vikingbar.settings', 'account-settings')
+    press('vikingbar.connect.direct', 'account-open')
+    data = wait_for(lambda: inspect('account-summary.json'),
+                    lambda d: bool(element(d, 'vikingbar.account.status')))
+    assert 'Mobile Vikings' in json.dumps(element(data, 'vikingbar.account.status'))
+    assert not element(data, 'vikingbar.account.method')
+    assert not element(data, 'vikingbar.account.client-id')
+    assert 'alex@example.invalid' in json.dumps(element(data, 'vikingbar.account.username'))
+    assert not element(data, 'vikingbar.connect.password'), 'Summary exposed a credential form.'
+    capture_card('account-summary', fixture=False)
+    press('vikingbar.account.change', 'account-change')
+    data = wait_for(lambda: inspect('account-change-form.json'),
+                    lambda d: bool(element(d, 'vikingbar.connect.password')))
+    assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    assert element(data, 'vikingbar.connect.client-id').get('valueEmpty') is False
+    assert element(data, 'vikingbar.connect.username').get('valueEmpty') is False
+    press('vikingbar.connect.cancel', 'account-change-cancel')
+    wait_for(lambda: inspect('account-returned.json'),
+             lambda d: bool(element(d, 'vikingbar.account.status')) and not element(d, 'vikingbar.connect.password'))
+    press('vikingbar.back', 'account-back-settings')
+    press('vikingbar.back', 'account-back-balance')
+
+
 def direct_connection_choices():
     select_state('Not connected', False, 'direct-disconnected')
     press('vikingbar.connect.direct', 'direct-open')
@@ -381,6 +406,7 @@ try:
     assert not SETTINGS.exists(), 'Default proof requires a new isolated store.'
     launch('default')
     settings_toggle(False, 'default')
+    connected_account_summary()
     direct_connection_choices()
     for state in STATES:
         select_state(state, False, f'icon-{state.lower().replace(" ", "-")}')
@@ -441,7 +467,7 @@ assert len(launches) == 4 and all(p.get('quitVerified') for p in launches)
 (PROOF / 'result.json').write_text(json.dumps({
     'passed': True, 'features': ['data card', 'five fixture states', 'Not connected', 'Settings toggle',
                                'GB/GiB units', 'Quit', 'isolated persistence', 'status captures',
-                               'direct form validation and cancellation', 'optional 1Password fixture rejection',
+                               'connected account summary and change cancellation', 'direct form validation and cancellation', 'optional 1Password fixture rejection',
                                'SIM and bundle selection', 'refresh', 'details', 'Points navigation',
                                'light and dark', 'high contrast', 'reduced transparency'],
     'modes': ['iconOnly', 'amount'], 'coverage': coverage, 'iconOnlyWidth': icon_width,
