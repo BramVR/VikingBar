@@ -8,7 +8,7 @@ private actor SyntheticSession {
         switch command.command {
         case .configure:
             self.current.nextRefreshAt = Date(timeIntervalSince1970: Double(command.refreshInterval!.rawValue))
-        case .refresh:
+        case .refresh, .refreshHistory:
             FileHandle.standardError.write(Data("refresh-started\n".utf8))
             try await Task.sleep(for: .seconds(30))
             self.current.selectedSubscriptionID = "unexpected-completion"

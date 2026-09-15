@@ -37,6 +37,78 @@ struct OptionalSessionTests {
         #expect(!result.isRefreshing)
     }
 
+    @Test(arguments: [true, false], [true, false])
+    func `history and other optional reads serialize without canceling each other`(
+        points: Bool, historyFirst: Bool,
+    ) async throws {
+        let rig = try await Self.historyRig()
+        let usage = try await rig.session.refresh()
+        let other: @Sendable () async throws -> LiveSessionState = {
+            try await points ? rig.session.refreshPoints() : rig.session.refreshInvoices()
+        }
+        let firstPath = historyFirst ? Self.summaryPath : (points ? PointsTests.balancePath : "/mv/invoices")
+        await rig.transport.pauseNext(path: firstPath, cancellable: true)
+        let first = Task { try await historyFirst ? rig.session.refreshHistory() : other() }
+        await rig.transport.waitUntilPaused()
+        let second = Task { try await historyFirst ? other() : rig.session.refreshHistory() }
+        for _ in 0 ..< 20 {
+            await Task.yield()
+        }
+        let held = await rig.session.state()
+        #expect(held.snapshot == usage.snapshot)
+        #expect(held.nextRefreshAt == usage.nextRefreshAt)
+        #expect(!held.isRefreshing)
+        #expect(await rig.transport.paths().last == firstPath)
+        #expect(await rig.transport.cancellations == 0)
+        await rig.transport.resume()
+        _ = try await first.value
+        let result = try await second.value
+        #expect(result.matchingHistory?.observations.allSatisfy { $0.bytes == 1 } == true)
+        #expect(result.matchingHistory?.failure == nil)
+        #expect(points ? result.points?.balance != nil : result.invoices?.invoices.count == 1)
+        #expect(result.snapshot == usage.snapshot)
+        #expect(result.failure == nil)
+        #expect(result.nextRefreshAt == usage.nextRefreshAt)
+        #expect(!result.isRefreshing)
+        #expect(await rig.transport.cancellations == 0)
+    }
+
+    @Test func `required refresh cancels history and queued metadata reads without replacing successful data`(
+    ) async throws {
+        let rig = try await Self.historyRig()
+        _ = try await rig.session.refresh()
+        _ = try await rig.session.refreshPoints()
+        _ = try await rig.session.refreshInvoices()
+        let before = try await rig.session.refreshHistory()
+        await rig.transport.setResponse(path: Self.summaryPath, json: "[\(UsageHistoryTests.row(bytes: "777"))]")
+        await rig.transport.pauseNext(path: Self.summaryPath, cancellable: true)
+        let history = Task { try await rig.session.refreshHistory(force: true) }
+        await rig.transport.waitUntilPaused()
+        let points = Task { try await rig.session.refreshPoints() }
+        let invoices = Task { try await rig.session.refreshInvoices() }
+        for _ in 0 ..< 20 {
+            await Task.yield()
+        }
+        #expect(await rig.transport.paths().last == Self.summaryPath)
+        let required = try await rig.session.refresh()
+        await #expect(throws: CancellationError.self) { try await history.value }
+        await #expect(throws: CancellationError.self) { try await points.value }
+        await #expect(throws: CancellationError.self) { try await invoices.value }
+        #expect(await rig.transport.cancellations == 1)
+        #expect(required.snapshot == before.snapshot)
+        #expect(required.failure == nil)
+        #expect(required.nextRefreshAt == before.nextRefreshAt)
+        #expect(required.points == before.points)
+        #expect(required.invoices == before.invoices)
+        #expect(required.invoiceFailure == nil)
+        #expect(required.matchingHistory?.observations == before.matchingHistory?.observations)
+        #expect(required.matchingHistory?.failure == nil)
+        #expect(required.matchingHistory?.context.revision != before.matchingHistory?.context.revision)
+        #expect(required.scopeMismatch == before.scopeMismatch)
+        #expect(!required.isRefreshing)
+        #expect(rig.store.saveCount == 1)
+    }
+
     @Test(arguments: [true, false])
     func `required usage promptly cancels optional reads and owns selected SIM`(points: Bool) async throws {
         let rig = try await PointsTests.rig()
@@ -111,5 +183,17 @@ struct OptionalSessionTests {
         await #expect(throws: CancellationError.self) { try await pdf.value }
         #expect(refreshed.invoiceDocument == nil)
         #expect(await rig.transport.paths().filter { $0.hasSuffix("/pdf") }.count == 1)
+    }
+
+    private static let summaryPath = "/mv/subscriptions/sim-a/usage-summary"
+
+    private static func historyRig() async throws -> Rig {
+        let rig = try await PointsTests.rig()
+        let start = ISO8601DateFormatter().string(from: LiveModelsTests.now.addingTimeInterval(-4 * 86400))
+        let bundle = LiveModelsTests.bundle().replacingOccurrences(of: "2026-01-01T00:00:00Z", with: start)
+        await rig.transport.setResponse(path: "/mv/subscriptions/sim-a/balance", json: "{\"bundles\":[\(bundle)]}")
+        await rig.transport.setResponse(path: Self.summaryPath, json: "[\(UsageHistoryTests.row())]")
+        await rig.transport.setResponse(path: "/mv/invoices", json: InvoiceTests.page([InvoiceTests.item()]))
+        return rig
     }
 }

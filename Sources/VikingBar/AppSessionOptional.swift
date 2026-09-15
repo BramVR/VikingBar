@@ -3,19 +3,20 @@ import VikingBarCore
 
 extension AppSession {
     enum OptionalIntent: Equatable {
-        case points, invoices
+        case points, invoices, history
         case pdf(String)
 
         var request: SessionRequest {
             switch self {
             case .points: .refreshPoints
+            case .history: .refreshHistory
             case .invoices: .refreshInvoices
             case let .pdf(id): .downloadInvoice(id)
             }
         }
 
         var isInvoice: Bool {
-            self != .points
+            self == .invoices || self.isPDF
         }
 
         var isPDF: Bool {
@@ -27,8 +28,16 @@ extension AppSession {
         }
     }
 
+    var isHistoryLoading: Bool {
+        self.activeOptional == .history || self.pendingOptional.contains(.history)
+    }
+
     var isLoadingInvoices: Bool {
         self.activeOptional?.isInvoice == true || self.pendingOptional.contains(where: \.isInvoice)
+    }
+
+    var canLoadInvoices: Bool {
+        self.canSelectAccountData && self.client != nil
     }
 }
 
@@ -50,7 +59,7 @@ extension AppSession {
     }
 
     func openInvoice(_ id: String) {
-        guard self.canSelectAccountData, !self.isLoadingInvoices,
+        guard self.canLoadInvoices, !self.isLoadingInvoices,
               self.liveState.invoices?.invoices.contains(where: { $0.id == id }) == true else { return }
         self.invoiceError = nil
         self.enqueueOptional(.pdf(id))
@@ -59,13 +68,16 @@ extension AppSession {
 
     func enqueueOptional(_ intent: OptionalIntent) {
         guard self.activeOptional != intent, !self.pendingOptional.contains(intent) else { return }
+        if intent == .history {
+            self.historyError = nil
+        }
         self.pendingOptional.append(intent)
     }
 
     func interruptOptional(clear: Bool) {
         if let active = self.activeOptional {
             switch active {
-            case .points, .invoices:
+            case .points, .invoices, .history:
                 if !self.pendingOptional.contains(active) {
                     self.pendingOptional.insert(active, at: 0)
                 }
@@ -80,6 +92,7 @@ extension AppSession {
         if clear {
             self.pendingOptional.removeAll()
             self.invoiceError = nil
+            self.historyError = nil
         }
         self.optionalRevision += 1
         if self.optionalOperation != nil, let client = self.client {
@@ -110,6 +123,7 @@ extension AppSession {
                 }
             }
             do {
+                try Task.checkCancellation()
                 let state = try await client.request(optional.request)
                 guard !Task.isCancelled, revision == self.optionalRevision,
                       connection == state.connectionID, connection == self.liveState.connectionID,
@@ -120,11 +134,13 @@ extension AppSession {
                 guard revision == self.optionalRevision, !Task.isCancelled else { return }
                 if optional == .points {
                     self.liveState.markPointsUnavailable(.transport)
+                } else if optional == .history {
+                    self.historyError = "History unavailable. Refresh to try again."
                 } else {
                     self.invoiceError = "Could not load bills. Try again."
                 }
-                self.onPresentationChange?()
                 self.client = nil
+                self.onPresentationChange?()
                 await client.shutdown()
             }
         }
@@ -132,6 +148,9 @@ extension AppSession {
 
     private func publishOptional(_ state: LiveSessionState, intent: OptionalIntent) {
         switch intent {
+        case .history:
+            self.liveState.mergeHistory(from: state)
+            self.historyError = nil
         case .points:
             self.liveState.mergePoints(from: state)
         case .invoices:

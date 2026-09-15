@@ -51,7 +51,7 @@ extension AppSession {
 
     var canSelectAccountData: Bool {
         self.activity == .idle
-            && (self.isFixtureLaunch ? self.fixture != nil : self.isConnected && self.client != nil)
+            && (self.isFixtureLaunch ? self.fixture != nil : self.isConnected && self.bridgeFailure == nil)
     }
 }
 

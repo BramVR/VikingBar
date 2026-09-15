@@ -238,6 +238,7 @@ actor LiveTransport: ProofHTTPTransport {
     private(set) var cancellations = 0
     private var pauseWaiter: CheckedContinuation<Void, Never>?
     private var failure: Int?
+    private var successesBeforeFailure = 0
     private var responses: [String: String] = [:]
     private var balanceFailure: Int?
     private var responseAction: ResponseAction?
@@ -260,8 +261,13 @@ actor LiveTransport: ProofHTTPTransport {
         self.cancelPause = cancellable
     }
 
-    func failNext(code: Int) {
+    func failNext(code: Int, after successes: Int = 0) {
         self.failure = code
+        self.successesBeforeFailure = successes
+    }
+
+    func recordedRequests() -> [URLRequest] {
+        self.requests
     }
 
     func paths() -> [String] {
@@ -328,9 +334,12 @@ actor LiveTransport: ProofHTTPTransport {
         try ProofEndpoint.validate(request)
         self.requests.append(request)
         try await self.suspendIfNeeded(path: request.url?.path)
-        if let failure = self.failure {
+        if let failure = self.failure, self.successesBeforeFailure == 0 {
             self.failure = nil
             return ProofHTTPResponse(statusCode: failure, data: Data())
+        }
+        if self.failure != nil {
+            self.successesBeforeFailure -= 1
         }
         if request.url?.path.hasSuffix("/balance") == true, let code = self.balanceFailure {
             self.balanceFailure = nil

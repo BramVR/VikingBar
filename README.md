@@ -19,13 +19,15 @@ Install a local build with `make install-app`. Settings also save the card's use
 
 The **Bills** tab shows the latest account invoice or credit note, including grouped scope, payment state, and amount due. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md).
 
+Expand **Daily SIM data and estimate** for daily aggregate usage and a labeled cycle estimate. Missing and stale days remain distinct from zero. See [history rules and pending live proof](docs/history.md).
+
 ## Requirements and availability
 
 VikingBar currently targets Apple Silicon Macs with macOS 14 or later. Building from source requires Swift 6.2 or later and Python 3.
 
 Development builds have no Developer ID signing or notarization. Public distribution and automatic updates are not configured. The [build download guide](docs/RELEASING.md#download-a-development-build) covers app and CLI artifacts from GitHub Actions.
 
-Daily usage history and cycle forecasts remain planned. The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
+Required live history proof remains pending. The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
 
 ## Getting started
 

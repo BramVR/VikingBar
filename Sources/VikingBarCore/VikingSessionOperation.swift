@@ -74,13 +74,14 @@ struct InFlight {
 enum OperationKind: Equatable {
     case bootstrap
     case points
+    case history
     case invoices
     case invoicePDF(String)
     case refresh(subscriptionID: String?)
 
     var isOptional: Bool {
         switch self {
-        case .points, .invoices, .invoicePDF: true
+        case .points, .history, .invoices, .invoicePDF: true
         case .bootstrap, .refresh: false
         }
     }

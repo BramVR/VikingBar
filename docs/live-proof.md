@@ -43,6 +43,7 @@ The transport allows only `https://uwa.mobilevikings.be` and these routes:
 
 - `POST /mv/oauth2/token/` for password and refresh grants.
 - `GET /mv/subscriptions` and `GET /mv/subscriptions/{id}/balance`.
+- `GET /mv/subscriptions/{id}/usage-summary` with exactly `traffic_type=data`, `direction=outgoing`, `from_date`, and `until_date`, bounded to 25 hours per interval.
 - `GET /mv/loyalty-points/balance` and `GET /mv/loyalty-points/transactions?page=N&per_page=20`, with N from 1 through 3.
 - `GET /mv/invoices?page=N&per_page=20`, with N from 1 through 5, and explicit `GET /mv/invoices/{id}/pdf` requests.
 
@@ -65,6 +66,8 @@ This runs the Swift proof tests and Python credential-wrapper tests. It does not
 On success, the live runner returns JSON with `schema_version`, `check`, `passed`, `password_grant`, `refresh_grant`, `scope_mismatch`, `subscription_count`, `balance_count`, and `failure`. A successful receipt requires both grants and an equal, positive number of discovered subscriptions and validated balances. No identifiers, bundle amounts, phone numbers, credentials, or raw responses appear in output. On failure, the wrapper exits nonzero and returns a different JSON object, `{"passed": false, "error": "fixed-diagnostic-code"}`. It suppresses the CLI failure receipt and upstream error text. The direct CLI command emits the full receipt schema on both success and failure; its `failure` field contains a fixed code when the proof fails.
 
 Keep receipts in a private directory outside version control, such as `proof-private/`. Record the commit SHA, executable SHA256, command, UTC time, exit status, and receipt. Evidence must survive cleanup. Publish only the minimum non-secret pass/fail summary; do not publish raw account responses or desktop captures. A receipt proves endpoint execution and response validation, not correctness of the native app's allowance display.
+
+`make proof-live CHECK=history` uses the stored session to verify daily summaries, forecast arithmetic, and the native chart. Both account-access and Mac UI slots are required; see [history proof](history.md#verification-status).
 
 ## Extend a check
 

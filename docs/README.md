@@ -6,6 +6,8 @@ read_when:
 
 # Documentation
 
+- [Daily SIM usage](history.md): bounded summaries, missing days, cycle estimates, and proof requirements.
+
 - [Product vision](../VISION.md): priorities and first release scope.
 - [Project context](../CONTEXT.md): API findings, auth constraints, and domain vocabulary.
 - [Contributor instructions](../AGENTS.md): development rules adapted from CodexBar.

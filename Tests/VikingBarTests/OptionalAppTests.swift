@@ -186,7 +186,59 @@ struct OptionalAppTests {
         await model.stop()
     }
 
-    private static func model(
+    @Test func `history and Bills survive foreground refresh in the shared points queue`() async throws {
+        let client = try OptionalModelClient()
+        client.state.subscriptions = [MobileSubscription(id: "sim-a", displayName: "Synthetic", type: "postpaid")]
+        try client.state.publish(
+            LiveAPI.decodeBalance(Data(LiveModelsTests.balanceJSON.utf8)),
+            at: LiveModelsTests.now,
+            interval: .fiveMinutes,
+        )
+        client.hold = ["points", "history", "cancel"]
+        let model = try Self.model(client)
+        model.start()
+        try await AppSessionTests.until { client.pending["points"] != nil }
+        model.loadInvoices()
+        #expect(model.isHistoryLoading)
+        #expect(model.isLoadingInvoices)
+        client.release("points", .success(client.state))
+        try await AppSessionTests.until { client.pending["history"] != nil }
+        #expect(model.canRefresh)
+        let balance = model.snapshot
+        model.refresh()
+        try await AppSessionTests.until { client.pending["cancel"] != nil }
+        #expect(client.requests == ["restore", "refresh", "points", "history", "cancel"])
+        var old = client.state
+        old.history = try UsageHistory(
+            context: #require(old.historyContext),
+            observations: [],
+            attemptedAt: LiveModelsTests.now,
+        )
+        client.state.historyRevision = UUID()
+        client.release("history", .success(old))
+        client.hold.removeAll()
+        client.release("cancel", .success(client.state))
+        try await AppSessionTests
+            .until { client.requests.count == 9 && !model.isLoadingInvoices && !model.isHistoryLoading }
+        #expect(client.requests == [
+            "restore",
+            "refresh",
+            "points",
+            "history",
+            "cancel",
+            "refresh",
+            "history",
+            "invoices",
+            "points",
+        ])
+        #expect(model.liveState.history == nil)
+        #expect(model.snapshot == balance)
+        #expect(model.liveState.invoices == client.state.invoices)
+        #expect(model.liveState.points == client.state.points)
+        await model.stop()
+    }
+
+    static func model(
         _ client: OptionalModelClient, sleeper: ModelTestSleeper = ModelTestSleeper(),
         open: @escaping (URL) -> Bool = { _ in false },
     ) throws -> AppSession {
@@ -200,7 +252,7 @@ struct OptionalAppTests {
 }
 
 @MainActor
-private final class OptionalModelClient: SessionClient {
+final class OptionalModelClient: SessionClient {
     var state = AppSessionTests.connected()
     var requests: [String] = []
     var hold: Set<String> = []
@@ -245,6 +297,7 @@ private final class OptionalModelClient: SessionClient {
         case .refresh: "refresh"
         case .configure: "configure"
         case .refreshPoints: "points"
+        case .refreshHistory: "history"
         case .refreshInvoices: "invoices"
         case .downloadInvoice: "pdf"
         case .cancel: "cancel"
@@ -269,92 +322,5 @@ private final class OptionalModelClient: SessionClient {
                 continuation.resume(throwing: CancellationError())
             }
         }
-    }
-}
-
-extension OptionalAppTests {
-    @Test func `late configuration success after stop cannot enqueue metadata`() async throws {
-        let client = try OptionalModelClient()
-        client.hold = ["refresh", "configure"]
-        client.completeOnShutdown = true
-        let model = try Self.model(client)
-        model.start()
-        try await AppSessionTests.until { client.pending["refresh"] != nil }
-        model.refreshInterval = .oneHour
-        client.release("refresh", .success(client.state))
-        try await AppSessionTests.until { client.pending["configure"] != nil }
-        await model.stop()
-        #expect(model.activity == .stopped)
-        #expect(model.pendingOptional.isEmpty)
-        #expect(client.requests == ["restore", "refresh", "configure"])
-    }
-
-    @Test func `configuration errors remain visible and delayed replies cannot undo reconnect`() async throws {
-        for reconnect in [false, true] {
-            let client = try OptionalModelClient()
-            let model = try Self.model(client)
-            model.start()
-            try await AppSessionTests.until { client.requests.last == "points" }
-            client.hold = ["configure"]
-            model.refreshInterval = .oneHour
-            try await AppSessionTests.until { client.pending["configure"] != nil }
-            if reconnect {
-                model.connect(
-                    input: .reference(URL(fileURLWithPath: "/synthetic/reference")),
-                    resultURL: nil,
-                )
-                client.release("configure", .success(client.state))
-            } else {
-                client.release("configure", .failure(LiveBridgeFailure.invalidReply))
-            }
-            try await AppSessionTests.until { model.activity == .idle }
-            #expect(model.bridgeError == (reconnect ? LiveBridgeFailure.connectFailed : .unavailable).message)
-            if reconnect {
-                #expect(model.liveState.connectionID == nil)
-            }
-            await model.stop()
-        }
-    }
-
-    @Test func `worker recovery with saved interval retains queued Bills until account restore`() async throws {
-        let client = try OptionalModelClient()
-        client.hold = ["points"]
-        let model = try Self.model(client)
-        model.refreshInterval = .oneHour
-        model.start()
-        try await AppSessionTests.until { client.pending["points"] != nil }
-        model.loadInvoices()
-        client.release("points", .failure(LiveBridgeFailure.invalidReply))
-        try await AppSessionTests.until { client.shutdowns == 1 }
-        client.hold.remove("points")
-        model.refresh()
-        try await AppSessionTests.until { client.requests.filter { $0 == "points" }.count == 2 }
-        #expect(client.requests == [
-            "configure", "restore", "refresh", "points", "configure", "restore", "refresh", "invoices", "points",
-        ])
-        #expect(model.liveState.invoices == client.state.invoices)
-        await model.stop()
-    }
-
-    @Test func `interval changes drain optional cancellation and resume queued Bills`() async throws {
-        let client = try OptionalModelClient()
-        client.hold = ["points", "cancel"]
-        let model = try Self.model(client)
-        model.start()
-        try await AppSessionTests.until { client.pending["points"] != nil }
-        model.loadInvoices()
-        model.refreshInterval = .oneHour
-        try await AppSessionTests.until { client.pending["cancel"] != nil }
-        #expect(client.requests == ["restore", "refresh", "points", "cancel"])
-        #expect(model.activity == .configuring)
-        client.release("points", .failure(CancellationError()))
-        client.hold.remove("points")
-        client.release("cancel", .success(client.state))
-        try await AppSessionTests.until { client.requests.last == "invoices" && !model.isLoadingInvoices }
-        #expect(client.requests == ["restore", "refresh", "points", "cancel", "configure", "points", "invoices"])
-        #expect(model.liveState.points == client.state.points)
-        #expect(model.liveState.invoices == client.state.invoices)
-        #expect(model.activity == .idle)
-        await model.stop()
     }
 }

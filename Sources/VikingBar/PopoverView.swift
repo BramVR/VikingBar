@@ -21,6 +21,7 @@ struct PopoverView: View {
     }
 
     @Bindable var session: AppSession
+    let historyCompanion: HistoryCompanionController
     @State private var destination = Destination.balance
     @State private var detailsExpanded = false
     @State private var pointsExpanded = false
@@ -93,19 +94,23 @@ struct PopoverView: View {
                 DataCard(
                     session: self.session,
                     detailsExpanded: self.$detailsExpanded,
+                    historyCompanion: self.historyCompanion,
                     presentConnection: { self.destination = .connection(.balance) },
                 )
-                Divider().padding(.vertical, 6)
-                if !self.session.isFixtureLaunch {
-                    Button { self.destination = .bills } label: { Label("Bills", systemImage: "doc.text") }
-                        .accessibilityIdentifier("vikingbar.bills")
+                Divider().padding(.vertical, 2)
+                HStack {
+                    if !self.session.isFixtureLaunch {
+                        Button { self.destination = .bills } label: { Label("Bills", systemImage: "doc.text") }
+                            .accessibilityIdentifier("vikingbar.bills")
+                    }
+                    Spacer()
+                    Button { self.destination = .points } label: { Label("Points", systemImage: "star") }
+                        .accessibilityIdentifier("vikingbar.points")
+                    Spacer()
+                    Button { self.destination = .settings } label: { Label("Settings", systemImage: "gearshape") }
+                        .keyboardShortcut(",")
+                        .accessibilityIdentifier("vikingbar.settings")
                 }
-                Button { self.destination = .points } label: { Label("Viking Points", systemImage: "star") }
-                    .accessibilityIdentifier("vikingbar.points")
-                Divider().padding(.vertical, 6)
-                Button { self.destination = .settings } label: { Label("Settings…", systemImage: "gearshape") }
-                    .keyboardShortcut(",")
-                    .accessibilityIdentifier("vikingbar.settings")
             case .settings:
                 self.settings
             case .account:

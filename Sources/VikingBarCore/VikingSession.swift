@@ -3,11 +3,11 @@ import Foundation
 public actor VikingSession {
     let api: LiveAPI
     private let store: any SessionStore
-    private let lease: any SessionLease
+    let lease: any SessionLease
     let cache: any BalanceCache
     var current = LiveSessionState()
     var token: LiveToken?
-    private var tokenGeneration: UInt64?
+    var tokenGeneration: UInt64?
     var generation: UInt64 = 0
     var flight: InFlight?
     private var failures = 0
@@ -61,6 +61,9 @@ public actor VikingSession {
             if let cached, cached.canRestore(connectionID: self.current.connectionID) {
                 self.current = cached
                 self.current.isRefreshing = false
+                if self.current.history?.context != self.current.historyContext {
+                    self.current.history = nil
+                }
                 if let deadline = cached.freshDeadline(at: self.api.now(), interval: self.refreshInterval) {
                     self.current.nextRefreshAt = deadline
                 } else {
@@ -211,6 +214,8 @@ extension VikingSession {
             if changedSubscription {
                 self.current.balance = nil
                 self.current.selectedBundleIndex = nil
+                self.current.history = nil
+                self.current.historyRevision = nil
                 self.current.snapshot = self.current.emptySnapshot
             }
         }
@@ -340,7 +345,7 @@ extension VikingSession {
         guard generation == self.generation else { throw CancellationError() }
     }
 
-    private func loadRecord() throws -> StoredSession? {
+    func loadRecord() throws -> StoredSession? {
         do {
             guard let data = try self.store.load() else { return nil }
             let record = try JSONDecoder().decode(StoredSession.self, from: data)

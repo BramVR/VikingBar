@@ -2,7 +2,7 @@ import Foundation
 import VikingBarCore
 
 enum SessionRequest: Encodable, Sendable {
-    case restore, refresh, refreshPoints, refreshInvoices, cancel, shutdown
+    case restore, refresh, refreshPoints, refreshInvoices, refreshHistory, cancel, shutdown
     case downloadInvoice(String)
     case selectSubscription(String)
     case selectBundle(Int)
@@ -16,21 +16,31 @@ enum SessionRequest: Encodable, Sendable {
         case let .configure(interval):
             try values.encode("configure", forKey: .command)
             try values.encode(interval, forKey: .refreshInterval)
-        case .restore: try values.encode("restore", forKey: .command)
-        case .refresh: try values.encode("refresh", forKey: .command)
-        case .refreshInvoices: try values.encode("refreshInvoices", forKey: .command)
         case let .downloadInvoice(id):
             try values.encode("downloadInvoice", forKey: .command)
             try values.encode(id, forKey: .id)
-        case .refreshPoints: try values.encode("refreshPoints", forKey: .command)
-        case .cancel: try values.encode("cancel", forKey: .command)
-        case .shutdown: try values.encode("shutdown", forKey: .command)
         case let .selectSubscription(id):
             try values.encode("selectSubscription", forKey: .command)
             try values.encode(id, forKey: .id)
         case let .selectBundle(index):
             try values.encode("selectBundle", forKey: .command)
             try values.encode(index, forKey: .index)
+        case .restore, .refresh, .refreshPoints, .refreshInvoices, .refreshHistory, .cancel, .shutdown:
+            try values.encode(self.simpleCommand, forKey: .command)
+        }
+    }
+
+    private var simpleCommand: String {
+        switch self {
+        case .restore: "restore"
+        case .refresh: "refresh"
+        case .refreshPoints: "refreshPoints"
+        case .refreshInvoices: "refreshInvoices"
+        case .refreshHistory: "refreshHistory"
+        case .cancel: "cancel"
+        case .shutdown: "shutdown"
+        case .downloadInvoice, .selectSubscription, .selectBundle, .configure:
+            preconditionFailure("Payload commands encode their names directly")
         }
     }
 }

@@ -190,17 +190,73 @@ func activeDisplayBounds() throws -> [CGRect] {
 }
 
 func isVisible(_ element: AXUIElement, displays: [CGRect]) -> Bool {
+    guard let rectangle = frame(element) else { return false }
+    return displays.contains { $0.contains(rectangle) }
+}
+
+func frame(_ element: AXUIElement) -> CGRect? {
     guard let position = attribute(element, "AXPosition"), CFGetTypeID(position) == AXValueGetTypeID(),
           let dimensions = attribute(element, "AXSize"), CFGetTypeID(dimensions) == AXValueGetTypeID()
-    else { return false }
+    else { return nil }
     var point = CGPoint.zero
     var size = CGSize.zero
     guard AXValueGetValue(unsafeBitCast(position, to: AXValue.self), .cgPoint, &point),
-          AXValueGetValue(unsafeBitCast(dimensions, to: AXValue.self), .cgSize, &size),
-          point.x.isFinite, point.y.isFinite, size.width.isFinite, size.height.isFinite,
-          size.width > 0, size.height > 0 else { return false }
-    let frame = CGRect(origin: point, size: size)
-    return isFinitePositiveRectangle(frame) && displays.contains { $0.contains(frame) }
+          AXValueGetValue(unsafeBitCast(dimensions, to: AXValue.self), .cgSize, &size)
+    else { return nil }
+    let rectangle = CGRect(origin: point, size: size)
+    return isFinitePositiveRectangle(rectangle) ? rectangle : nil
+}
+
+func hoverPoint(frame: CGRect, normalizedX: Double, normalizedY: Double, displays: [CGRect]) throws -> CGPoint {
+    guard isFinitePositiveRectangle(frame), normalizedX.isFinite, normalizedY.isFinite,
+          (0 ... 1).contains(normalizedX), (0 ... 1).contains(normalizedY),
+          frame.width > 2, frame.height > 2,
+          displays.contains(where: { isFinitePositiveRectangle($0) && $0.contains(frame) })
+    else { throw ResolutionFailure.unavailable }
+    let insetFrame = frame.insetBy(dx: 1, dy: 1)
+    let point = CGPoint(
+        x: insetFrame.minX + insetFrame.width * normalizedX,
+        y: insetFrame.minY + insetFrame.height * normalizedY
+    )
+    guard point.x.isFinite, point.y.isFinite, frame.contains(point),
+          displays.contains(where: { $0.contains(point) })
+    else { throw ResolutionFailure.unavailable }
+    return point
+}
+
+func resolveHoverTarget(root: AXUIElement, selector: String) throws -> (AXUIElement, CGRect)? {
+    let displays = try activeDisplayBounds()
+    let matches = elements(root).filter {
+        (attribute($0, "AXIdentifier") as? String) == selector
+            && (attribute($0, "AXRole") as? String) != "AXScrollArea"
+    }
+    guard let target = try uniqueTarget(matches), let rectangle = frame(target),
+          displays.contains(where: { $0.contains(rectangle) })
+    else { return nil }
+    return (target, rectangle)
+}
+
+func hover(_ point: CGPoint, application: NSRunningApplication) throws {
+    guard !application.isTerminated,
+          let event = CGEvent(
+              mouseEventSource: nil,
+              mouseType: .mouseMoved,
+              mouseCursorPosition: point,
+              mouseButton: .left
+          )
+    else { throw ResolutionFailure.unavailable }
+    event.post(tap: .cghidEventTap)
+}
+
+func click(_ point: CGPoint, application: NSRunningApplication) throws {
+    guard !application.isTerminated,
+          let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                             mouseCursorPosition: point, mouseButton: .left),
+          let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                           mouseCursorPosition: point, mouseButton: .left)
+    else { throw ResolutionFailure.unavailable }
+    down.post(tap: .cghidEventTap)
+    up.post(tap: .cghidEventTap)
 }
 
 func resolveTarget(
@@ -362,8 +418,47 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
         perform: { try press($0, application: app) }
     )
     try writeJSON(["chosen": arguments[3], "picker": arguments[2], "pid": pid])
+} else if (arguments.count == 3 || arguments.count == 5), ["hover", "click"].contains(arguments[1]) {
+    let normalizedX = arguments.count == 5 ? Double(arguments[3]) : 0.5
+    let normalizedY = arguments.count == 5 ? Double(arguments[4]) : 0.5
+    guard let normalizedX, let normalizedY else { throw ResolutionFailure.unavailable }
+    var targetFrame = CGRect.zero
+    var destination = CGPoint.zero
+    try resolveAndPerform(
+        timeout: 3,
+        now: { ProcessInfo.processInfo.systemUptime },
+        pause: { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05)) },
+        resolve: {
+            guard !app.isTerminated else { throw ResolutionFailure.unavailable }
+            return try resolveHoverTarget(root: root, selector: arguments[2])
+        },
+        perform: { _, rectangle in
+            let point = try hoverPoint(
+                frame: rectangle,
+                normalizedX: normalizedX,
+                normalizedY: normalizedY,
+                displays: try activeDisplayBounds()
+            )
+            targetFrame = rectangle
+            destination = point
+            if arguments[1] == "click" {
+                try click(point, application: app)
+            } else {
+                try hover(point, application: app)
+            }
+        }
+    )
+    try writeJSON([
+        arguments[1] == "click" ? "clicked" : "hovered": arguments[2],
+        "normalized": [normalizedX, normalizedY],
+        "destination": [destination.x, destination.y],
+        "frame": [[targetFrame.minX, targetFrame.minY], [targetFrame.width, targetFrame.height]],
+        "pid": pid,
+    ])
 } else {
-    guard arguments.count == 1 else { fatalError("Use PID, PID press SELECTOR, or PID choose PICKER TITLE.") }
+    guard arguments.count == 1 else {
+        fatalError("Use PID, PID press SELECTOR, PID choose PICKER TITLE, or PID hover/click SELECTOR [X Y].")
+    }
     let windows = (CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? [])
         .filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }
     let tree = elements(root)

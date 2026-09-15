@@ -109,6 +109,8 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var invoiceDocument: InvoiceDocument?
     public internal(set) var points: CustomerPoints?
     public internal(set) var selectedBundleIndex: Int?
+    public internal(set) var historyRevision: UUID?
+    public internal(set) var history: UsageHistory?
     public internal(set) var snapshot: UsageSnapshot = .notConnected
     public internal(set) var failure: LiveFailure?
     public internal(set) var nextRefreshAt: Date?

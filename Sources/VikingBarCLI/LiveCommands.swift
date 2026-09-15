@@ -8,6 +8,7 @@ struct LiveReport: Encodable, Sendable {
     let snapshot: UsageSnapshot
     let menu: MenuPresentation
     let balanceDetails: LiveBalancePresentation
+    let historyPresentation: HistoryPresentation
     let invoiceDetails: InvoicePresentation
     let points: PointsPresentation
     let error: String?
@@ -18,6 +19,7 @@ struct LiveReport: Encodable, Sendable {
         self.snapshot = state.snapshot
         self.menu = MenuPresentation(snapshot: state.snapshot)
         self.balanceDetails = LiveBalancePresentation(state: state)
+        self.historyPresentation = HistoryPresentation(history: state.matchingHistory, unit: .gigabytes, now: Date())
         self.invoiceDetails = InvoicePresentation(
             snapshot: state.invoices,
             selectedSubscriptionID: state.selectedSubscriptionID,
@@ -53,6 +55,7 @@ struct CommandFailure: Encodable {
 
 struct LiveOptions {
     var cached = false
+    var history = false
     var subscription: String?
     var bundle: Int?
 
@@ -62,6 +65,8 @@ struct LiveOptions {
             switch arguments[index] {
             case "--cached" where !self.cached:
                 self.cached = true
+            case "--history" where !self.history:
+                self.history = true
             case "--subscription" where self.subscription == nil && index + 1 < arguments.count:
                 index += 1
                 self.subscription = arguments[index]
@@ -74,7 +79,9 @@ struct LiveOptions {
             }
             index += 1
         }
-        guard !self.cached || (self.subscription == nil && self.bundle == nil) else { throw ProofFailure.invalidInput }
+        guard !self.cached || (self.subscription == nil && self.bundle == nil && !self.history) else {
+            throw ProofFailure.invalidInput
+        }
     }
 }
 
@@ -82,10 +89,11 @@ extension VikingBarCLI {
     static let liveUsage = """
 
     Live commands:
-      vikingbar live [--cached | [--subscription ID] [--bundle INDEX]]
+      vikingbar live [--cached | [--subscription ID] [--bundle INDEX] [--history]]
       vikingbar connect
       vikingbar proof auth-balance
       vikingbar proof balance-api
+      vikingbar proof history-api
       vikingbar proof invoices
       vikingbar proof points-api
 
@@ -94,6 +102,8 @@ extension VikingBarCLI {
     connect reads credential JSON from stdin. Use the approved connection helper.
     proof auth-balance reads credential JSON from stdin and never persists tokens.
     proof balance-api refreshes the stored session and reports redacted comparisons.
+    --history reads bounded daily SIM summaries after balance refresh.
+    proof history-api checks real summaries and a calculable cycle estimate using the stored session.
     proof points-api refreshes customer points and reports redacted comparisons.
     vikingbar session is the app's private JSON-lines command interface.
     """
@@ -101,7 +111,7 @@ extension VikingBarCLI {
     static func writeJSON(_ value: some Encodable) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = SessionDateCoding.encodingStrategy
         guard let data = try? encoder.encode(value) else { exit(2) }
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data([0x0A]))
@@ -151,13 +161,17 @@ extension VikingBarCLI {
                 if let bundle = options.bundle {
                     _ = try await active.selectBundle(index: bundle)
                 }
+                if options.history {
+                    _ = try await active.refreshHistory()
+                }
             }
             if !options.cached {
                 _ = try? await active.refreshPoints()
             }
             let state = await active.state()
             self.writeJSON(LiveReport(state: state))
-            if state.connectionID == nil || state.failure != nil {
+            let historyFailed = options.history && (state.history == nil || state.history?.failure != nil)
+            if state.connectionID == nil || state.failure != nil || historyFailed {
                 exit(1)
             }
         } catch {

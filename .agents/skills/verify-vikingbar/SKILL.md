@@ -63,6 +63,7 @@ Close only the website tab created for the run and stop only its recorded Vite p
 - `make smoke-package` builds and inspects development archives; follow [artifact trust and download checks](features/packaged-artifacts.md).
 - `make check-proof` runs synthetic API and credential-wrapper tests without 1Password or account access.
 - `make proof-live CHECK=balance-ui` requires the authorized [live balance](features/live-balance.md) recipe and private evidence.
+- `make proof-live CHECK=history` requires a stored connection and fresh account/UI slots. Follow [daily SIM history](features/history.md) for the verified main-hover, click-open chart, and Refresh recipe.
 - `make proof-live CHECK=auth-balance` requires the authorized [auth/balance proof](features/auth-balance-proof.md) recipe.
 - `make proof-live CHECK=invoices` requires the authorized [invoice proof](features/invoices.md) recipe. It accesses the stored account and downloads a PDF only when an invoice exists; it never opens a PDF viewer.
 - `make proof-live CHECK=points` requires the authorized [Viking Points](features/points.md) recipe, stored session, and private native evidence.

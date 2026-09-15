@@ -54,6 +54,7 @@ final class AppSession {
     private(set) var settingsError: String?
     var liveState = LiveSessionState()
     private(set) var activity: Activity = .idle
+    var historyError: String?
     private(set) var bridgeFailure: LiveBridgeFailure?
     private var allowanceExpired = false
     var invoiceError: String?
@@ -171,7 +172,7 @@ extension AppSession {
         guard !self.isFixtureLaunch, !self.hasStarted, self.activity != .stopped else { return }
         self.hasStarted = true
         let intent = self.begin(.restoring)
-        self.operation = Task { await self.restoreAndRefresh(intent: intent) }
+        self.operation = Task { await self.restoreAndPerform(.refresh, intent: intent) }
     }
 
     func refresh() {
@@ -188,7 +189,7 @@ extension AppSession {
         }
         self.operation = Task {
             if self.client == nil {
-                await self.restoreAndRefresh(intent: intent)
+                await self.restoreAndPerform(.refresh, intent: intent)
             } else {
                 await self.perform(.refresh, intent: intent)
             }
@@ -198,7 +199,13 @@ extension AppSession {
     func select(_ request: SessionRequest) {
         guard self.canSelectAccountData else { return }
         let intent = self.begin(.selecting)
-        self.operation = Task { await self.perform(request, intent: intent) }
+        self.operation = Task {
+            if self.client == nil {
+                await self.restoreAndPerform(request, intent: intent)
+            } else {
+                await self.perform(request, intent: intent)
+            }
+        }
     }
 
     func stop() async {
@@ -231,29 +238,6 @@ extension AppSession {
         self.generation == intent && !Task.isCancelled && self.activity != .stopped
     }
 
-    private func restoreAndRefresh(intent: Int) async {
-        guard self.isCurrent(intent) else { return }
-        do {
-            let client = try self.clientFactory()
-            self.client = client
-            self.appliedInterval = .fiveMinutes
-            try await self.applyInterval(client: client, intent: intent)
-            guard self.isCurrent(intent) else { return }
-            let restored = try await client.request(.restore)
-            guard self.isCurrent(intent) else { return }
-            self.publish(restored)
-            guard self.isConnected else { self.finish(); return }
-            if restored.failure != nil, let deadline = restored.nextRefreshAt, deadline > self.now() {
-                self.finish()
-                return
-            }
-            self.activity = .refreshing
-            await self.perform(.refresh, intent: intent)
-        } catch {
-            await self.failWorker(intent: intent)
-        }
-    }
-
     private func perform(_ request: SessionRequest, intent: Int) async {
         await self.optionalCancellation?.value
         guard self.isCurrent(intent) else { return }
@@ -267,6 +251,10 @@ extension AppSession {
             guard self.isCurrent(intent) else { return }
             if case .refresh = request, self.isConnected {
                 self.enqueueOptional(.points)
+            }
+            guard self.isCurrent(intent) else { return }
+            if self.liveState.historyContext != nil, self.liveState.failure == nil {
+                self.enqueueOptional(.history)
             }
             self.finish()
         } catch {
@@ -312,6 +300,9 @@ extension AppSession {
     private func publish(_ state: LiveSessionState) {
         var state = state
         if state.connectionID == self.liveState.connectionID {
+            if state.matchingHistory == nil {
+                state.mergeHistory(from: self.liveState)
+            }
             state.mergePoints(from: self.liveState)
             state.mergeInvoices(from: self.liveState)
         } else {
@@ -408,7 +399,7 @@ extension AppSession {
                 try await connector.connect(input: input, resultURL: resultURL)
                 guard self.isCurrent(intent) else { return }
                 self.connector = nil
-                await self.restoreAndRefresh(intent: intent)
+                await self.restoreAndPerform(.refresh, intent: intent)
             } catch {
                 guard self.isCurrent(intent) else { return }
                 self.connector = nil
@@ -440,5 +431,42 @@ extension AppSession {
         self.bridgeFailure = nil
         self.finish()
         return true
+    }
+}
+
+extension AppSession {
+    var historyPresentation: HistoryPresentation {
+        HistoryPresentation(history: self.liveState.matchingHistory, unit: self.unit, now: self.now())
+    }
+}
+
+extension AppSession {
+    private func restoreAndPerform(_ request: SessionRequest, intent: Int) async {
+        guard self.isCurrent(intent) else { return }
+        do {
+            let client = try self.clientFactory()
+            self.client = client
+            self.appliedInterval = .fiveMinutes
+            try await self.applyInterval(client: client, intent: intent)
+            guard self.isCurrent(intent) else { return }
+            let restored = try await client.request(.restore)
+            guard self.isCurrent(intent) else { return }
+            self.publish(restored)
+            guard self.isConnected else { self.finish(); return }
+            if case .refresh = request {
+                if restored.failure != nil, let deadline = restored.nextRefreshAt, deadline > self.now() {
+                    self.finish()
+                    return
+                }
+            }
+            self.activity = if case .refresh = request {
+                .refreshing
+            } else {
+                .selecting
+            }
+            await self.perform(request, intent: intent)
+        } catch {
+            await self.failWorker(intent: intent)
+        }
     }
 }

@@ -321,8 +321,9 @@ class NativeProof:
         if result.returncode:
             try:
                 failure = json.loads(result.stdout)
-                if failure == {"passed": False, "error": "session-busy"}:
-                    raise UIFailure("session-busy")
+                for code in ("session-busy", "history-evidence-insufficient", "history-api-failed"):
+                    if failure == {"passed": False, "error": code}:
+                        raise UIFailure(code)
             except ValueError:
                 pass
             raise UIFailure("proof-command-failed")
@@ -381,6 +382,8 @@ class NativeProof:
             self.begin_human_window(label)
         arguments = [str(self.executable), "--proof-directory", str(self.directory)]
         if first and self.direct is None:
+            if self.reference is None:
+                raise UIFailure("credential-reference-required")
             arguments += ["--credential-reference", self.reference]
         if self.direct is not None:
             direct_configuration(self.environment)

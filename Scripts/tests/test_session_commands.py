@@ -19,7 +19,7 @@ class SessionCommandTests(unittest.TestCase):
         build = ROOT / ".build/debug"
         sources = [ROOT / "Scripts/tests/session-command-driver.swift"]
         sources.extend(ROOT / "Sources/VikingBarCLI" / name for name in (
-            "SessionCommands.swift", "LiveCommands.swift", "BalanceOracle.swift", "PointsOracle.swift"))
+            "SessionCommands.swift", "LiveCommands.swift", "BalanceOracle.swift", "PointsOracle.swift", "HistoryOracle.swift"))
         objects = list((build / "VikingBarCore.build").glob("*.swift.o"))
         if not objects:
             raise AssertionError("Run swift build before session tests")
@@ -81,7 +81,7 @@ class SessionCommandTests(unittest.TestCase):
         self.send(process, {"command": "configure", "refreshInterval": 900})
         reply = json.loads(self.line(process.stdout))
         self.assertNotIn("error", reply)
-        self.assertEqual(reply["state"]["nextRefreshAt"], "1970-01-01T00:15:00Z")
+        self.assertEqual(reply["state"]["nextRefreshAt"], "1970-01-01T00:15:00.000Z")
         self.send(process, {"command": "shutdown"})
         self.line(process.stdout)
         self.assertEqual(process.wait(timeout=3), 0)

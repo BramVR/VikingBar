@@ -98,7 +98,7 @@ actor SessionProcessClient: SessionClient {
                 let line = self.buffer.prefix(upTo: newline)
                 guard line.count <= 1_048_576, !self.pending.isEmpty else { throw LiveBridgeFailure.invalidReply }
                 let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
+                decoder.dateDecodingStrategy = SessionDateCoding.decodingStrategy
                 let reply = try decoder.decode(Reply.self, from: line)
                 guard reply.schemaVersion == 1 else { throw LiveBridgeFailure.invalidReply }
                 self.buffer.removeSubrange(...newline)

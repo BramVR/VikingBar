@@ -29,7 +29,10 @@ After connection, choose a SIM and data bundle in the card. Different bundles ke
 
 The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
 
+Expand **Daily SIM data and estimate** to inspect daily usage for the selected bundle period. History loads after balance and has separate failures. The estimate covers SIM traffic, which can differ from the selected bundle's balance. See [daily usage and estimate rules](history.md).
+
 The selected SIM persists with the connection's cached balance. Card display and refresh interval are separate local preferences. Follow [local settings and removal](local-install.md) for launch at login, local updates, logout, and uninstall.
+
 Open **Bills** for the latest account invoice or credit note. Grouped totals remain account-level amounts, with the selected SIM's known relationship shown separately. Invoice failures leave the data balance usable. **Open PDF** downloads the requested document and opens its private local file. See [invoice fields, download handling, and proof](invoices.md).
 
 ## Viking Points
