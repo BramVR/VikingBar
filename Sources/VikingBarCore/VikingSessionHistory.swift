@@ -31,6 +31,15 @@ extension VikingSession {
             history = UsageHistory(
                 context: context, observations: (self.current.history?.observations ?? []).map {
                     HistoryObservation(interval: $0.interval, bytes: $0.bytes, fetchedAt: $0.fetchedAt, isStale: true)
+                }, chartSeries: self.current.history?.chartSeries.map { series in
+                    HistoryChartSeries(
+                        observations: series.observations.map {
+                            HistoryObservation(
+                                interval: $0.interval, bytes: $0.bytes, fetchedAt: $0.fetchedAt, isStale: true,
+                            )
+                        },
+                        failure: series.failure,
+                    )
                 }, attemptedAt: self.api.now(), failure: error as? LiveFailure ?? .transport,
             )
         }
@@ -42,6 +51,15 @@ extension VikingSession {
             self.current.history = UsageHistory(
                 context: context, observations: history.observations.map {
                     HistoryObservation(interval: $0.interval, bytes: $0.bytes, fetchedAt: $0.fetchedAt, isStale: true)
+                }, chartSeries: history.chartSeries.map { series in
+                    HistoryChartSeries(
+                        observations: series.observations.map {
+                            HistoryObservation(
+                                interval: $0.interval, bytes: $0.bytes, fetchedAt: $0.fetchedAt, isStale: true,
+                            )
+                        },
+                        failure: series.failure,
+                    )
                 }, attemptedAt: history.attemptedAt, failure: error as? LiveFailure ?? .transport,
                 truncated: history.truncated,
             )

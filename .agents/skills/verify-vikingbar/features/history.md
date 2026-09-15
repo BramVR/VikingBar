@@ -2,7 +2,8 @@
 
 ## Sub-features
 
-- Daily aggregate bars for the selected SIM and selected bundle period, with GB/GiB, missing days, confirmed zero, partial today, and stale observations.
+- Thirty daily aggregate bars for the selected SIM, including days before the current bundle started, with GB/GiB, missing days, confirmed zero, partial today, and stale observations.
+- A marker at the known current bundle start; prior usage remains outside current-cycle totals and estimates. Midday starts use separate full-day chart and partial-day cycle summaries.
 - An observed SIM total alongside the separately reported bundle balance.
 - A labeled cycle estimate after three complete days with continuous fresh evidence. No percentage without known allowance scope.
 - Balance remains available while history loads or fails. Foreground selection and Refresh cancel and drain pending history.
@@ -39,4 +40,4 @@ For source-only checks, run `make check SWIFTFORMAT=/tmp/vikingbar-tools-issue1/
 - Summary traffic spans the SIM's regions and bundles. The selected balance and history need not match. No call-detail endpoint or personal raw-response fixture is allowed.
 - Forecast proof needs three complete days plus continuous fresh elapsed-cycle evidence. Unavailable or truncated history is not a passing skip.
 - CLI and native session replies contain account data. Keep output and captures out of public PRs and CI.
-- On 15 September 2026, `756e25b` passed the full local gate, CI, and synthetic native forecast/gaps scenarios. The real history gate timed out before its API receipt. An exact-binary diagnostic sampled `KeychainSessionStore.load()` waiting in `SecItemCopyMatching`, before networking, with a VikingBar Keychain request present. Both bounded runs cleaned up. Resolve the fresh executable's prompt before another complete stored-session run. Earlier `abc0a37` API/forecast proof passed with 19 requests and 18 observed days; it cannot replace this build's complete gate. No password or 1Password read is part of this workflow.
+- On 15 September 2026, `7300211` passed live API/forecast proof after the earlier Keychain wait was resolved. Native validation failed because the complete daily series was absent from the chart accessibility tree. Cleanup passed. Earlier synthetic checks missed that assertion; the hardened harness now runs the unchanged production comparator. Verify the compact revision's chart label and complete live gate before issue completion. No password or 1Password read is part of this workflow.

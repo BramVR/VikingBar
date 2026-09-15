@@ -21,8 +21,25 @@ public struct HistoryDayPresentation: Codable, Equatable, Sendable {
     public let statusText: String
 }
 
+public struct HistoryBoundaryPresentation: Codable, Equatable, Sendable {
+    public let instant: Date
+    public let dayStart: Date
+    public let label: String
+    public let dateText: String
+    public let position: Double
+
+    public init(instant: Date, dayStart: Date, label: String, dateText: String, position: Double) {
+        self.instant = instant
+        self.dayStart = dayStart
+        self.label = label
+        self.dateText = dateText
+        self.position = position
+    }
+}
+
 public struct HistoryPresentation: Codable, Equatable, Sendable {
     public let days: [HistoryDayPresentation]
+    public let boundary: HistoryBoundaryPresentation?
     public let forecast: HistoryForecast?
     public let totalObservedBytes: UInt64?
     public let totalText: String
@@ -38,12 +55,20 @@ public struct HistoryPresentation: Codable, Equatable, Sendable {
         let divisor = unit == .gigabytes ? 1_000_000_000.0 : 1_073_741_824.0
         let labelFormatter = Self.dateFormatter(format: "d MMM")
         let fullDateFormatter = Self.dateFormatter(format: "d MMMM yyyy")
-        self.days = (history?.observations ?? []).map {
-            Self.day($0, unit: unit, now: now, labelFormatter: labelFormatter, fullDateFormatter: fullDateFormatter)
+        let chartIntervals = HistoryRequestPlan.rollingChartIntervals(now: now)
+        self.days = chartIntervals.map { interval in
+            let observation = Self.chartObservation(for: interval, in: history?.chartSeries)
+            return Self.day(
+                observation, unit: unit, now: now,
+                labelFormatter: labelFormatter, fullDateFormatter: fullDateFormatter,
+            )
         }
-        self.totalObservedBytes = Self.sum((history?.observations ?? []).compactMap(\.bytes))
-        self.totalText = self.totalObservedBytes.map { "Observed SIM total: \(unit.format(bytes: $0))" }
-            ?? "Observed SIM total unavailable."
+        self.boundary = history.flatMap { Self.boundary($0.context.bundle.cycleStart, in: chartIntervals) }
+        self.totalObservedBytes = history?.truncated == true
+            ? nil
+            : Self.sum((history?.observations ?? []).compactMap(\.bytes))
+        self.totalText = self.totalObservedBytes.map { "Observed this cycle: \(unit.format(bytes: $0))" }
+            ?? "Observed this cycle unavailable."
         self.forecast = history.flatMap { Self.estimate($0, now: now) }
         if let forecast = self.forecast {
             let amount = String(
@@ -57,9 +82,11 @@ public struct HistoryPresentation: Codable, Equatable, Sendable {
         if history == nil {
             self.statusText = "History not loaded."
         } else if history?.truncated == true {
-            self.statusText = "History limited to 62 days. Estimate unavailable."
+            self.statusText = "Cycle exceeds 62 days. Cycle total and estimate unavailable."
         } else if let failure = history?.failure {
             self.statusText = "History unavailable. \(failure.message)"
+        } else if let failure = history?.chartSeries?.failure {
+            self.statusText = "Some chart days are unavailable. \(failure.message)"
         } else if self.days.contains(where: \.isStale) {
             self.statusText = "History contains stale observations."
         } else if self.days.contains(where: \.isMissing) {
@@ -67,6 +94,44 @@ public struct HistoryPresentation: Codable, Equatable, Sendable {
         } else {
             self.statusText = "Daily SIM data. Today is partial."
         }
+    }
+
+    private static func chartObservation(
+        for interval: HistoryInterval,
+        in series: HistoryChartSeries?,
+    ) -> HistoryObservation {
+        if let exact = series?.observations.first(where: { $0.interval == interval }) {
+            return exact
+        }
+        if let partial = series?.observations.first(where: {
+            $0.interval.dayStart == interval.dayStart && $0.interval.start == interval.start
+                && $0.interval.end < interval.end && $0.bytes != nil
+        }) {
+            return partial
+        }
+        return HistoryObservation(interval: interval, bytes: nil, fetchedAt: nil)
+    }
+
+    private static func boundary(
+        _ instant: Date,
+        in chartIntervals: [HistoryInterval],
+    ) -> HistoryBoundaryPresentation? {
+        let calendar = HistoryPlan.calendar
+        let dayStart = calendar.startOfDay(for: instant)
+        guard let index = chartIntervals.firstIndex(where: { $0.dayStart == dayStart }),
+              let visibleEnd = chartIntervals.last?.end, instant <= visibleEnd,
+              let next = calendar.date(byAdding: .day, value: 1, to: dayStart),
+              instant >= dayStart, instant < next else { return nil }
+        let duration = next.timeIntervalSince(dayStart)
+        let fraction = instant.timeIntervalSince(dayStart) / duration
+        let format = instant == dayStart ? "d MMMM yyyy" : "d MMMM yyyy, HH:mm"
+        return HistoryBoundaryPresentation(
+            instant: instant,
+            dayStart: dayStart,
+            label: "Cycle started",
+            dateText: Self.dateFormatter(format: format).string(from: instant),
+            position: Double(index) - 0.5 + fraction,
+        )
     }
 
     private static func dateFormatter(format: String) -> DateFormatter {

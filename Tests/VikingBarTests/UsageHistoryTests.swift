@@ -28,7 +28,112 @@ struct UsageHistoryTests {
         #expect(long.truncated)
         #expect(HistoryPlan(cycleStart: end, cycleEnd: end, now: end).intervals.isEmpty)
     }
+}
 
+extension UsageHistoryTests {
+    @Test func `rolling month keeps exact cycle evidence and marks a midday boundary`() throws {
+        let history = Self.history(start: "2026-08-28T12:00:00+02:00", now: "2026-09-15T12:00:00+02:00")
+        let plan = HistoryRequestPlan(context: history.context, now: history.attemptedAt)
+
+        #expect(plan.chartIntervals.count == 30)
+        #expect(plan.cycleIntervals.count == 19)
+        #expect(plan.requestIntervals.count == 31)
+        #expect(!plan.cycleTruncated)
+
+        let presentation = HistoryPresentation(history: history, now: history.attemptedAt)
+        let boundary = try #require(presentation.boundary)
+        #expect(presentation.days.count == 30)
+        #expect(boundary.instant == history.context.bundle.cycleStart)
+        #expect(boundary.label == "Cycle started")
+        #expect(boundary.position == 11)
+        #expect(boundary.dateText == "28 August 2026, 12:00")
+    }
+
+    @Test func `rolling month boundary fraction uses the actual Brussels DST day`() throws {
+        let history = Self.history(start: "2026-03-29T12:00:00+02:00", now: "2026-04-02T12:00:00+02:00")
+        let boundary = try #require(HistoryPresentation(history: history, now: history.attemptedAt).boundary)
+        let expected = 25.0 - 0.5 + 11.0 / 23.0
+
+        #expect(abs(boundary.position - expected) < 0.000_000_1)
+    }
+
+    @Test func `chart failure leaves complete current cycle total and forecast intact`() {
+        let source = Self.history()
+        let plan = HistoryRequestPlan(context: source.context, now: source.attemptedAt)
+        let chart = HistoryChartSeries(
+            observations: plan.chartIntervals.map {
+                HistoryObservation(interval: $0, bytes: nil, fetchedAt: source.attemptedAt)
+            },
+            failure: .serverUnavailable,
+        )
+        let history = UsageHistory(
+            context: source.context, observations: source.observations, chartSeries: chart,
+            attemptedAt: source.attemptedAt,
+        )
+        let presentation = HistoryPresentation(history: history, now: history.attemptedAt)
+        let allMissing = presentation.days.allSatisfy(\.isMissing)
+
+        #expect(presentation.days.count == 30)
+        #expect(allMissing)
+        #expect(presentation.totalObservedBytes == 8_000_000_000)
+        #expect(presentation.forecast != nil)
+    }
+
+    @Test func `long cycle prioritizes the rolling month within the global request cap`() {
+        let history = Self.history(
+            start: "2026-01-01T00:00:00+01:00", now: "2026-04-15T12:00:00+02:00",
+            cycleDuration: 20_000_000,
+        )
+        let plan = HistoryRequestPlan(context: history.context, now: history.attemptedAt)
+
+        #expect(plan.cycleTruncated)
+        #expect(plan.cycleIntervals.isEmpty)
+        #expect(plan.chartIntervals.count == 30)
+        #expect(plan.requestIntervals == plan.chartIntervals.filter { $0.start < $0.end })
+        #expect(plan.requestIntervals.count <= 62)
+
+        let presentation = HistoryPresentation(history: history, now: history.attemptedAt)
+        #expect(presentation.totalObservedBytes == nil)
+        #expect(presentation.forecast == nil)
+        #expect(presentation.totalText == "Observed this cycle unavailable.")
+        #expect(presentation.statusText == "Cycle exceeds 62 days. Cycle total and estimate unavailable.")
+    }
+
+    @Test func `rolling month includes a zero length today slot at Brussels midnight without requesting it`() {
+        let history = Self.history(now: "2026-09-08T00:00:00+02:00")
+        let plan = HistoryRequestPlan(context: history.context, now: history.attemptedAt)
+
+        #expect(plan.chartIntervals.count == 30)
+        #expect(plan.chartIntervals.last?.start == plan.chartIntervals.last?.end)
+        #expect(plan.requestIntervals.allSatisfy { $0.start < $0.end })
+        #expect(plan.requestIntervals.count == 29)
+        let presentation = HistoryPresentation(history: history, now: history.attemptedAt)
+        #expect(presentation.days.count == 30)
+        #expect(presentation.days.last?.isToday == true)
+        #expect(presentation.days.last?.isMissing == true)
+    }
+
+    @Test func `future cycle start later today does not create a chart boundary`() {
+        let history = Self.history(start: "2026-09-08T18:00:00+02:00", now: "2026-09-08T12:00:00+02:00")
+        #expect(HistoryPresentation(history: history, now: history.attemptedAt).boundary == nil)
+    }
+
+    @Test func `history decoded without chart series presents thirty explicit gaps`() throws {
+        let history = Self.history()
+        let encoded = try JSONEncoder().encode(history)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "chartSeries")
+        let oldCache = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(UsageHistory.self, from: oldCache)
+        let presentation = HistoryPresentation(history: decoded, now: decoded.attemptedAt)
+
+        #expect(decoded.chartSeries == nil)
+        #expect(presentation.days.count == 30)
+        #expect(!presentation.days.contains { !$0.isMissing })
+    }
+}
+
+extension UsageHistoryTests {
     @Test func `forecast uses elapsed seconds through yesterday including clipped first day`() throws {
         let history = Self.history(start: "2026-03-27T12:00:00+01:00", now: "2026-03-31T12:00:00+02:00")
         let presentation = HistoryPresentation(history: history, now: history.attemptedAt)
@@ -151,10 +256,14 @@ struct UsageHistoryTests {
     @Test func `retained partial observations stop claiming today after brussels midnight`() throws {
         let history = Self.history(now: "2026-09-08T23:59:00+02:00")
         let nextDay = HistoryPresentation(history: history, now: history.attemptedAt.addingTimeInterval(120))
-        let last = try #require(nextDay.days.last)
-        #expect(!last.isToday)
-        #expect(last.valueText.contains("partial"))
-        #expect(!last.valueText.contains("today"))
+        let retained = try #require(nextDay.days.first(where: {
+            $0.dayStart == HistoryPlan.calendar.startOfDay(for: history.attemptedAt)
+        }))
+        #expect(!retained.isToday)
+        #expect(retained.valueText.contains("partial"))
+        #expect(!retained.valueText.contains("today"))
+        #expect(nextDay.days.last?.isToday == true)
+        #expect(nextDay.days.last?.isMissing == true)
         #expect(nextDay.forecast == nil)
     }
 
@@ -248,24 +357,33 @@ struct UsageHistoryTests {
 
     static func history(
         start: String = "2026-09-01T00:00:00+02:00", now: String = "2026-09-08T12:00:00+02:00",
-        bytes: UInt64 = 1_000_000_000,
+        bytes: UInt64 = 1_000_000_000, cycleDuration: TimeInterval = 2_592_000,
     ) -> UsageHistory {
         let start = Self.date(start)
         let now = Self.date(now)
         let bundle = BalanceBundle(
             title: "Data", description: "Synthetic", category: "default", type: "data", total: 10_000_000_000,
             used: 2_000_000_000, remaining: 8_000_000_000, validFrom: start,
-            validUntil: start.addingTimeInterval(2_592_000),
+            validUntil: start.addingTimeInterval(cycleDuration),
         )
         let context = HistoryContext(
             connectionID: ConnectionID(), subscriptionID: "sim-a", bundleIndex: 0,
             bundle: HistoryBundleIdentity(bundle: bundle), revision: UUID(),
         )
-        let plan = HistoryPlan(cycleStart: start, cycleEnd: bundle.validUntil, now: now)
+        let chartPlan = HistoryRequestPlan(context: context, now: now)
         return UsageHistory(
             context: context,
-            observations: plan.intervals.map { HistoryObservation(interval: $0, bytes: bytes, fetchedAt: now) },
+            observations: chartPlan.cycleIntervals.map {
+                HistoryObservation(interval: $0, bytes: bytes, fetchedAt: now)
+            },
+            chartSeries: HistoryChartSeries(observations: chartPlan.chartIntervals.map {
+                HistoryObservation(
+                    interval: $0, bytes: $0.start < $0.end ? bytes : nil,
+                    fetchedAt: $0.start < $0.end ? now : nil,
+                )
+            }),
             attemptedAt: now,
+            truncated: chartPlan.cycleTruncated,
         )
     }
 }

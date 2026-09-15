@@ -1,4 +1,5 @@
 import copy
+import datetime
 import importlib.util
 import json
 from pathlib import Path
@@ -21,9 +22,12 @@ class HistoryProofTests(unittest.TestCase):
     def setUp(self):
         self.receipt = {"schema_version": 1, "check": "history-api", "passed": True, "api_matches": True,
                         "forecast_matches": True, "token_refreshed": True, "request_count": 7, "observed_days": 6}
-        days = [{"label": f"Sep {day}", "fullDateText": f"September {day}, 2026",
+        first_day = datetime.datetime(2026, 8, 9, tzinfo=datetime.timezone(datetime.timedelta(hours=2)))
+        dates = [first_day + datetime.timedelta(days=index) for index in range(30)]
+        days = [{"label": f"{day.day} {day:%b}", "fullDateText": f"{day.day} {day:%B %Y}",
+                 "dayStart": day.isoformat(),
                  "valueText": "1.00 GB", "statusText": "Complete day", "bytes": 1_000_000_000,
-                 "isMissing": False, "isPartial": False, "isStale": False} for day in range(1, 8)]
+                 "isMissing": False, "isPartial": False, "isStale": False} for day in dates]
         self.presentation = {"days": days, "forecast": {"estimatedCycleBytes": 30_000_000_000},
                              "unit": "GB", "forecastText": "Estimated SIM data this cycle: 30.00 GB",
                              "totalText": "Observed SIM data: 7.00 GB",
@@ -38,10 +42,13 @@ class HistoryProofTests(unittest.TestCase):
                                  "history": {"context": {"connectionID": connection, "subscriptionID": "sim-one",
                                                          "bundleIndex": 0, "revision": "revision-one", "bundle": cycle},
                                              "attemptedAt": "2026-09-07T12:00:00Z", "truncated": False,
-                                             "observations": [{}] * len(days)}}}
+                                             "observations": [{}] * 7,
+                                             "chartSeries": {"observations": [
+                                                 {"interval": {"dayStart": day["dayStart"]}, "bytes": day["bytes"]}
+                                                 for day in days]}}}}
         self.screens = [{"bounds": {"x": 0, "y": 0, "width": 1000, "height": 900}}]
         self.chart = {"AXIdentifier": "vikingbar.historyChart", "frame": [[220, 180], [340, 180]],
-                      "AXValue": "; ".join(day["label"] + ": " + day["valueText"] for day in days)}
+                      "AXDescription": "; ".join(day["label"] + ": " + day["valueText"] for day in days)}
         companion_elements = [{"AXIdentifier": identifier, "AXValue": self.presentation[field],
                                "frame": [[230, 400], [320, 20]]}
                               for identifier, field in (("vikingbar.historyForecast", "forecastText"),
@@ -115,8 +122,33 @@ class HistoryProofTests(unittest.TestCase):
             tree["elements"][0]["frame"] = frame
             with self.assertRaises(HISTORY.UIFailure):
                 HISTORY.compare_history(tree, self.report, self.screens)
-        self.chart["AXValue"] = "Sep 1: 99.00 GB"
+        self.chart["AXDescription"] = "Sep 1: 99.00 GB"
         with self.assertRaisesRegex(HISTORY.UIFailure, "native-history-chart-values-mismatch"):
+            HISTORY.compare_history(self.tree, self.report, self.screens)
+
+    def test_month_window_is_independent_of_cycle_and_requires_exact_days(self):
+        HISTORY.history_timestamp(self.report)
+        for mutate in (
+                lambda value: value["historyPresentation"]["days"].pop(),
+                lambda value: value["historyPresentation"]["days"][0].update(dayStart="2026-08-01T00:00:00Z"),
+                lambda value: value["state"]["history"]["chartSeries"]["observations"][0].update(bytes=123),
+                lambda value: value["state"]["history"]["chartSeries"].update(failure="transport"),
+        ):
+            report = copy.deepcopy(self.report)
+            mutate(report)
+            with self.assertRaisesRegex(HISTORY.UIFailure, "history-live-report-invalid"):
+                HISTORY.history_timestamp(report)
+
+    def test_cycle_boundary_requires_visible_matching_text(self):
+        self.presentation["boundary"] = {"label": "Cycle started", "dateText": "1 September 2026, 02:00"}
+        with self.assertRaises(HISTORY.UIFailure):
+            HISTORY.compare_history(self.tree, self.report, self.screens)
+        element = {"AXIdentifier": "vikingbar.historyBoundary", "AXValue": "Cycle started · 1 September 2026, 02:00",
+                   "frame": [[230, 160], [320, 20]]}
+        self.tree["elements"].append(element)
+        HISTORY.compare_history(self.tree, self.report, self.screens)
+        element["AXValue"] = "Renewed yesterday"
+        with self.assertRaises(HISTORY.UIFailure):
             HISTORY.compare_history(self.tree, self.report, self.screens)
 
     def test_expanded_history_still_requires_visible_menu_bar_status(self):
@@ -223,7 +255,7 @@ class HistoryProofTests(unittest.TestCase):
         days[2].update(bytes=0, isMissing=False, valueText="0.00 GB", statusText="Confirmed zero")
         days[3].update(isPartial=True, valueText="1.00 GB · partial", statusText="Partial boundary day")
         days[4].update(isStale=True, valueText="1.00 GB · stale", statusText="Stale observation")
-        self.chart["AXValue"] = "; ".join(day["label"] + ": " + day["valueText"] for day in days)
+        self.chart["AXDescription"] = "; ".join(day["label"] + ": " + day["valueText"] for day in days)
         self.assertEqual(HISTORY.selection_indices(days), (1, 2))
         windows = HISTORY.history_windows(self.tree, self.screens)
         for index, expected in ((1, "Missing day"), (2, "Confirmed zero"),
@@ -314,7 +346,7 @@ class HistoryProofTests(unittest.TestCase):
                         "data": {"files": [{"window_id": identifier, "path": str(path)}],
                                  "observations": [{
                                      "target": {"window_id": identifier, "resolved_kind": "window-id",
-                                                "requested_kind": "window-id", "source": "window-id",
+                                                "requested_kind": "pid", "source": "window-id",
                                                 "bounds": logical_bounds},
                                      "coordinates": {"coordinate_space": "global_display_points",
                                                      "logical_bounds": logical_bounds},
@@ -372,12 +404,15 @@ class HistoryProofTests(unittest.TestCase):
         window = self.tree["windows"][1]
         bounds = HISTORY.window_frame(window)
         receipt = {"data": {"observations": [{
-            "target": {"window_id": 2, "resolved_kind": "window-id", "requested_kind": "window-id",
+            "target": {"window_id": 2, "resolved_kind": "window-id", "requested_kind": "pid",
                        "source": "window-id", "bounds": bounds},
             "coordinates": {"coordinate_space": "global_display_points", "logical_bounds": bounds},
         }]}}
         self.assertEqual(HISTORY.validate_capture_observation(receipt, window), receipt)
         for mutate in (
+                lambda value: value["data"]["observations"][0]["target"].update(requested_kind="window-id"),
+                lambda value: value["data"]["observations"][0]["target"].update(resolved_kind="pid"),
+                lambda value: value["data"]["observations"][0]["target"].update(source="pid"),
                 lambda value: value["data"]["observations"][0]["target"].update(window_id=3),
                 lambda value: value["data"]["observations"][0]["target"].update(window_id=True),
                 lambda value: value["data"]["observations"][0]["target"]["bounds"][0].__setitem__(0, 201),

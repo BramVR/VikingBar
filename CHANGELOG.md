@@ -6,7 +6,8 @@
 - Fix rejected history date queries by sending whole-second numeric UTC offsets with escaped plus signs, preserving exact interval bounds.
 - Read grouped live history totals from outgoing data, excluding incoming and other traffic while preserving confirmed zero usage.
 - Recover a stopped history worker on the first Refresh or SIM selection while retaining known usage and matching history.
-- Keep the main popover compact with a daily usage summary and a separate hover panel for the chart, exact day details, and cycle estimate, with click and keyboard access.
+- Add daily usage bars and a separate hover panel for exact day details and cycle estimates within the existing menu layout, with click, keyboard, and complete chart accessibility support.
+- Show 30 days of SIM usage across the current bundle boundary, mark its known start, and keep previous-cycle usage out of current-cycle totals and estimates.
 - Show connection status and username in Settings, with explicit account changes and password-free saved details.
 
 - Restore standard macOS editing shortcuts in sign-in fields, including Command-V paste into the password field.

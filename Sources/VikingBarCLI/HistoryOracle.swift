@@ -106,9 +106,17 @@ actor HistoryOracleTransport: ProofHTTPTransport {
               history.context.revision == state.historyRevision,
               history.context.bundle.cycleStart == balance.bundles[index].validFrom,
               history.context.bundle.cycleEnd == balance.bundles[index].validUntil,
-              (1 ... 62).contains(self.summaries.count), self.summaries.count == history.observations.count,
-              presentation.days.count == history.observations.count
+              (1 ... 62).contains(self.summaries.count),
+              let chart = history.chartSeries, chart.failure == nil,
+              chart.observations.count == 30, presentation.days.count == 30
         else { throw ProofFailure.malformedResponse }
+        try self.verifyChart(history: history, chart: chart, presentation: presentation)
+        var uniqueIntervals: [HistoryInterval] = []
+        let intervals = (history.observations + chart.observations).map(\.interval).filter { $0.start < $0.end }
+        for interval in intervals where !uniqueIntervals.contains(interval) {
+            uniqueIntervals.append(interval)
+        }
+        guard self.summaries.count == uniqueIntervals.count else { throw ProofFailure.malformedResponse }
         let coverage = try self.coverage(history: history, presentation: presentation)
         guard coverage.completed >= 3,
               history.observations.filter({ !$0.interval.isToday }).allSatisfy({ $0.bytes != nil }),
@@ -136,9 +144,12 @@ actor HistoryOracleTransport: ProofHTTPTransport {
         var observed: UInt64 = 0
         var total: UInt64?
         var completed = 0
-        for (observation, day) in zip(history.observations, presentation.days) {
+        for observation in history.observations {
             let interval = observation.interval
-            try self.verifyDay(observation, day: day, history: history, cursor: cursor)
+            try self.verifyObservation(
+                observation, history: history, cursor: cursor,
+                until: min(history.attemptedAt, history.context.bundle.cycleEnd),
+            )
             if let bytes = observation.bytes {
                 let addition = (total ?? 0).addingReportingOverflow(bytes)
                 guard !addition.overflow else { throw ProofFailure.malformedResponse }
@@ -159,25 +170,64 @@ actor HistoryOracleTransport: ProofHTTPTransport {
         return (observed, completed)
     }
 
-    private func verifyDay(
-        _ observation: HistoryObservation, day: HistoryDayPresentation, history: UsageHistory, cursor: Date,
+    private func verifyObservation(
+        _ observation: HistoryObservation, history: UsageHistory, cursor: Date, until: Date,
     ) throws {
         let interval = observation.interval
         let matches = self.summaries.filter {
             $0.subscriptionID == history.context.subscriptionID && $0.start == interval.start && $0.end == interval.end
         }
         let today = Self.calendar.startOfDay(for: history.attemptedAt)
+        if cursor == until, cursor == today, interval.start == cursor, interval.end == cursor {
+            guard interval.dayStart == today, interval.isToday, !interval.isCompleteDay,
+                  matches.isEmpty, observation.bytes == nil, observation.fetchedAt == nil, !observation.isStale
+            else { throw ProofFailure.malformedResponse }
+            return
+        }
         guard matches.count == 1, let match = matches.first,
               interval.start == cursor, interval.dayStart == Self.calendar.startOfDay(for: cursor),
               let nextDay = Self.calendar.date(byAdding: .day, value: 1, to: interval.dayStart),
-              interval.end == min(nextDay, history.attemptedAt, history.context.bundle.cycleEnd),
+              interval.end == min(nextDay, until),
               interval.isToday == (interval.dayStart == today),
               interval.isCompleteDay == (interval.start == interval.dayStart && interval.end == nextDay),
-              observation.bytes == match.bytes, !observation.isStale, observation.fetchedAt != nil,
-              day.dayStart == interval.dayStart, day.bytes == match.bytes,
-              day.isMissing == (match.bytes == nil), day.isToday == interval.isToday, !day.isStale,
-              day.value == match.bytes.map({ Double($0) / 1_000_000_000 })
+              observation.bytes == match.bytes, !observation.isStale, observation.fetchedAt != nil
         else { throw ProofFailure.malformedResponse }
+    }
+
+    private func verifyChart(
+        history: UsageHistory, chart: HistoryChartSeries, presentation: HistoryPresentation,
+    ) throws {
+        let today = Self.calendar.startOfDay(for: history.attemptedAt)
+        guard let start = Self.calendar.date(byAdding: .day, value: -29, to: today) else {
+            throw ProofFailure.malformedResponse
+        }
+        var cursor = start
+        for (observation, day) in zip(chart.observations, presentation.days) {
+            try self.verifyObservation(observation, history: history, cursor: cursor, until: history.attemptedAt)
+            let interval = observation.interval
+            guard day.dayStart == interval.dayStart, day.bytes == observation.bytes,
+                  day.isMissing == (observation.bytes == nil), day.isToday == interval.isToday, !day.isStale,
+                  day.isPartial == !interval.isCompleteDay,
+                  day.value == observation.bytes.map({ Double($0) / 1_000_000_000 })
+            else { throw ProofFailure.malformedResponse }
+            cursor = interval.end
+        }
+        guard cursor == history.attemptedAt else { throw ProofFailure.malformedResponse }
+        let cycleStart = history.context.bundle.cycleStart
+        if cycleStart >= start, cycleStart <= history.attemptedAt {
+            let dayStart = Self.calendar.startOfDay(for: cycleStart)
+            guard let boundary = presentation.boundary,
+                  let index = presentation.days.firstIndex(where: { $0.dayStart == dayStart }),
+                  let next = Self.calendar.date(byAdding: .day, value: 1, to: dayStart),
+                  boundary.instant == cycleStart, boundary.dayStart == dayStart,
+                  boundary.label == "Cycle started"
+            else { throw ProofFailure.malformedResponse }
+            let position = Double(index) - 0.5 + cycleStart.timeIntervalSince(dayStart) / next
+                .timeIntervalSince(dayStart)
+            guard abs(boundary.position - position) < 1e-12 else { throw ProofFailure.malformedResponse }
+        } else if presentation.boundary != nil {
+            throw ProofFailure.malformedResponse
+        }
     }
 
     private static var calendar: Calendar {

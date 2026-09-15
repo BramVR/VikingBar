@@ -28,34 +28,61 @@ struct HistorySessionTests {
         let history = try #require(initial.history)
         #expect(history.observations.count == 8)
         #expect(history.observations.allSatisfy { $0.bytes == 1 && !$0.isStale })
-        #expect(await rig.transport.paths().count == 11)
+        #expect(await rig.transport.paths().count == 33)
         clock.advance(301)
         _ = try await rig.session.refreshHistory()
-        #expect(await rig.transport.paths().count == 13)
+        #expect(await rig.transport.paths().count == 35)
         clock.advance(301)
         await rig.transport.failNext(code: 503)
         let failed = try await rig.session.refreshHistory()
         #expect(failed.history?.failure == .tokenExpired)
         #expect(failed.history?.observations.allSatisfy { $0.bytes == 1 && $0.isStale } == true)
         #expect(failed.snapshot == initial.snapshot)
-        #expect(await rig.transport.paths().count == 13)
+        #expect(await rig.transport.paths().count == 35)
         #expect(rig.store.saveCount == 1)
+    }
+
+    @Test func `history fetches thirty chart days while keeping exact cycle evidence separate`() async throws {
+        let rig = try await Self.rig()
+        let result = try await rig.session.refreshHistory()
+        let history = try #require(result.history)
+
+        #expect(history.observations.count == 8)
+        #expect(history.chartSeries?.observations.count == 30)
+        #expect(await rig.transport.paths().filter { $0.hasSuffix("/usage-summary") }.count == 30)
+    }
+
+    @Test func `older chart failure does not suppress a complete cycle forecast`() async throws {
+        let rig = try await Self.rig()
+        await rig.transport.failNext(code: 503, after: 8)
+        let result = try await rig.session.refreshHistory()
+        let history = try #require(result.history)
+
+        #expect(history.failure == nil)
+        #expect(history.chartSeries?.failure == .serverUnavailable)
+        #expect(HistoryPresentation(history: history, now: Self.now).forecast != nil)
+        for observation in history.observations {
+            let chart = history.chartSeries?.observations.first { $0.interval == observation.interval }
+            #expect(chart?.bytes == observation.bytes)
+            #expect(chart?.isStale == false)
+        }
     }
 
     @Test func `forced history bypasses cache but stays capped and never requests details`() async throws {
         let rig = try await Self.rig()
         _ = try await rig.session.refreshHistory()
         _ = try await rig.session.refreshHistory(force: true)
-        #expect(await rig.transport.paths().count == 19)
-        #expect(await rig.transport.paths().filter { $0.hasSuffix("/usage-summary") }.count == 16)
+        #expect(await rig.transport.paths().count == 63)
+        #expect(await rig.transport.paths().filter { $0.hasSuffix("/usage-summary") }.count == 60)
         let long = Rig()
         _ = try await long.session.bootstrap(credentials: LiveSessionTests.credentials)
         _ = try await long.session.refresh()
         await long.transport.setResponse(path: Self.summaryPath, json: "[\(UsageHistoryTests.row())]")
         let bounded = try await long.session.refreshHistory()
-        #expect(bounded.history?.observations.count == 62)
+        #expect(bounded.history?.observations.isEmpty == true)
+        #expect(bounded.history?.chartSeries?.observations.count == 30)
         #expect(bounded.history?.truncated == true)
-        #expect(await long.transport.paths().count == 65)
+        #expect(await long.transport.paths().count == 33)
     }
 
     @Test func `cancelled history is drained before SIM selection and cannot overwrite newer balance`() async throws {
@@ -129,18 +156,19 @@ struct HistorySessionTests {
         let now = Self.now.addingTimeInterval(0.123456)
         let rig = try await Self.rig(now: { now })
         let result = try await rig.session.refreshHistory()
-        let observations = try #require(result.history?.observations)
+        let observations = try #require(result.history?.chartSeries?.observations)
         let requests = await rig.transport.recordedRequests().filter { $0.url?.path == Self.summaryPath }
         #expect(requests.count == observations.count)
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        for (request, observation) in zip(requests, observations) {
+        for request in requests {
             let url = try #require(request.url)
             let parts = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
             let from = try #require(parts.queryItems?.first(where: { $0.name == "from_date" })?.value)
             let until = try #require(parts.queryItems?.first(where: { $0.name == "until_date" })?.value)
-            #expect(formatter.date(from: from) == observation.interval.start)
-            #expect(formatter.date(from: until) == observation.interval.end)
+            let start = try #require(formatter.date(from: from))
+            let end = try #require(formatter.date(from: until))
+            #expect(observations.contains { $0.interval.start == start && $0.interval.end == end })
             #expect(request.timeoutInterval <= 10)
         }
         #expect(observations.last?.interval.end == Self.now)
@@ -191,7 +219,7 @@ struct HistorySessionTests {
         let complete = try await rig.session.refreshHistory()
         #expect(complete.history?.failure == nil)
         #expect(complete.history?.observations.allSatisfy { $0.bytes == 1 && !$0.isStale } == true)
-        #expect(await rig.transport.paths().count == 12)
+        #expect(await rig.transport.paths().count == 34)
     }
 
     @Test func `failed partial day refresh retains the original interval and amount until replacement`() async throws {

@@ -10,8 +10,11 @@ struct HistoryPresentationTests {
         let presentation = HistoryPresentation(history: history, now: history.attemptedAt)
         let first = try #require(presentation.days.first)
         let today = try #require(presentation.days.last)
-        #expect(first.fullDateText == "1 September 2026")
-        #expect(first.isPartial)
+        #expect(presentation.days.count == 30)
+        #expect(first.fullDateText == "10 August 2026")
+        #expect(!first.isPartial)
+        #expect(presentation.boundary?.position == 22)
+        #expect(history.observations.first?.interval.isCompleteDay == false)
         #expect(!first.isToday)
         #expect(first.statusText == "Data usage confirmed")
         #expect(today.fullDateText == "8 September 2026")
@@ -20,14 +23,17 @@ struct HistoryPresentationTests {
 
         let zero = HistoryPresentation(history: UsageHistoryTests.history(bytes: 0), now: history.attemptedAt)
         #expect(zero.days.first?.statusText == "Confirmed zero usage")
-        let missingObservation = HistoryObservation(
-            interval: history.observations[0].interval,
+        let missingObservation = try HistoryObservation(
+            interval: #require(history.chartSeries?.observations.first?.interval),
             bytes: nil,
             fetchedAt: history.attemptedAt,
         )
-        let missing = UsageHistory(
+        let missing = try UsageHistory(
             context: history.context,
-            observations: [missingObservation] + history.observations.dropFirst(),
+            observations: history.observations,
+            chartSeries: HistoryChartSeries(
+                observations: [missingObservation] + #require(history.chartSeries).observations.dropFirst(),
+            ),
             attemptedAt: history.attemptedAt,
         )
         #expect(HistoryPresentation(history: missing, now: history.attemptedAt).days.first?.statusText

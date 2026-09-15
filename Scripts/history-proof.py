@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import signal
 import sys
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("balance_ui_history", ROOT / "Scripts/balance-ui-proof.py")
@@ -38,6 +39,7 @@ def history_timestamp(report):
         context = history["context"]
         bundle = state["balance"]["bundles"][state["selectedBundleIndex"]]
         presentation = report["historyPresentation"]
+        chart = history["chartSeries"]
         if (history.get("failure") is not None or history["truncated"]
                 or context["connectionID"] != state["connectionID"]
                 or context["subscriptionID"] != state["selectedSubscriptionID"]
@@ -46,11 +48,20 @@ def history_timestamp(report):
                 or context["bundle"]["cycleStart"] != bundle["validFrom"]
                 or context["bundle"]["cycleEnd"] != bundle["validUntil"]
                 or not presentation.get("forecast") or presentation["unit"] != "GB"
-                or not 3 <= len(presentation["days"]) <= 62
+                or chart.get("failure") is not None
+                or len(presentation["days"]) != 30
                 or any(day["isStale"] for day in presentation["days"])
-                or len(presentation["days"]) != len(history["observations"])):
+                or len(presentation["days"]) != len(chart["observations"])):
             raise ValueError()
-        return datetime.datetime.fromisoformat(history["attemptedAt"].replace("Z", "+00:00"))
+        attempted = datetime.datetime.fromisoformat(history["attemptedAt"].replace("Z", "+00:00"))
+        today = attempted.astimezone(ZoneInfo("Europe/Brussels")).replace(hour=0, minute=0, second=0, microsecond=0)
+        for index, (day, observation) in enumerate(zip(presentation["days"], chart["observations"])):
+            expected = today + datetime.timedelta(days=index - 29)
+            actual = datetime.datetime.fromisoformat(day["dayStart"].replace("Z", "+00:00"))
+            observed = datetime.datetime.fromisoformat(observation["interval"]["dayStart"].replace("Z", "+00:00"))
+            if actual != expected or observed != expected or day.get("bytes") != observation.get("bytes"):
+                raise ValueError()
+        return attempted
     except (KeyError, IndexError, TypeError, ValueError, AttributeError):
         raise UIFailure("history-live-report-invalid") from None
 
@@ -178,7 +189,7 @@ def validate_capture_observation(receipt, window):
         identifier = window["kCGWindowNumber"]
         if (type(target["window_id"]) is not int or target["window_id"] != identifier
                 or target.get("resolved_kind") != "window-id"
-                or target.get("requested_kind") != "window-id"
+                or target.get("requested_kind") != "pid"
                 or target.get("source") != "window-id"
                 or coordinates.get("coordinate_space") != "global_display_points"
                 or not same_frame(target["bounds"], window_frame(window))
@@ -226,6 +237,9 @@ def compare_history(tree, report, screens):
     boundary = windows["companion"]["element"]
     capture_boundary = {"frame": window_frame(windows["companion"]["window"])}
     presentation = report["historyPresentation"]
+    if cycle_boundary := presentation.get("boundary"):
+        exact_element(tree, windows["companion"]["element"], "vikingbar.historyBoundary",
+                      cycle_boundary["label"] + " · " + cycle_boundary["dateText"])
     for identifier, field in (("vikingbar.historyForecast", "forecastText"),
                               ("vikingbar.historyTotal", "totalText"),
                               ("vikingbar.historyStatus", "statusText"),

@@ -204,7 +204,7 @@ final class HistoryCompanionController {
         guard let panel, let parentWindow, let hostingController else { return }
         hostingController.view.layoutSubtreeIfNeeded()
         let fitting = hostingController.view.fittingSize
-        let desired = CGSize(width: 420, height: max(420, fitting.height))
+        let desired = CGSize(width: 336, height: min(400, max(360, fitting.height)))
         let frame = HistoryCompanionPlacement.frame(
             parent: parentWindow.frame,
             contentSize: desired,

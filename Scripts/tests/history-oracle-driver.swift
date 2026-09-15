@@ -52,14 +52,38 @@ struct SyntheticHistoryTransport: ProofHTTPTransport {
         )
         guard presentation.forecast?.observedSeconds == 95 * 3600 else { fatalError("DST elapsed time lost") }
         let history = state.history!
+        guard presentation.days.count == 30,
+              presentation.days.first!.dayStart < history.context.bundle.cycleStart,
+              presentation.boundary?.position == 24.5,
+              presentation.totalObservedBytes == 4_000_000_000
+        else { fatalError("Rolling month or cycle-only total lost") }
+        let (middayOracle, middayState) = try await Self.mappedState(now: now, missing: false, middayStart: true)
+        let middayPresentation = HistoryPresentation(history: middayState.history, now: now)
+        _ = try await middayOracle.receipt(state: middayState, presentation: middayPresentation)
+        guard middayPresentation.boundary?.position == 25,
+              middayPresentation.days[25].bytes == 0,
+              middayState.history?.observations.first?.bytes == 1_000_000_000,
+              middayPresentation.forecast?.observedSeconds == 83 * 3600
+        else { fatalError("Full chart day was confused with partial cycle evidence") }
         let first = history.observations[0]
         for bytes in [UInt64?.none, UInt64?(999)] {
             var changed = state
             var observations = history.observations
             observations[0] = HistoryObservation(interval: first.interval, bytes: bytes, fetchedAt: first.fetchedAt)
-            changed.history = UsageHistory(context: history.context, observations: observations, attemptedAt: now)
+            changed.history = UsageHistory(
+                context: history.context, observations: observations, chartSeries: history.chartSeries, attemptedAt: now,
+            )
             try await Self.reject(oracle, state: changed, presentation: HistoryPresentation(history: changed.history, now: now))
         }
+        var wrongChart = history.chartSeries!.observations
+        let oldest = wrongChart[0]
+        wrongChart[0] = HistoryObservation(interval: oldest.interval, bytes: 999, fetchedAt: now)
+        var mismapped = state
+        mismapped.history = UsageHistory(
+            context: history.context, observations: history.observations,
+            chartSeries: HistoryChartSeries(observations: wrongChart), attemptedAt: now,
+        )
+        try await Self.reject(oracle, state: mismapped, presentation: HistoryPresentation(history: mismapped.history, now: now))
         var changed = state
         changed.selectedSubscriptionID = "other-sim"
         try await Self.reject(oracle, state: changed, presentation: presentation)
@@ -89,12 +113,12 @@ struct SyntheticHistoryTransport: ProofHTTPTransport {
     }
 
     static func mappedState(
-        now: Date, missing: Bool, grouped: Bool = true,
+        now: Date, missing: Bool, grouped: Bool = true, middayStart: Bool = false,
     ) async throws -> (HistoryOracleTransport, LiveSessionState) {
         let formatter = ISO8601DateFormatter()
         let bundle = BalanceBundle(title: "Data", description: "Synthetic", category: "default", type: "data",
                                    total: 50_000_000_000, used: 8_000_000_000, remaining: 42_000_000_000,
-                                   validFrom: formatter.date(from: "2026-03-26T23:00:00Z")!,
+                                   validFrom: formatter.date(from: middayStart ? "2026-03-27T11:00:00Z" : "2026-03-26T23:00:00Z")!,
                                    validUntil: formatter.date(from: "2026-04-26T22:00:00Z")!)
         var state = LiveSessionState()
         state.connectionID = ConnectionID()
@@ -112,13 +136,9 @@ struct SyntheticHistoryTransport: ProofHTTPTransport {
         let api = LiveAPI(transport: oracle, now: { now })
         let token = LiveToken(accessToken: "synthetic", refreshToken: "synthetic", expiresAt: now.addingTimeInterval(3600),
                               scopeMismatch: false)
-        let plan = HistoryPlan(cycleStart: bundle.validFrom, cycleEnd: bundle.validUntil, now: now)
-        var observations: [HistoryObservation] = []
-        for interval in plan.intervals {
-            let bytes = try await api.usageSummary(subscriptionID: "sim-one", interval: interval, token: token)
-            observations.append(HistoryObservation(interval: interval, bytes: bytes, fetchedAt: now))
-        }
-        state.history = UsageHistory(context: state.historyContext!, observations: observations, attemptedAt: now)
+        state.history = try await HistoryReader(
+            api: api, token: token, context: state.historyContext!, previous: nil, force: true,
+        ).read {}
         return (oracle, state)
     }
 }

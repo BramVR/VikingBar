@@ -86,19 +86,32 @@ public struct HistoryObservation: Codable, Equatable, Sendable {
 public struct UsageHistory: Codable, Equatable, Sendable {
     public let context: HistoryContext
     public let observations: [HistoryObservation]
+    public let chartSeries: HistoryChartSeries?
     public let attemptedAt: Date
     public let failure: LiveFailure?
     public let truncated: Bool
 
     public init(
-        context: HistoryContext, observations: [HistoryObservation], attemptedAt: Date,
+        context: HistoryContext, observations: [HistoryObservation], chartSeries: HistoryChartSeries? = nil,
+        attemptedAt: Date,
         failure: LiveFailure? = nil, truncated: Bool = false,
     ) {
         self.context = context
         self.observations = observations
+        self.chartSeries = chartSeries
         self.attemptedAt = attemptedAt
         self.failure = failure
         self.truncated = truncated
+    }
+}
+
+public struct HistoryChartSeries: Codable, Equatable, Sendable {
+    public let observations: [HistoryObservation]
+    public let failure: LiveFailure?
+
+    public init(observations: [HistoryObservation], failure: LiveFailure? = nil) {
+        self.observations = observations
+        self.failure = failure
     }
 }
 
@@ -136,6 +149,51 @@ public struct HistoryPlan: Sendable {
     }
 }
 
+public struct HistoryRequestPlan: Sendable {
+    public let cycleIntervals: [HistoryInterval]
+    public let chartDayStarts: [Date]
+    public let chartIntervals: [HistoryInterval]
+    public let requestIntervals: [HistoryInterval]
+    public let cycleTruncated: Bool
+
+    public init(context: HistoryContext, now: Date) {
+        let cycle = HistoryPlan(
+            cycleStart: context.bundle.cycleStart,
+            cycleEnd: context.bundle.cycleEnd,
+            now: now,
+        )
+        let chart = Self.rollingChartIntervals(now: now)
+        let union = cycle.intervals + chart.filter { candidate in
+            candidate.start < candidate.end && !cycle.intervals.contains(where: { $0 == candidate })
+        }
+        if cycle.truncated || union.count > 62 {
+            self.cycleIntervals = []
+            self.requestIntervals = chart.filter { $0.start < $0.end }
+            self.cycleTruncated = true
+        } else {
+            self.cycleIntervals = cycle.intervals
+            self.requestIntervals = union
+            self.cycleTruncated = false
+        }
+        self.chartDayStarts = chart.map(\.dayStart)
+        self.chartIntervals = chart
+    }
+
+    static func rollingChartIntervals(now: Date) -> [HistoryInterval] {
+        let calendar = HistoryPlan.calendar
+        let today = calendar.startOfDay(for: now)
+        return (-29 ... 0).map {
+            let dayStart = calendar.date(byAdding: .day, value: $0, to: today)!
+            let next = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+            let end = min(next, now)
+            return HistoryInterval(
+                dayStart: dayStart, start: dayStart, end: end,
+                isCompleteDay: end == next, isToday: dayStart == today,
+            )
+        }
+    }
+}
+
 public extension LiveSessionState {
     var matchingHistory: UsageHistory? {
         self.history?.context == self.historyContext ? self.history : nil
@@ -167,7 +225,8 @@ public extension LiveSessionState {
             return
         }
         self.history = UsageHistory(
-            context: context, observations: previous.observations, attemptedAt: previous.attemptedAt,
+            context: context, observations: previous.observations, chartSeries: previous.chartSeries,
+            attemptedAt: previous.attemptedAt,
             failure: previous.failure, truncated: previous.truncated,
         )
     }
