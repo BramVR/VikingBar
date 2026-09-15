@@ -296,6 +296,51 @@ class HistoryProofTests(unittest.TestCase):
                 HISTORY.validate_hover_receipt(
                     altered, pid=123, selector="vikingbar.historyPlot", normalized_x=1, normalized_y=0.5)
 
+    def test_launch_report_waits_for_strictly_newer_successful_balance(self):
+        proof = object.__new__(HISTORY.HistoryProof)
+        proof.cli = Path("/fixture/vikingbar")
+        baseline = HISTORY.UI.successful_timestamp(self.report)
+        newer = copy.deepcopy(self.report)
+        newer["snapshot"]["freshness"]["current"]["lastUpdated"] = "2026-09-07T12:01:00Z"
+        newer["state"]["snapshot"] = copy.deepcopy(newer["snapshot"])
+        reports = [self.report, newer]
+
+        def wait_twice(operation, predicate, seconds=90):
+            self.assertFalse(predicate(operation()))
+            result = operation()
+            self.assertTrue(predicate(result))
+            return result
+
+        with patch.object(proof, "run", side_effect=reports), \
+                patch.object(HISTORY.UI, "wait_for", side_effect=wait_twice):
+            self.assertEqual(proof.wait_report("launch", baseline), newer)
+
+    def test_main_hover_requires_exact_selected_day_without_opening_panel(self):
+        tree = copy.deepcopy(self.tree)
+        tree["elements"] = [element for element in tree["elements"]
+                            if element.get("AXIdentifier") != "vikingbar.historyPanel"]
+        tree["windows"] = tree["windows"][:1]
+        day = self.presentation["days"][0]
+        tree["elements"].append({"AXIdentifier": "vikingbar.historyMainPlot",
+                                 "frame": [[650, 350], [280, 72]]})
+        for identifier, field in (("vikingbar.historyMainSelectedDate", "fullDateText"),
+                                  ("vikingbar.historyMainSelectedValue", "valueText"),
+                                  ("vikingbar.historyMainSelectedStatus", "statusText")):
+            tree["elements"].append({"AXIdentifier": identifier, "AXDescription": day[field],
+                                     "frame": [[650, 300], [280, 20]]})
+        self.assertTrue(HISTORY.compare_main_selection(tree, self.report, self.screens, 0))
+        for identifier in ("vikingbar.historyMainSelectedDate", "vikingbar.historyMainSelectedValue",
+                           "vikingbar.historyMainSelectedStatus"):
+            altered = copy.deepcopy(tree)
+            next(item for item in altered["elements"] if item.get("AXIdentifier") == identifier)["AXDescription"] = "wrong"
+            with self.assertRaisesRegex(HISTORY.UIFailure, "native-history-main-selection-mismatch"):
+                HISTORY.compare_main_selection(altered, self.report, self.screens, 0)
+        with self.assertRaisesRegex(HISTORY.UIFailure, "native-history-main-selection-mismatch"):
+            HISTORY.compare_main_selection(tree, self.report, self.screens, 29)
+        tree["elements"].append({"AXIdentifier": "vikingbar.historyPanel"})
+        with self.assertRaisesRegex(HISTORY.UIFailure, "native-history-hover-opened-detail"):
+            HISTORY.compare_main_selection(tree, self.report, self.screens, 0)
+
     def test_source_hover_is_primed_outside_and_panel_absence_is_required(self):
         proof = object.__new__(HISTORY.HistoryProof)
         proof.screens = self.screens

@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import Testing
 @testable import VikingBarApp
+@testable import VikingBarCore
 
 struct HistoryCompanionTests {
     @Test func `measurement anchor cannot steal active ownership and stale detach is ignored`() {
@@ -16,57 +17,57 @@ struct HistoryCompanionTests {
         #expect(!attachedMeasurement)
         #expect(!detachedMeasurement)
         #expect(state.activeAnchor == active)
+        state.openDetail()
         let detachedActive = state.detach(active)
         #expect(detachedActive)
         #expect(state.activeAnchor == nil)
+        #expect(!state.isDetailOpen)
         let reclaimed = state.attach(measurement)
         #expect(reclaimed)
         #expect(state.activeAnchor == measurement)
     }
 
-    @Test func `context change closes interaction until pointer leaves and deliberately returns`() {
+    @Test func `context change closes a persistent detail presentation`() {
         let token = UUID()
         var state = HistoryCompanionInteractionState()
         _ = state.attach(token)
-        let enteredSource = state.sourceHoverChanged(true, token: token)
-        #expect(enteredSource)
-        state.panelHoverChanged(true)
-        state.activate(keyboard: true)
-        #expect(state.shouldRemainOpen)
+        state.openDetail()
+        #expect(state.isDetailOpen)
 
         state.contextChanged()
-        #expect(!state.shouldRemainOpen)
-        #expect(state.waitsForSourceExit)
-        let suppressedReentry = state.sourceHoverChanged(true, token: token)
-        let exitedSource = state.sourceHoverChanged(false, token: token)
-        let deliberateReentry = state.sourceHoverChanged(true, token: token)
-        #expect(!suppressedReentry)
-        #expect(exitedSource)
-        #expect(deliberateReentry)
-        #expect(state.shouldRemainOpen)
+        #expect(!state.isDetailOpen)
+        #expect(state.activeAnchor == token)
     }
 
-    @Test func `panel traversal and keyboard activation keep details open only for their lifetimes`() {
+    @Test func `detail stays open until explicit dismissal`() {
         let token = UUID()
         var state = HistoryCompanionInteractionState()
         _ = state.attach(token)
-        let staleEntered = state.sourceHoverChanged(true, token: UUID())
-        #expect(!staleEntered)
-        #expect(!state.shouldRemainOpen)
+        state.openDetail()
+        #expect(state.isDetailOpen)
+        state.closeDetail()
+        #expect(!state.isDetailOpen)
+    }
 
-        let enteredSource = state.sourceHoverChanged(true, token: token)
-        let exitedSource = state.sourceHoverChanged(false, token: token)
-        #expect(enteredSource)
-        #expect(exitedSource)
-        state.panelHoverChanged(true)
-        #expect(state.shouldRemainOpen)
-        state.panelHoverChanged(false)
-        #expect(!state.shouldRemainOpen)
+    @Test func `plot selection maps the full width to exactly thirty ordered slots`() throws {
+        let days = (0 ..< 30).map { Date(timeIntervalSince1970: TimeInterval($0)) }
 
-        state.activate(keyboard: true)
-        #expect(state.shouldRemainOpen)
-        state.keyboardFocusChanged(false)
-        #expect(!state.shouldRemainOpen)
+        #expect(try #require(HistoryPlotSelection.at(horizontalPosition: -5, width: 300, dayStarts: days)).index == 0)
+        #expect(try #require(HistoryPlotSelection.at(horizontalPosition: 0, width: 300, dayStarts: days)).index == 0)
+        #expect(try #require(HistoryPlotSelection.at(horizontalPosition: 9.99, width: 300, dayStarts: days)).index == 0)
+        #expect(try #require(HistoryPlotSelection.at(horizontalPosition: 10, width: 300, dayStarts: days)).index == 1)
+        #expect(try #require(HistoryPlotSelection.at(horizontalPosition: 299.99, width: 300, dayStarts: days))
+            .index == 29)
+        #expect(try #require(HistoryPlotSelection.at(horizontalPosition: 400, width: 300, dayStarts: days)).index == 29)
+        #expect(HistoryPlotSelection.at(horizontalPosition: 0, width: 0, dayStarts: days) == nil)
+        #expect(HistoryPlotSelection.at(horizontalPosition: 0, width: 300, dayStarts: []) == nil)
+    }
+
+    @Test func `compact zero status retains stale and partial qualifiers`() {
+        #expect(HistoryMainDayStatus.text(for: Self.day(bytes: 0, stale: false, partial: true)) == "Partial")
+        #expect(HistoryMainDayStatus.text(for: Self.day(bytes: 0, stale: true, partial: false)) == "Stale")
+        #expect(HistoryMainDayStatus.text(for: Self.day(bytes: 0, stale: true, partial: true)) == "Stale · Partial")
+        #expect(HistoryMainDayStatus.text(for: Self.day(bytes: 0, stale: false, partial: false)) == "Confirmed zero")
     }
 
     @Test func `placement prefers left then right and stays beside the parent`() {
@@ -112,5 +113,21 @@ struct HistoryCompanionTests {
         )
         #expect(fallback.size == CGSize(width: 420, height: 360))
         #expect(tiny.contains(fallback))
+    }
+
+    private static func day(bytes: UInt64?, stale: Bool, partial: Bool) -> HistoryDayPresentation {
+        HistoryDayPresentation(
+            dayStart: Date(timeIntervalSince1970: 0),
+            bytes: bytes,
+            value: bytes.map(Double.init),
+            isMissing: bytes == nil,
+            isStale: stale,
+            isToday: partial,
+            isPartial: partial,
+            label: "1 Jan",
+            fullDateText: "1 January 1970",
+            valueText: bytes.map(String.init) ?? "Missing",
+            statusText: bytes == nil ? "No data (missing)" : "Data usage confirmed",
+        )
     }
 }

@@ -10,24 +10,25 @@ struct HistoryCard: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        Button(action: self.companion.activate) { self.cardContent }
-            .buttonStyle(.plain)
-            .focused(self.$focused)
-            .onChange(of: self.focused) { _, focused in self.companion.keyboardFocusChanged(focused) }
-            .onMoveCommand { self.companion.moveSelection($0) }
-            .onExitCommand { self.companion.dismiss() }
+        self.cardContent
             .background(HistoryCompanionAnchor(companion: self.companion, content: self.content))
-            .accessibilityLabel("Daily SIM data and estimate")
-            .accessibilityValue(self.content.presentation.totalText)
-            .accessibilityHint("Open details. Use Left and Right Arrow to select days, and Escape to close.")
-            .accessibilityIdentifier("vikingbar.historyDisclosure")
     }
 
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Last 30 days").font(.body.weight(.medium))
+            Button(action: self.companion.activate) {
+                Text("Last 30 days").font(.body.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .focused(self.$focused)
+            .onMoveCommand { self.companion.moveSelection($0) }
+            .onExitCommand { self.companion.dismiss() }
+            .accessibilityLabel("Daily SIM data and estimate")
+            .accessibilityValue(self.content.presentation.totalText)
+            .accessibilityHint("Open details. Use Left and Right Arrow to select days, and Escape to close.")
+            .accessibilityIdentifier("vikingbar.historyDisclosure")
             HStack(alignment: .top) {
-                self.todayMetric
+                self.selectedMetric
                 self.metric(title: "Cycle so far", value: self.totalText)
             }
             if !self.content.presentation.days.isEmpty {
@@ -41,14 +42,31 @@ struct HistoryCard: View {
         .contentShape(Rectangle())
     }
 
-    private var todayMetric: some View {
-        let value = self.today.map(self.amountText) ?? "Unavailable"
-        let note = self.today.flatMap(self.summaryStatus)
-        return self.metric(title: "Today", value: value, note: note)
+    private var selectedMetric: some View {
+        let day = self.selectedDay
+        return VStack(alignment: .leading, spacing: 1) {
+            Text(day?.label ?? "Today")
+                .font(.caption2).foregroundStyle(.secondary)
+                .accessibilityLabel(day?.fullDateText ?? "Today")
+                .accessibilityIdentifier("vikingbar.historyMainSelectedDate")
+            HStack(spacing: 4) {
+                Text(day.map(self.amountText) ?? "Unavailable")
+                    .font(.caption.weight(.semibold)).lineLimit(1)
+                    .accessibilityLabel(day?.valueText ?? "Unavailable")
+                    .accessibilityIdentifier("vikingbar.historyMainSelectedValue")
+                Text(day.map(HistoryMainDayStatus.text(for:)) ?? "No data")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    .accessibilityLabel(day?.statusText ?? "No data")
+                    .accessibilityIdentifier("vikingbar.historyMainSelectedStatus")
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 27, alignment: .leading)
     }
 
-    private var today: HistoryDayPresentation? {
-        self.content.presentation.days.first(where: \ .isToday)
+    private var selectedDay: HistoryDayPresentation? {
+        self.content.presentation.days.first(where: { $0.dayStart == self.companion.selectedDayStart })
+            ?? self.content.presentation.days.first(where: \ .isToday)
+            ?? self.content.presentation.days.last
     }
 
     private var totalText: String {
@@ -62,13 +80,6 @@ struct HistoryCard: View {
             return "Unavailable"
         }
         return unit.format(bytes: bytes)
-    }
-
-    private func summaryStatus(_ day: HistoryDayPresentation) -> String? {
-        let labels = [(day.isStale, "Stale"), (day.isPartial, "Partial")].compactMap { included, label in
-            included ? label : nil
-        }
-        return labels.isEmpty ? nil : labels.joined(separator: " · ")
     }
 
     private func metric(title: String, value: String, note: String? = nil) -> some View {
@@ -100,6 +111,10 @@ struct HistoryCard: View {
                 RuleMark(x: .value("Cycle started", boundary.position))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3])).foregroundStyle(.orange)
             }
+            if let selectedDay, let index = self.content.presentation.days.firstIndex(of: selectedDay) {
+                RuleMark(x: .value("Selected day", Double(index)))
+                    .foregroundStyle(.secondary.opacity(0.6))
+            }
         }
         .chartXScale(domain: -0.5 ... Double(self.content.presentation.days.count) - 0.5)
         .chartXAxis {
@@ -114,192 +129,93 @@ struct HistoryCard: View {
         }
         .chartYAxis(.hidden)
         .frame(height: 72)
-        .accessibilityHidden(true)
-        .accessibilityIdentifier("vikingbar.historySparkline")
-    }
-}
-
-@MainActor
-struct HistoryDetailView: View {
-    @Bindable var companion: HistoryCompanionController
-    let panelToken: UUID
-
-    var body: some View {
-        if let content = self.companion.content {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("Daily SIM data").font(.headline.weight(.semibold))
-                        Spacer(minLength: 8)
-                        Text(content.subscriptionName)
-                            .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Text(self.rangeText(content)).font(.footnote).foregroundStyle(.secondary)
-                    if let boundary = content.presentation.boundary {
-                        Text("\(boundary.label) · \(boundary.dateText)")
-                            .font(.caption).foregroundStyle(.orange)
-                            .accessibilityIdentifier("vikingbar.historyBoundary")
-                    }
-                    Text(content.error ?? (content.isLoading ? "Loading history…" : content.presentation.statusText))
-                        .font(.caption)
-                        .accessibilityIdentifier("vikingbar.historyStatus")
-                    if content.presentation.days.isEmpty {
-                        Text("No daily observations available.")
-                            .frame(maxWidth: .infinity, minHeight: 128)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        self.chart(content)
-                        self.selectedDay(content)
-                    }
-                    Divider()
-                    Text(content.presentation.totalText)
-                        .font(.body.weight(.medium))
-                        .accessibilityIdentifier("vikingbar.historyTotal")
-                    Text(content.presentation.forecastText)
-                        .fontWeight(.medium)
-                        .accessibilityIdentifier("vikingbar.historyForecast")
-                    Text(content.presentation.scopeText)
-                        .font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("vikingbar.historyScope")
-                    Text("Selected bundle reported \(content.reportedUsedText)")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(14)
-            }
-            .frame(width: 336)
-            .frame(minHeight: 360, idealHeight: 400, maxHeight: 400)
-            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
-            .background(HistoryPanelHoverReader(companion: self.companion, token: self.panelToken))
-        }
-    }
-
-    private func chart(_ content: HistoryCompanionContent) -> some View {
-        let days = content.presentation.days
-        return Chart {
-            ForEach(Array(days.enumerated()), id: \ .offset) { index, day in
-                self.marks(index: index, day: day, unit: content.presentation.unit)
-            }
-            if let boundary = content.presentation.boundary {
-                RuleMark(x: .value("Cycle started", boundary.position))
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3])).foregroundStyle(.orange)
-            }
-        }
-        .chartXScale(domain: -0.5 ... Double(max(0, days.count - 1)) + 0.5)
-        .chartXAxis {
-            AxisMarks(values: self.axisIndexes(days.count)) { value in
-                AxisValueLabel(
-                    anchor: value.as(Double.self) == 0 ? .topLeading : .topTrailing,
-                    collisionResolution: .disabled,
-                ) {
-                    if let index = value.as(Double.self).map(Int.init), days.indices.contains(index) {
-                        Text(days[index].label).fixedSize()
-                    }
-                }
-            }
-        }
-        .chartYAxis(.hidden)
-        .frame(height: 128)
         .chartOverlay { proxy in
             GeometryReader { geometry in
                 if let anchor = proxy.plotFrame {
                     let frame = geometry[anchor]
-                    HistoryPlotReader { location in
-                        guard let location else { return }
-                        let fraction = min(max(location.x / max(frame.width, 1), 0), 0.999_999)
-                        let index = min(Int(fraction * Double(days.count)), days.count - 1)
-                        self.companion.select(dayStart: days[index].dayStart)
-                    }
+                    HistoryPlotReader(
+                        identifier: "vikingbar.historyMainPlot",
+                        label: "Last 30 days plot",
+                        onMoved: { location in self.selectMain(at: location, width: frame.width) },
+                        onExited: {},
+                        onActivated: { location in
+                            guard let selection = self.selection(at: location, width: frame.width) else { return }
+                            self.companion.activate(dayStart: selection.dayStart)
+                        },
+                    )
                     .frame(width: frame.width, height: frame.height)
                     .position(x: frame.midX, y: frame.midY)
                 }
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(days.map { "\($0.label): \($0.valueText)" }.joined(separator: "; "))
-        .accessibilityHint("Daily SIM data chart")
-        .accessibilityIdentifier("vikingbar.historyChart")
+        .accessibilityLabel(self.content.presentation.days.map {
+            "\($0.label): \($0.valueText)"
+        }.joined(separator: "; "))
+        .accessibilityHint("Hover a day for details. Click to open the detailed chart.")
+        .accessibilityIdentifier("vikingbar.historySparkline")
     }
 
-    @ChartContentBuilder
-    private func marks(index: Int, day: HistoryDayPresentation, unit: String) -> some ChartContent {
-        if let value = day.value {
-            BarMark(x: .value("Day", Double(index)), y: .value(unit, value))
-                .foregroundStyle(day.isStale ? Color.orange : Color.cyan)
-                .opacity(day.isToday ? 0.55 : 0.9)
-            if value == 0 {
-                PointMark(x: .value("Day", Double(index)), y: .value(unit, 0))
-                    .symbolSize(28)
-                    .foregroundStyle(day.isStale ? Color.orange : Color.cyan)
-            }
-        } else {
-            PointMark(x: .value("Day", Double(index)), y: .value(unit, 0))
-                .symbol(.cross)
-                .symbolSize(35)
-                .foregroundStyle(.secondary)
-        }
-        if day.dayStart == self.companion.selectedDayStart {
-            RuleMark(x: .value("Selected day", Double(index)))
-                .foregroundStyle(.secondary)
-        }
+    private func selectMain(at location: CGPoint, width: CGFloat) {
+        guard let selection = self.selection(at: location, width: width) else { return }
+        self.companion.select(dayStart: selection.dayStart)
     }
 
-    private func selectedDay(_ content: HistoryCompanionContent) -> some View {
-        let day = content.presentation.days.first(where: { $0.dayStart == self.companion.selectedDayStart })
-            ?? content.presentation.days.last!
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(day.fullDateText).font(.footnote).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("vikingbar.historySelectedDate")
-                Spacer(minLength: 8)
-                Text(day.valueText).font(.headline).lineLimit(1).minimumScaleFactor(0.75)
-                    .accessibilityIdentifier("vikingbar.historySelectedValue")
-            }
-            HStack(spacing: 6) {
-                Text(day.statusText)
-                    .accessibilityIdentifier("vikingbar.historySelectedStatus")
-                if let today = content.presentation.days.first(where: \ .isToday), today.dayStart != day.dayStart {
-                    Text("Today \(today.valueText)")
-                }
-            }
-            .font(.footnote).foregroundStyle(.secondary)
-        }
-    }
-
-    private func rangeText(_ content: HistoryCompanionContent) -> String {
-        guard let first = content.presentation.days.first, let last = content.presentation.days.last else {
-            return content.subscriptionName
-        }
-        return "\(first.label) – \(last.fullDateText)"
-    }
-
-    private func axisIndexes(_ count: Int) -> [Double] {
-        guard count > 0 else { return [] }
-        return [0, Double(count - 1)]
+    private func selection(at location: CGPoint, width: CGFloat) -> HistoryPlotSelection? {
+        HistoryPlotSelection.at(
+            horizontalPosition: location.x,
+            width: width,
+            dayStarts: self.content.presentation.days.map(\.dayStart),
+        )
     }
 }
 
 struct HistoryPlotReader: NSViewRepresentable {
-    let onMoved: (CGPoint?) -> Void
+    let identifier: String
+    let label: String
+    let onMoved: (CGPoint) -> Void
+    let onExited: () -> Void
+    let onActivated: (CGPoint) -> Void
 
     func makeNSView(context _: Context) -> TrackingView {
-        TrackingView(onMoved: self.onMoved)
+        TrackingView(
+            identifier: self.identifier,
+            label: self.label,
+            onMoved: self.onMoved,
+            onExited: self.onExited,
+            onActivated: self.onActivated,
+        )
     }
 
     func updateNSView(_ view: TrackingView, context _: Context) {
+        view.setAccessibilityLabel(self.label)
+        view.setAccessibilityIdentifier(self.identifier)
         view.onMoved = self.onMoved
+        view.onExited = self.onExited
+        view.onActivated = self.onActivated
     }
 
     final class TrackingView: NSView {
-        var onMoved: (CGPoint?) -> Void
+        var onMoved: (CGPoint) -> Void
+        var onExited: () -> Void
+        var onActivated: (CGPoint) -> Void
         private var trackingArea: NSTrackingArea?
 
-        init(onMoved: @escaping (CGPoint?) -> Void) {
+        init(
+            identifier: String,
+            label: String,
+            onMoved: @escaping (CGPoint) -> Void,
+            onExited: @escaping () -> Void,
+            onActivated: @escaping (CGPoint) -> Void,
+        ) {
             self.onMoved = onMoved
+            self.onExited = onExited
+            self.onActivated = onActivated
             super.init(frame: .zero)
             self.setAccessibilityElement(true)
             self.setAccessibilityRole(.group)
-            self.setAccessibilityLabel("Daily SIM data plot")
-            self.setAccessibilityIdentifier("vikingbar.historyPlot")
+            self.setAccessibilityLabel(label)
+            self.setAccessibilityIdentifier(identifier)
         }
 
         @available(*, unavailable)
@@ -344,7 +260,24 @@ struct HistoryPlotReader: NSViewRepresentable {
 
         override func mouseExited(with event: NSEvent) {
             super.mouseExited(with: event)
-            self.onMoved(nil)
+            self.onExited()
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            let location = self.convert(event.locationInWindow, from: nil)
+            self.onMoved(location)
+            self.onActivated(location)
+        }
+
+        override func acceptsFirstMouse(for _: NSEvent?) -> Bool {
+            true
+        }
+
+        override func accessibilityPerformPress() -> Bool {
+            let location = CGPoint(x: self.bounds.midX, y: self.bounds.midY)
+            self.onMoved(location)
+            self.onActivated(location)
+            return true
         }
     }
 }

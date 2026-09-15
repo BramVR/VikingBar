@@ -1,4 +1,32 @@
 import AppKit
+import VikingBarCore
+
+enum HistoryMainDayStatus {
+    static func text(for day: HistoryDayPresentation) -> String {
+        if day.isMissing {
+            return "Missing"
+        }
+        let qualifiers = [(day.isStale, "Stale"), (day.isPartial, "Partial")].compactMap { included, label in
+            included ? label : nil
+        }
+        if !qualifiers.isEmpty {
+            return qualifiers.joined(separator: " · ")
+        }
+        return day.bytes == 0 ? "Confirmed zero" : "Confirmed"
+    }
+}
+
+struct HistoryPlotSelection: Equatable {
+    let index: Int
+    let dayStart: Date
+
+    static func at(horizontalPosition: CGFloat, width: CGFloat, dayStarts: [Date]) -> Self? {
+        guard width > 0, !dayStarts.isEmpty else { return nil }
+        let fraction = min(max(horizontalPosition / width, 0), 0.999_999)
+        let index = min(Int(fraction * CGFloat(dayStarts.count)), dayStarts.count - 1)
+        return Self(index: index, dayStart: dayStarts[index])
+    }
+}
 
 enum HistoryCompanionPlacement {
     static func frame(parent: CGRect, contentSize: CGSize, visibleFrames: [CGRect]) -> CGRect {
@@ -36,13 +64,14 @@ enum HistoryCompanionPlacement {
 
 struct HistoryCompanionInteractionState {
     private(set) var activeAnchor: UUID?
-    private(set) var sourceHovered = false
-    private(set) var panelHovered = false
-    private(set) var keyboardOpen = false
-    private(set) var waitsForSourceExit = false
+    private(set) var isDetailOpen = false
 
-    var shouldRemainOpen: Bool {
-        self.sourceHovered || self.panelHovered || self.keyboardOpen
+    mutating func openDetail() {
+        self.isDetailOpen = true
+    }
+
+    mutating func closeDetail() {
+        self.isDetailOpen = false
     }
 
     mutating func attach(_ token: UUID) -> Bool {
@@ -60,47 +89,10 @@ struct HistoryCompanionInteractionState {
     }
 
     mutating func contextChanged() {
-        self.waitsForSourceExit = self.sourceHovered
-        self.sourceHovered = false
-        self.panelHovered = false
-        self.keyboardOpen = false
-    }
-
-    mutating func sourceHoverChanged(_ inside: Bool, token: UUID) -> Bool {
-        guard self.activeAnchor == token else { return false }
-        if !inside {
-            self.sourceHovered = false
-            self.waitsForSourceExit = false
-            return true
-        }
-        guard !self.waitsForSourceExit else { return false }
-        self.sourceHovered = true
-        return true
-    }
-
-    mutating func panelHoverChanged(_ inside: Bool) {
-        self.panelHovered = inside
-    }
-
-    mutating func activate(keyboard: Bool) {
-        self.waitsForSourceExit = false
-        self.keyboardOpen = keyboard
-    }
-
-    mutating func keyboardFocusChanged(_ focused: Bool) {
-        if !focused {
-            self.keyboardOpen = false
-        }
-    }
-
-    mutating func panelDismissed() {
-        self.panelHovered = false
+        self.closeDetail()
     }
 
     mutating func reset() {
-        self.sourceHovered = false
-        self.panelHovered = false
-        self.keyboardOpen = false
-        self.waitsForSourceExit = false
+        self.closeDetail()
     }
 }

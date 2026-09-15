@@ -248,6 +248,17 @@ func hover(_ point: CGPoint, application: NSRunningApplication) throws {
     event.post(tap: .cghidEventTap)
 }
 
+func click(_ point: CGPoint, application: NSRunningApplication) throws {
+    guard !application.isTerminated,
+          let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                             mouseCursorPosition: point, mouseButton: .left),
+          let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                           mouseCursorPosition: point, mouseButton: .left)
+    else { throw ResolutionFailure.unavailable }
+    down.post(tap: .cghidEventTap)
+    up.post(tap: .cghidEventTap)
+}
+
 func resolveTarget(
     root: AXUIElement,
     selector: String,
@@ -407,7 +418,7 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
         perform: { try press($0, application: app) }
     )
     try writeJSON(["chosen": arguments[3], "picker": arguments[2], "pid": pid])
-} else if (arguments.count == 3 || arguments.count == 5), arguments[1] == "hover" {
+} else if (arguments.count == 3 || arguments.count == 5), ["hover", "click"].contains(arguments[1]) {
     let normalizedX = arguments.count == 5 ? Double(arguments[3]) : 0.5
     let normalizedY = arguments.count == 5 ? Double(arguments[4]) : 0.5
     guard let normalizedX, let normalizedY else { throw ResolutionFailure.unavailable }
@@ -430,11 +441,15 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
             )
             targetFrame = rectangle
             destination = point
-            try hover(point, application: app)
+            if arguments[1] == "click" {
+                try click(point, application: app)
+            } else {
+                try hover(point, application: app)
+            }
         }
     )
     try writeJSON([
-        "hovered": arguments[2],
+        arguments[1] == "click" ? "clicked" : "hovered": arguments[2],
         "normalized": [normalizedX, normalizedY],
         "destination": [destination.x, destination.y],
         "frame": [[targetFrame.minX, targetFrame.minY], [targetFrame.width, targetFrame.height]],
@@ -442,7 +457,7 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
     ])
 } else {
     guard arguments.count == 1 else {
-        fatalError("Use PID, PID press SELECTOR, PID choose PICKER TITLE, or PID hover SELECTOR [X Y].")
+        fatalError("Use PID, PID press SELECTOR, PID choose PICKER TITLE, or PID hover/click SELECTOR [X Y].")
     }
     let windows = (CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? [])
         .filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }

@@ -10,6 +10,8 @@ struct HistoryCompanionContent: Equatable {
     let presentation: HistoryPresentation
     let isLoading: Bool
     let error: String?
+    let unit: DataUnit
+    let reportedUsedBytes: UInt64?
     let reportedUsedText: String
 
     init?(session: AppSession) {
@@ -20,6 +22,11 @@ struct HistoryCompanionContent: Equatable {
         self.presentation = session.historyPresentation
         self.isLoading = session.isHistoryLoading
         self.error = session.historyError
+        self.unit = session.unit
+        self.reportedUsedBytes = switch session.snapshot.allowance {
+        case let .finite(_, usedBytes, _), let .unlimited(usedBytes): usedBytes
+        case .unavailable: nil
+        }
         self.reportedUsedText = session.menu.usedText
     }
 }
@@ -34,9 +41,7 @@ final class HistoryCompanionController {
     @ObservationIgnored private weak var parentWindow: NSWindow?
     @ObservationIgnored private var anchorCandidates: [UUID: AnchorCandidate] = [:]
     @ObservationIgnored private var panel: HistoryCompanionPanel?
-    @ObservationIgnored private var panelToken: UUID?
     @ObservationIgnored private var hostingController: NSHostingController<HistoryDetailView>?
-    @ObservationIgnored private var dismissalTask: Task<Void, Never>?
     @ObservationIgnored private var parentObservers: [NSObjectProtocol] = []
     @ObservationIgnored private(set) var interaction = HistoryCompanionInteractionState()
 
@@ -100,28 +105,14 @@ final class HistoryCompanionController {
         self.hidePanel()
     }
 
-    func sourceHoverChanged(_ inside: Bool, token: UUID) {
-        guard self.interaction.sourceHoverChanged(inside, token: token) else { return }
-        self.hoverChanged(inside: inside)
-    }
-
-    func panelHoverChanged(_ inside: Bool, token: UUID) {
-        guard self.panelToken == token else { return }
-        self.interaction.panelHoverChanged(inside)
-        self.hoverChanged(inside: inside)
-    }
-
     func activate() {
-        let type = NSApp.currentEvent?.type
-        self.interaction.activate(keyboard: type != .leftMouseDown && type != .leftMouseUp)
+        self.interaction.openDetail()
         self.showPanel()
     }
 
-    func keyboardFocusChanged(_ focused: Bool) {
-        if !focused, self.interaction.keyboardOpen {
-            self.interaction.keyboardFocusChanged(focused)
-            self.scheduleDismissal()
-        }
+    func activate(dayStart: Date) {
+        self.select(dayStart: dayStart)
+        self.activate()
     }
 
     func moveSelection(_ direction: MoveCommandDirection) {
@@ -151,18 +142,9 @@ final class HistoryCompanionController {
         return days.first(where: \ .isToday)?.dayStart ?? days.last?.dayStart
     }
 
-    private func hoverChanged(inside: Bool) {
-        if inside {
-            self.dismissalTask?.cancel()
-            self.dismissalTask = nil
-            self.showPanel()
-        } else {
-            self.scheduleDismissal()
-        }
-    }
-
     private func showPanel() {
-        guard let content, let parentWindow = self.anchorView?.window, parentWindow.isVisible else { return }
+        guard self.interaction.isDetailOpen, let content,
+              let parentWindow = self.anchorView?.window, parentWindow.isVisible else { return }
         if self.selectedDayStart == nil {
             self.selectedDayStart = Self.defaultSelection(in: content)
         }
@@ -180,11 +162,9 @@ final class HistoryCompanionController {
             panel.isReleasedWhenClosed = false
             panel.collectionBehavior = [.transient, .fullScreenAuxiliary, .ignoresCycle]
             panel.setAccessibilityIdentifier("vikingbar.historyPanel")
-            let token = UUID()
-            let hosting = NSHostingController(rootView: HistoryDetailView(companion: self, panelToken: token))
+            let hosting = NSHostingController(rootView: HistoryDetailView(companion: self))
             panel.contentViewController = hosting
             self.panel = panel
-            self.panelToken = token
             self.hostingController = hosting
         }
         self.attachPanel(to: parentWindow)
@@ -204,7 +184,7 @@ final class HistoryCompanionController {
         guard let panel, let parentWindow, let hostingController else { return }
         hostingController.view.layoutSubtreeIfNeeded()
         let fitting = hostingController.view.fittingSize
-        let desired = CGSize(width: 336, height: min(400, max(360, fitting.height)))
+        let desired = CGSize(width: 360, height: min(460, max(420, fitting.height)))
         let frame = HistoryCompanionPlacement.frame(
             parent: parentWindow.frame,
             contentSize: desired,
@@ -213,27 +193,8 @@ final class HistoryCompanionController {
         panel.setFrame(frame, display: true)
     }
 
-    private func scheduleDismissal() {
-        guard !self.interaction.shouldRemainOpen else { return }
-        self.dismissalTask?.cancel()
-        self.dismissalTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-            guard let self, !self.interaction.shouldRemainOpen else { return }
-            let pointer = NSEvent.mouseLocation
-            let pointerOverSource = self.anchorView.map { Self.screenFrame(of: $0).contains(pointer) } == true
-            let pointerOverPanel = self.panel?.frame.contains(pointer) == true
-            if pointerOverSource || pointerOverPanel {
-                return
-            }
-            self.hidePanel()
-        }
-    }
-
     private func hidePanel() {
-        self.dismissalTask?.cancel()
-        self.dismissalTask = nil
-        self.interaction.panelDismissed()
-        self.panelToken = nil
+        self.interaction.closeDetail()
         guard let panel else { return }
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
@@ -293,11 +254,6 @@ final class HistoryCompanionController {
     private static func isEligible(_ view: NSView?) -> Bool {
         guard let view else { return false }
         return view.window != nil && !view.isHiddenOrHasHiddenAncestor && !view.visibleRect.isEmpty
-    }
-
-    private static func screenFrame(of view: NSView) -> CGRect {
-        guard let window = view.window else { return .null }
-        return window.convertToScreen(view.convert(view.bounds, to: nil))
     }
 }
 

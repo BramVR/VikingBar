@@ -228,6 +228,23 @@ def selected_day(tree, report, windows):
     return matches[0]
 
 
+def compare_main_selection(tree, report, screens, index):
+    history_timestamp(report)
+    if not UI.visible_status(tree, screens):
+        raise UIFailure("status-not-visible")
+    UI.compare_menu(tree, report, screens)
+    if any(element.get("AXIdentifier") == "vikingbar.historyPanel" for element in tree.get("elements", [])):
+        raise UIFailure("native-history-hover-opened-detail")
+    parent = matched_window(tree, screens, role="AXPopover", error="native-history-popover")["element"]
+    exact_element(tree, parent, "vikingbar.historyMainPlot", error="native-history-main-plot-not-visible")
+    day = report["historyPresentation"]["days"][index]
+    for identifier, field in (("vikingbar.historyMainSelectedDate", "fullDateText"),
+                              ("vikingbar.historyMainSelectedValue", "valueText"),
+                              ("vikingbar.historyMainSelectedStatus", "statusText")):
+        exact_element(tree, parent, identifier, day[field], error="native-history-main-selection-mismatch")
+    return True
+
+
 def compare_history(tree, report, screens):
     history_timestamp(report)
     if not UI.visible_status(tree, screens):
@@ -308,6 +325,32 @@ class HistoryProof(UI.NativeProof):
         return validate_hover_receipt(value, pid=self.process.pid, selector=identifier,
                                       normalized_x=normalized_x, normalized_y=normalized_y)
 
+    def click(self, identifier, normalized_x=0.5, normalized_y=0.5, *, label):
+        value = self.run([str(ROOT / ".build/inspect-ui"), str(self.process.pid), "click", identifier,
+                          format(normalized_x, ".17g"), format(normalized_y, ".17g")], label)
+        self.verify_process()
+        if not isinstance(value, dict) or "clicked" not in value or "hovered" in value:
+            raise UIFailure("native-click-receipt-invalid")
+        normalized = dict(value)
+        normalized["hovered"] = normalized.pop("clicked")
+        validate_hover_receipt(normalized, pid=self.process.pid, selector=identifier,
+                               normalized_x=normalized_x, normalized_y=normalized_y)
+        return value
+
+    def hover_main_day(self, label, report, index):
+        days = report["historyPresentation"]["days"]
+        self.hover("vikingbar.historyMainPlot", chart_position(index, len(days)), 0.5,
+                   label=label + "-hover.json")
+
+        def observe():
+            try:
+                tree = self.inspect(label + "-selected.json")
+                return tree if compare_main_selection(tree, report, self.screens, index) else None
+            except UIFailure:
+                return None
+
+        return UI.wait_for(observe, lambda value: value is not None)
+
     def wait_report(self, label, after):
         def observe():
             try:
@@ -360,6 +403,25 @@ class HistoryProof(UI.NativeProof):
 
         return UI.wait_for(observe, lambda value: value is not None)
 
+    def capture_main_hover(self, label, report, tree, selected_index):
+        compare_main_selection(tree, report, self.screens, selected_index)
+        parent = matched_window(tree, self.screens, role="AXPopover", error="native-history-popover")
+        window = parent["window"]
+        path = self.directory / (label + "-main-hover.png")
+        self.verify_process()
+        receipt = UI.UI.capture_exact_window(
+            self.peekaboo, self.process.pid, window["kCGWindowNumber"], path,
+            lambda arguments: self.run(arguments, label + "-main-hover-image.json"),
+        )
+        validate_capture_observation(receipt, window)
+        validate_capture_geometry(path, window_frame(window))
+        settled = self.inspect(label + "-main-hover-after-capture.json")
+        compare_main_selection(settled, report, self.screens, selected_index)
+        current = matched_window(settled, self.screens, role="AXPopover", error="native-history-popover")
+        if (current["window"]["kCGWindowNumber"] != window["kCGWindowNumber"]
+                or not same_frame(current["frame"], parent["frame"])):
+            raise UIFailure("native-history-capture-mismatch")
+
     def capture_history_windows(self, label, report, windows, selected_index):
         group_frame = window_group_frame(windows)
         for key, suffix in (("parent", "main-target-group"),
@@ -403,15 +465,23 @@ class HistoryProof(UI.NativeProof):
 
     def dismiss_history(self, label, report, windows):
         companion_window_id = windows["companion"]["window"]["kCGWindowNumber"]
+        self.press("vikingbar.historyClose")
         self.prime_history_hover(label, report, companion_window_id)
 
     def matched_history(self, label, after=None):
         report = self.wait_report(label, after)
         self.prime_history_hover(label + "-prime", report)
-        self.hover("vikingbar.historyDisclosure", label=label + "-open-hover.json")
-        tree, windows = self.wait_history_windows(label, report)
-        baseline = windows
         first, second = selection_indices(report["historyPresentation"]["days"])
+        self.hover_main_day(label + "-main-first", report, first)
+        main_tree = self.hover_main_day(label + "-main-second", report, second)
+        self.capture_main_hover(label, report, main_tree, second)
+        self.click("vikingbar.historyMainPlot",
+                   chart_position(second, len(report["historyPresentation"]["days"])), 0.5,
+                   label=label + "-open-click.json")
+        tree, windows = self.wait_history_windows(label, report)
+        if selected_day(tree, report, windows) != second:
+            raise UIFailure("native-history-click-selection-mismatch")
+        baseline = windows
         self.hover_day(label + "-first", report, baseline, first)
         selected_tree = self.hover_day(label + "-second", report, baseline, second)
         if first == second:
@@ -421,7 +491,7 @@ class HistoryProof(UI.NativeProof):
             raise UIFailure("native-history-selected-day-mismatch")
         self.capture_history_windows(label, report, windows, second)
         self.dismiss_history(label, report, windows)
-        self.hover("vikingbar.historyDisclosure", label=label + "-reopen-hover.json")
+        self.press("vikingbar.historyDisclosure")
         _, reopened = self.wait_history_windows(label + "-reopened", report)
         if (window_identity(reopened)[0] != window_identity(windows)[0]
                 or window_identity(reopened)[1][1:] != window_identity(windows)[1][1:]):
@@ -440,6 +510,8 @@ class HistoryProof(UI.NativeProof):
         api = self.run([str(self.cli), "proof", "history-api"], "api-result.json", timeout=180)
         validate_api_receipt(api)
         self.screens = self.peek(["screen", "list"], "screens.json")["screens"]
+        before_launch = self.run([str(self.cli), "live", "--cached"], "before-launch-report.json")
+        before_launch_timestamp = UI.successful_timestamp(before_launch)
         self.launch(first=False, label="history")
         UI.wait_for(self.inspect, lambda tree: all(any(element.get("AXIdentifier") == identifier
                                                        for element in tree.get("elements", []))
@@ -448,7 +520,7 @@ class HistoryProof(UI.NativeProof):
         self.press("vikingbar.bundleDetails")
         UI.wait_for(self.inspect, lambda tree: any(element.get("AXIdentifier") == "vikingbar.bundleDescription"
                                                   for element in tree.get("elements", [])))
-        initial = self.matched_history("history")
+        initial = self.matched_history("history", after=before_launch_timestamp)
         self.press("vikingbar.refresh")
         refreshed = self.matched_history("refreshed", after=UI.successful_timestamp(initial))
         if refreshed["state"]["connectionID"] != initial["state"]["connectionID"]:
