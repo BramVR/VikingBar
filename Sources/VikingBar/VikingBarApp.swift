@@ -185,6 +185,7 @@ struct VikingBarApp {
             return
         }
         let application = NSApplication.shared
+        application.mainMenu = AppEditingMenu.make()
         let settingsFile = options.fixture == nil
             ? URL.applicationSupportDirectory.appending(path: "VikingBar/menu-bar-preferences.json")
             : appOptions.settingsFile
