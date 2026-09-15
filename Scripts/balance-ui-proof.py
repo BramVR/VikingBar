@@ -474,16 +474,24 @@ class NativeProof:
             time.sleep(min(0.25, self.human_remaining()))
 
     def matched_balance(self, label, after=None):
+        status_requested = False
         details_requested = False
 
         def observe():
-            nonlocal details_requested
+            nonlocal status_requested, details_requested
             try:
                 report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
                 timestamp = successful_timestamp(report)
                 if after is not None and timestamp <= after:
                     return None
                 tree = self.inspect(label + "-card.json")
+                if (visible_status(tree, self.screens)
+                        and tree.get("windows") == []
+                        and not any(item.get("AXRole") == "AXPopover" for item in tree.get("elements", []))):
+                    if not status_requested:
+                        status_requested = True
+                        self.press("vikingbar.status")
+                    return None
                 if (any(item.get("AXIdentifier") == "vikingbar.bundleDetails"
                         for item in tree.get("elements", []))
                         and not any(item.get("AXIdentifier") == "vikingbar.bundleDescription"

@@ -415,6 +415,44 @@ class BalanceUIProofTests(unittest.TestCase):
                                   "report", "inspect-details",
                                   "report", "inspect-details"])
 
+    def test_balance_capture_reopens_unequivocally_closed_popover_once(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.cli = "synthetic-cli"
+        proof.directory = Path("/synthetic")
+        proof.screens = self.screens
+        proof.direct = None
+        proof.human_deadline = None
+        proof.capture_suppressed = True
+
+        closed = copy.deepcopy(self.tree)
+        closed["elements"] = [closed["elements"][0]]
+        closed["windows"] = []
+        observations = iter([closed, closed, self.tree])
+        events = []
+
+        def run(*_args):
+            events.append("report")
+            return self.report
+
+        def inspect(*_args):
+            tree = next(observations)
+            events.append("inspect-open" if tree["windows"] else "inspect-closed")
+            return tree
+
+        with patch.object(proof, "run", side_effect=run) as report, \
+                patch.object(proof, "inspect", side_effect=inspect) as observe, \
+                patch.object(proof, "press", side_effect=lambda identifier: events.append("press-" + identifier)) as press, \
+                patch.object(proof, "verify_worker"), patch.object(proof, "peek"), \
+                patch.object(UI.time, "sleep"):
+            proof.matched_balance("synthetic")
+
+        press.assert_called_once_with("vikingbar.status")
+        self.assertEqual(report.call_count, 3)
+        self.assertEqual(observe.call_count, 3)
+        self.assertEqual(events, ["report", "inspect-closed", "press-vikingbar.status",
+                                  "report", "inspect-closed",
+                                  "report", "inspect-open"])
+
     def test_visible_menu_matches_private_live_report(self):
         UI.compare_menu(self.tree, self.report, self.screens)
         self.tree["elements"][1]["AXValue"] = "99.00 GB"
