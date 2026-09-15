@@ -1,4 +1,6 @@
 import ast
+import copy
+import json
 import subprocess
 from pathlib import Path
 import tempfile
@@ -176,3 +178,40 @@ class FixturePickerInvocationTests(unittest.TestCase):
         scope["choose_popup"]("vikingbar.fixturePicker", "Finite", "finite")
         self.assertEqual(calls, [(["/fixture/.build/inspect-ui", "123", "choose",
                                   "vikingbar.fixturePicker", "Finite"], "finite-choose.json")])
+
+    def test_hover_uses_declared_point_and_validates_native_receipt(self):
+        path = Path(__file__).resolve().parents[1] / "smoke-app-fixture.py"
+        names = {"validate_pointer_receipt", "pointer_action", "hover"}
+        functions = [node for node in ast.parse(path.read_text()).body
+                     if isinstance(node, ast.FunctionDef) and node.name in names]
+        calls = []
+        receipt = {"hovered": "vikingbar.settings", "normalized": [0.05, 0.5],
+                   "destination": [22, 50], "frame": [[20, 40], [40, 20]], "pid": 123}
+        scope = {"ROOT": Path("/fixture"), "process": SimpleNamespace(pid=123), "json": json,
+                 "run": lambda *args: calls.append(args) or json.dumps(receipt)}
+        exec(compile(ast.Module(body=functions, type_ignores=[]), str(path), "exec"), scope)
+        self.assertEqual(scope["hover"]("vikingbar.settings", "settings-edge", 0.05, 0.5,
+                                        receipt["frame"]), receipt)
+        self.assertEqual(calls, [(["/fixture/.build/inspect-ui", "123", "hover", "vikingbar.settings",
+                                  "0.05", "0.5"], "settings-edge.json")])
+
+    def test_pointer_receipt_rejects_wrong_target_geometry_or_destination(self):
+        path = Path(__file__).resolve().parents[1] / "smoke-app-fixture.py"
+        function = next(node for node in ast.parse(path.read_text()).body
+                        if isinstance(node, ast.FunctionDef) and node.name == "validate_pointer_receipt")
+        scope = {"process": SimpleNamespace(pid=123)}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), str(path), "exec"), scope)
+        valid = {"hovered": "vikingbar.settings", "normalized": [0.05, 0.5],
+                 "destination": [22, 50], "frame": [[20, 40], [40, 20]], "pid": 123}
+        mutations = [
+            lambda value: value.update(hovered="vikingbar.points"),
+            lambda value: value.update(normalized=[0.5, 0.5]),
+            lambda value: value.update(frame=[[21, 40], [40, 20]]),
+            lambda value: value.update(destination=[20, 50]),
+        ]
+        for mutate in mutations:
+            receipt = copy.deepcopy(valid)
+            mutate(receipt)
+            with self.subTest(receipt=receipt), self.assertRaises(AssertionError):
+                scope["validate_pointer_receipt"](
+                    receipt, "hovered", "vikingbar.settings", (0.05, 0.5), valid["frame"])

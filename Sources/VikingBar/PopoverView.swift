@@ -87,6 +87,7 @@ struct PopoverView: View {
                 }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
                 .accessibilityIdentifier("vikingbar.back")
+                .buttonStyle(.menuAction)
                 Divider().padding(.vertical, 6)
             }
             switch self.destination {
@@ -99,17 +100,18 @@ struct PopoverView: View {
                 )
                 Divider().padding(.vertical, 2)
                 HStack {
-                    if !self.session.isFixtureLaunch {
-                        Button { self.destination = .bills } label: { Label("Bills", systemImage: "doc.text") }
-                            .accessibilityIdentifier("vikingbar.bills")
-                    }
+                    Button { self.destination = .bills } label: { Label("Bills", systemImage: "doc.text") }
+                        .accessibilityIdentifier("vikingbar.bills")
+                        .buttonStyle(.menuAction)
                     Spacer()
                     Button { self.destination = .points } label: { Label("Points", systemImage: "star") }
                         .accessibilityIdentifier("vikingbar.points")
+                        .buttonStyle(.menuAction)
                     Spacer()
                     Button { self.destination = .settings } label: { Label("Settings", systemImage: "gearshape") }
                         .keyboardShortcut(",")
                         .accessibilityIdentifier("vikingbar.settings")
+                        .buttonStyle(.menuAction)
                 }
             case .settings:
                 self.settings
@@ -148,6 +150,7 @@ struct PopoverView: View {
                 .accessibilityIdentifier("vikingbar.loginItemStatus")
             if self.session.loginItemStatus == .requiresApproval {
                 Button("Open Login Items") { self.session.openLoginItems() }
+                    .buttonStyle(.menuAction)
             }
             if let error = self.session.loginItemError {
                 Text(error).font(.caption).foregroundStyle(.red)
@@ -181,10 +184,12 @@ struct PopoverView: View {
             }
             .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
             .accessibilityIdentifier("vikingbar.connect.direct")
+            .buttonStyle(.menuAction)
             Divider()
             Button("Quit VikingBar") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
                 .accessibilityIdentifier("vikingbar.quit")
+                .buttonStyle(.menuAction)
         }
         .onAppear { self.session.checkLoginItem() }
     }

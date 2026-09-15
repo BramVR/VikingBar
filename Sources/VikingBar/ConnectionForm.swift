@@ -68,10 +68,12 @@ struct ConnectionForm: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 .accessibilityIdentifier("vikingbar.connect.cancel")
+                .buttonStyle(.menuAction)
             }
             if !self.isConnecting {
                 Button("Connect with 1Password", action: self.connectReference)
                     .accessibilityIdentifier("vikingbar.connect")
+                    .buttonStyle(.menuAction)
                 Text("Optional. Requires the configured 1Password helper and an approved credential reference.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -108,6 +110,7 @@ struct ConnectionForm: View {
                 Text("Use a compatible public client with no client secret.")
                     .font(.caption)
                 Link("API access instructions", destination: URL(string: "https://docs.uwa.mobilevikings.be/")!)
+                    .buttonStyle(.menuAction)
                 TextField("Public client ID", text: self.$fields.clientID)
                     .accessibilityIdentifier("vikingbar.connect.client-id")
                     .focused(self.$clientIDFocused)
