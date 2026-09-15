@@ -474,18 +474,24 @@ class NativeProof:
             time.sleep(min(0.25, self.human_remaining()))
 
     def matched_balance(self, label, after=None):
-        tree = self.inspect(label + "-details-before.json")
-        if (any(item.get("AXIdentifier") == "vikingbar.bundleDetails" for item in tree.get("elements", []))
-                and not any(item.get("AXIdentifier") == "vikingbar.bundleDescription"
-                            for item in tree.get("elements", []))):
-            self.press("vikingbar.bundleDetails")
+        details_requested = False
+
         def observe():
+            nonlocal details_requested
             try:
                 report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
                 timestamp = successful_timestamp(report)
                 if after is not None and timestamp <= after:
                     return None
                 tree = self.inspect(label + "-card.json")
+                if (any(item.get("AXIdentifier") == "vikingbar.bundleDetails"
+                        for item in tree.get("elements", []))
+                        and not any(item.get("AXIdentifier") == "vikingbar.bundleDescription"
+                                    for item in tree.get("elements", []))):
+                    if not details_requested:
+                        details_requested = True
+                        self.press("vikingbar.bundleDetails")
+                    return None
                 compare_menu(tree, report, self.screens)
                 return report, tree
             except UIFailure as error:

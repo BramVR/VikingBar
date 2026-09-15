@@ -361,6 +361,60 @@ class BalanceUIProofTests(unittest.TestCase):
             proof.matched_balance("synthetic")
         self.assertEqual(peek.call_args.args[0][2], "42")
 
+    def test_balance_capture_waits_for_live_card_then_expands_details_once(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.cli = "synthetic-cli"
+        proof.directory = Path("/synthetic")
+        proof.screens = self.screens
+        proof.direct = None
+        proof.human_deadline = None
+        proof.capture_suppressed = True
+
+        connecting = copy.deepcopy(self.tree)
+        connecting["elements"] = [connecting["elements"][0], connecting["elements"][-1]]
+        collapsed = copy.deepcopy(self.tree)
+        detail_values = set(self.report["balanceDetails"].values())
+        collapsed["elements"] = [element for element in collapsed["elements"]
+                                 if element.get("AXValue") not in detail_values]
+        collapsed["elements"].insert(-1, {"AXIdentifier": "vikingbar.bundleDetails",
+                                           "AXValue": "Bundle details",
+                                           "frame": [[120, 100], [200, 20]]})
+        expanded = copy.deepcopy(self.tree)
+        expanded["elements"].insert(-1, {"AXIdentifier": "vikingbar.bundleDetails",
+                                          "AXValue": "Bundle details",
+                                          "frame": [[120, 100], [200, 20]]})
+        description = next(element for element in expanded["elements"]
+                           if element.get("AXValue") == self.report["balanceDetails"]["bundleDescription"])
+        description["AXIdentifier"] = "vikingbar.bundleDescription"
+
+        observations = iter([connecting, collapsed, collapsed, expanded])
+        events = []
+
+        def run(*_args):
+            events.append("report")
+            return self.report
+
+        def inspect(*_args):
+            tree = next(observations)
+            events.append("inspect-details" if any(element.get("AXIdentifier") == "vikingbar.bundleDetails"
+                                                    for element in tree["elements"]) else "inspect-connecting")
+            return tree
+
+        with patch.object(proof, "run", side_effect=run) as report, \
+                patch.object(proof, "inspect", side_effect=inspect) as observe, \
+                patch.object(proof, "press", side_effect=lambda identifier: events.append("press-" + identifier)) as press, \
+                patch.object(proof, "verify_worker"), patch.object(proof, "peek"), \
+                patch.object(UI.time, "sleep"):
+            proof.matched_balance("synthetic")
+
+        press.assert_called_once_with("vikingbar.bundleDetails")
+        self.assertEqual(report.call_count, 4)
+        self.assertEqual(observe.call_count, 4)
+        self.assertEqual(events, ["report", "inspect-connecting",
+                                  "report", "inspect-details", "press-vikingbar.bundleDetails",
+                                  "report", "inspect-details",
+                                  "report", "inspect-details"])
+
     def test_visible_menu_matches_private_live_report(self):
         UI.compare_menu(self.tree, self.report, self.screens)
         self.tree["elements"][1]["AXValue"] = "99.00 GB"
