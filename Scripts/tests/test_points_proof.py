@@ -19,7 +19,8 @@ class PointsProofTests(unittest.TestCase):
         freshness = {"current": {"lastUpdated": "2026-09-07T12:00:00Z"}}
         snapshot = {"source": {"live": {}}, "freshness": freshness}
         self.report = {"schemaVersion": 1, "snapshot": snapshot, "state": {
-            "snapshot": snapshot, "connectionID": "synthetic", "balance": {"bundles": [1]},
+            "snapshot": snapshot, "connectionID": {"rawValue": "00000000-0000-0000-0000-000000000001"},
+            "balance": {"bundles": [1]},
             "selectedSubscriptionID": "synthetic", "selectedBundleIndex": 0,
             "points": {"balance": {"available": 1}, "history": {"transactions": []},
                        "balanceFreshness": freshness, "historyFreshness": freshness}},

@@ -66,7 +66,7 @@ Read the [verification skill](../.agents/skills/verify-vikingbar/SKILL.md) for f
 
 ## Verify live account behavior
 
-The packaged app contains `vikingbar` and `Resources/connect-account.py`. Native connection requires `/usr/bin/python3`, tmux, the 1Password CLI, and the approved service-account setup in `~/.profile`. The helper sources that profile inside its own named tmux session.
+The packaged app contains `vikingbar` and `Resources/connect-account.py`. Direct native sign-in uses only the bundled CLI and private stdin. The optional 1Password method requires `/usr/bin/python3`, tmux, the 1Password CLI, and the approved service-account setup in `~/.profile`. The helper sources that profile inside its own named tmux session.
 
 The app-only `--credential-reference` and `--proof-directory` flags each accept one absolute path and reject fixture launches. The reference selects an approved item without storing its credentials. The proof directory receives `connect-result.json` and must not already contain that receipt. Neither flag connects automatically; press **Connect with 1Password**.
 

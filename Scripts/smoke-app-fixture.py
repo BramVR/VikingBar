@@ -187,6 +187,73 @@ def select_state(state, amount, name):
     coverage.append({'state': state, 'mode': 'amount' if amount else 'iconOnly', 'capture': f'{name}-status.png'})
 
 
+def connected_account_summary():
+    select_state('Finite', False, 'account-preview-balance')
+    press('vikingbar.settings', 'account-settings')
+    press('vikingbar.connect.direct', 'account-open')
+    data = wait_for(lambda: inspect('account-summary.json'),
+                    lambda d: bool(element(d, 'vikingbar.account.status')))
+    assert 'Mobile Vikings' in json.dumps(element(data, 'vikingbar.account.status'))
+    assert not element(data, 'vikingbar.account.method')
+    assert not element(data, 'vikingbar.account.client-id')
+    assert 'alex@example.invalid' in json.dumps(element(data, 'vikingbar.account.username'))
+    assert not element(data, 'vikingbar.connect.password'), 'Summary exposed a credential form.'
+    capture_card('account-summary', fixture=False)
+    press('vikingbar.account.change', 'account-change')
+    data = wait_for(lambda: inspect('account-change-form.json'),
+                    lambda d: bool(element(d, 'vikingbar.connect.password')))
+    assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    assert element(data, 'vikingbar.connect.client-id').get('valueEmpty') is False
+    assert element(data, 'vikingbar.connect.username').get('valueEmpty') is False
+    press('vikingbar.connect.cancel', 'account-change-cancel')
+    wait_for(lambda: inspect('account-returned.json'),
+             lambda d: bool(element(d, 'vikingbar.account.status')) and not element(d, 'vikingbar.connect.password'))
+    press('vikingbar.back', 'account-back-settings')
+    press('vikingbar.back', 'account-back-balance')
+
+
+def direct_connection_choices():
+    select_state('Not connected', False, 'direct-disconnected')
+    press('vikingbar.connect.direct', 'direct-open')
+    data = wait_for(lambda: inspect('direct-form.json'),
+                    lambda d: bool(element(d, 'vikingbar.connect.password')))
+    for identifier in ('client-id', 'username', 'password', 'submit', 'cancel'):
+        assert element(data, 'vikingbar.connect.' + identifier), 'Direct form control missing.'
+    assert element(data, 'vikingbar.connect.password').get('AXSubrole') == 'AXSecureTextField'
+    assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    capture_card('direct-form-empty', fixture=False)
+    press('vikingbar.connect.submit', 'direct-empty-submit')
+    data = wait_for(lambda: inspect('direct-validation.json'), lambda d:
+                    element(d, 'vikingbar.connect.error').get('messageCode') == 'required-fields')
+    assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    payload = json.dumps({'client_id': 'synthetic-public-client', 'username': 'synthetic@example.invalid',
+                          'password': 'synthetic-only'}).encode()
+    result = subprocess.run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'fill-direct'],
+                            input=payload, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10, check=False)
+    assert result.returncode == 0 and result.stdout.strip() == b'{"filled":true}', 'Synthetic form fill failed.'
+    press('vikingbar.connect.submit', 'direct-fixture-submit')
+    wait_for(lambda: inspect('direct-fixture-rejected.json'), lambda d:
+             element(d, 'vikingbar.connect.error').get('messageCode') == 'fixture-direct'
+             and element(d, 'vikingbar.connect.password').get('valueEmpty') is True)
+    press('vikingbar.connect', 'optional-one-password')
+    wait_for(lambda: inspect('optional-fixture-rejected.json'), lambda d:
+             element(d, 'vikingbar.connect.error').get('messageCode') == 'fixture-one-password')
+    result = subprocess.run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'fill-direct'],
+                            input=payload, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10, check=False)
+    assert result.returncode == 0 and result.stdout.strip() == b'{"filled":true}', 'Synthetic form refill failed.'
+    wait_for(lambda: inspect('direct-before-cancel.json'), lambda d:
+             element(d, 'vikingbar.connect.password').get('valueEmpty') is False)
+    press('vikingbar.connect.cancel', 'direct-cancel')
+    wait_for(lambda: inspect('direct-cancelled.json'), lambda d: not element(d, 'vikingbar.connect.password'))
+    press('vikingbar.connect.direct', 'direct-reopen')
+    data = wait_for(lambda: inspect('direct-reopened.json'), lambda d: bool(element(d, 'vikingbar.connect.password')))
+    assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    press('vikingbar.connect.cancel', 'direct-recancel')
+    children = subprocess.run(['pgrep', '-P', str(process.pid)], capture_output=True, timeout=5, check=False)
+    assert children.returncode == 1 and not children.stdout.strip(), 'Fixture connection launched a child process.'
+    select_state('Finite', False, 'direct-return-finite')
+
+
 def open_settings(name):
     press('vikingbar.settings', f'{name}-settings')
     wait_for(lambda: inspect(f'{name}-settings-ready.json'),
@@ -339,6 +406,8 @@ try:
     assert not SETTINGS.exists(), 'Default proof requires a new isolated store.'
     launch('default')
     settings_toggle(False, 'default')
+    connected_account_summary()
+    direct_connection_choices()
     for state in STATES:
         select_state(state, False, f'icon-{state.lower().replace(" ", "-")}')
     select_state('Finite', False, 'icon-return-finite')
@@ -398,6 +467,7 @@ assert len(launches) == 4 and all(p.get('quitVerified') for p in launches)
 (PROOF / 'result.json').write_text(json.dumps({
     'passed': True, 'features': ['data card', 'five fixture states', 'Not connected', 'Settings toggle',
                                'GB/GiB units', 'Quit', 'isolated persistence', 'status captures',
+                               'connected account summary and change cancellation', 'direct form validation and cancellation', 'optional 1Password fixture rejection',
                                'SIM and bundle selection', 'refresh', 'details', 'Points navigation',
                                'light and dark', 'high contrast', 'reduced transparency'],
     'modes': ['iconOnly', 'amount'], 'coverage': coverage, 'iconOnlyWidth': icon_width,

@@ -48,6 +48,10 @@ struct OwnedProcess: Sendable {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
+        // Cancellation can close the reader while a credential write is still in progress.
+        guard Darwin.fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
+            throw LiveBridgeFailure.unavailable
+        }
         try process.run()
         let identity = Identity(
             pid: process.processIdentifier, parentPID: getpid(), executable: executable,

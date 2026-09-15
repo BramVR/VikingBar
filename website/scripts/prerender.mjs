@@ -10,7 +10,7 @@ const schema = {
     { '@type': 'WebSite', '@id': `${siteURL}#website`, name: 'VikingBar', url: siteURL, inLanguage: 'en', description },
     { '@type': 'SoftwareApplication', '@id': `${siteURL}#app`, name: 'VikingBar', url: siteURL, description,
       applicationCategory: 'UtilitiesApplication', operatingSystem: 'macOS 14 or later', processorRequirements: 'Apple Silicon',
-      softwareRequirements: 'Mobile Vikings account with approved API access and a configured 1Password helper',
+      softwareRequirements: 'Mobile Vikings account with approved API access and public client ID; no client secret; 1Password optional',
       screenshot: image, installUrl: 'https://github.com/BramVR/VikingBar/blob/main/docs/RELEASING.md#download-a-development-build' },
     { '@type': 'FAQPage', '@id': `${siteURL}#questions`, mainEntity: questions.map(([name, text]) => ({
       '@type': 'Question', name, acceptedAnswer: { '@type': 'Answer', text },

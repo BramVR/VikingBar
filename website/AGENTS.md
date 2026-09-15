@@ -26,4 +26,4 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 - Horn collars require flat mounting seats, with no bowl clipping through metal. Allowance surround meets the lower metal rim. Metal is polished and reflective, matching the small helmet references.
 
-- Setup starts with requesting Mobile Vikings API access by email and waiting for approval/client details. Clearly state the current configured 1Password helper requirement; do not imply an MV account alone, or owning 1Password alone, is sufficient. Manual sign-in is not implemented.
+- Setup starts with requesting Mobile Vikings API access by email and waiting for the approved public client ID. Present direct native sign-in first and the configured 1Password helper as optional. State that no client secret is required; a Mobile Vikings account alone remains insufficient.

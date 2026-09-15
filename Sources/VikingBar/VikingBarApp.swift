@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hosting = NSHostingController(rootView: PopoverView(
             session: self.session,
             connect: self.connect,
+            connectResultURL: self.options.proofDirectory?.appending(path: "connect-result.json"),
             fixtureReduceTransparency: self.options.fixtureReduceTransparency,
         ))
         hosting.sizingOptions = [.preferredContentSize]
@@ -91,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func connect(reference: URL) {
         self.session.connect(
-            reference: reference,
+            input: .reference(reference),
             resultURL: self.options.proofDirectory?.appending(path: "connect-result.json"),
         )
     }
@@ -184,6 +185,7 @@ struct VikingBarApp {
             return
         }
         let application = NSApplication.shared
+        application.mainMenu = AppEditingMenu.make()
         let settingsFile = options.fixture == nil
             ? URL.applicationSupportDirectory.appending(path: "VikingBar/menu-bar-preferences.json")
             : appOptions.settingsFile

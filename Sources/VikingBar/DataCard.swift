@@ -4,9 +4,13 @@ import VikingBarCore
 struct DataCard: View {
     @Bindable var session: AppSession
     @Binding var detailsExpanded: Bool
-    var connect: () -> Void = {}
+    var presentConnection: () -> Void = {}
 
     var body: some View {
+        self.card
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 6) {
             if self.session.needsConnection {
                 Text(self.session.connectionTitle).font(.headline)
@@ -16,11 +20,10 @@ struct DataCard: View {
                     .foregroundStyle(.secondary)
                 if self.session.isFixtureLaunch {
                     Text("Choose a synthetic state in Settings.").font(.caption)
-                } else {
-                    self.connectionAction
-                    if self.session.canRefresh || self.session.activity == .refreshing {
-                        self.refreshAction
-                    }
+                }
+                self.directConnect
+                if self.session.canRefresh || self.session.activity == .refreshing {
+                    self.refreshAction
                 }
             } else {
                 self.selection
@@ -49,7 +52,8 @@ struct DataCard: View {
     private var selection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Picker("SIM", selection: Binding(
-                get: { self.session.selectedSubscriptionID }, set: { self.session.selectSubscription($0) },
+                get: { self.session.selectedSubscriptionID },
+                set: { self.session.selectSubscription($0) },
             )) {
                 ForEach(self.session.subscriptions) { Text($0.title).tag($0.id) }
             }
@@ -58,7 +62,8 @@ struct DataCard: View {
             Divider().padding(.vertical, 6)
             if self.session.hasSelectableBundle {
                 Picker("Data bundle", selection: Binding(
-                    get: { self.session.selectedBundleIndex }, set: { self.session.selectBundle($0) },
+                    get: { self.session.selectedBundleIndex },
+                    set: { self.session.selectBundle($0) },
                 )) {
                     ForEach(self.session.bundles) { Text($0.title).tag($0.id) }
                 }
@@ -149,9 +154,9 @@ struct DataCard: View {
         .accessibilityIdentifier("vikingbar.refresh")
     }
 
-    private var connectionAction: some View {
-        Button(self.session.activity == .connecting ? "Connecting…" : "Connect with 1Password", action: self.connect)
+    private var directConnect: some View {
+        Button("Connect account", action: self.presentConnection)
             .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
-            .accessibilityIdentifier("vikingbar.connect")
+            .accessibilityIdentifier("vikingbar.connect.direct")
     }
 }

@@ -52,6 +52,7 @@ def visible_status(tree, screens):
 
 def popover_window(tree, screens):
     displays = display_frames(screens)
+    matches = {}
     for element in tree.get("elements", []):
         if element.get("AXRole") != "AXPopover":
             continue
@@ -61,6 +62,9 @@ def popover_window(tree, screens):
             continue
         for window in tree.get("windows", []):
             try:
+                window_number = window["kCGWindowNumber"]
+                if type(window_number) is not int or window_number <= 0:
+                    continue
                 bounds = window["kCGWindowBounds"]
                 cg_element = {"frame": [[bounds["X"], bounds["Y"]], [bounds["Width"], bounds["Height"]]]}
                 cg_frame = frame(cg_element)
@@ -68,7 +72,11 @@ def popover_window(tree, screens):
                 continue
             if (all(abs(ax - cg) < 1 for ax, cg in zip(ax_frame, cg_frame))
                     and any(contained(element, display) and contained(cg_element, display) for display in displays)):
-                return element, window
+                matches.setdefault((ax_frame, cg_frame, window_number), (element, window))
+                if len(matches) > 1:
+                    raise UIFailure("native-popover-ambiguous")
+    if matches:
+        return next(iter(matches.values()))
     raise UIFailure("native-popover-not-visible")
 
 

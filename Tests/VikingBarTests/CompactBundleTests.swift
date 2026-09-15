@@ -98,7 +98,7 @@ struct CompactBundleTests {
             await Task.yield()
         }
         #expect(model.connectionMessage == LiveBridgeFailure.unavailable.message)
-        model.connect(reference: URL(fileURLWithPath: "/synthetic/reference"), resultURL: nil)
+        model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         #expect(model.connectionTitle == "Connecting…")
         for _ in 0 ..< 100 where model.activity != .idle {
             await Task.yield()

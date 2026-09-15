@@ -72,6 +72,7 @@ public actor VikingSession {
                 self.current.revalidateBundle(at: self.api.now())
                 self.current.points?.revalidate(at: self.api.now())
             }
+            self.current.connectionSummary = record.connectionSummary
             guard !record.rotationPending else { throw LiveFailure.reconnectRequired }
             return self.current
         } catch {
@@ -154,12 +155,13 @@ extension VikingSession {
             throw BootstrapFailure.tokenFailure(error)
         }
         let record = StoredSession(
-            clientID: credentials.clientID, connectionID: ConnectionID(), refreshToken: received.refreshToken,
-            generation: 0, rotationPending: false,
+            clientID: credentials.clientID, username: credentials.username,
+            connectionID: ConnectionID(), refreshToken: received.refreshToken, generation: 0, rotationPending: false,
         )
         do { try self.saveRecord(record) } catch { throw BootstrapFailure.keychainWrite }
         try self.checkGeneration(generation)
         self.current.connectionID = record.connectionID
+        self.current.connectionSummary = record.connectionSummary
         self.current.scopeMismatch = received.scopeMismatch
         self.current.snapshot = self.current.emptySnapshot
         self.token = received
@@ -320,6 +322,7 @@ extension VikingSession {
             self.current.connectionID = record.connectionID
             self.current.snapshot = self.current.emptySnapshot
         }
+        self.current.connectionSummary = record.connectionSummary
     }
 
     private func markStale(failure: LiveFailure?) {

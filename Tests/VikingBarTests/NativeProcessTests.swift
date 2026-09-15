@@ -77,15 +77,17 @@ struct NativeProcessTests {
         for extra in ["", ", 'private': 'synthetic'"] {
             let fixture = try NativeProcessFixture(script: """
             import json
-            print(json.dumps({'schema_version': 1, 'check': 'connect', 'passed': True, 'connected': True\(extra)}))
+            print(json.dumps({'schema_version': 1, 'check': 'connect', 'passed': True, 'connected': True,
+                              'connection_sha256':
+                                  '7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052'\(extra)}))
             """)
             defer { fixture.cleanup() }
             let connector = AccountConnector(cliURL: fixture.executable, helperURL: fixture.executable)
             if extra.isEmpty {
-                try await connector.connect(reference: fixture.executable, resultURL: nil)
+                try await connector.connect(input: .reference(fixture.executable), resultURL: nil)
             } else {
                 await #expect(throws: LiveBridgeFailure.self) {
-                    try await connector.connect(reference: fixture.executable, resultURL: nil)
+                    try await connector.connect(input: .reference(fixture.executable), resultURL: nil)
                 }
             }
         }
@@ -96,7 +98,7 @@ struct NativeProcessTests {
         """)
         defer { fixture.cleanup() }
         let connector = AccountConnector(cliURL: fixture.executable, helperURL: fixture.executable)
-        let connecting = Task { try await connector.connect(reference: fixture.executable, resultURL: nil) }
+        let connecting = Task { try await connector.connect(input: .reference(fixture.executable), resultURL: nil) }
         try await fixture.waitUntilStarted()
         await connector.cancel()
         await #expect(throws: LiveBridgeFailure.self) { try await connecting.value }
@@ -127,7 +129,7 @@ struct NativeProcessTests {
         """)
         defer { fixture.cleanup() }
         let connector = AccountConnector(cliURL: fixture.executable, helperURL: fixture.executable)
-        let connecting = Task { try await connector.connect(reference: fixture.executable, resultURL: nil) }
+        let connecting = Task { try await connector.connect(input: .reference(fixture.executable), resultURL: nil) }
         try await fixture.waitUntilStarted()
         connecting.cancel()
         try await fixture.waitUntilStarted(suffix: "terminating")
@@ -144,7 +146,7 @@ struct NativeProcessTests {
     }
 }
 
-private struct NativeProcessFixture {
+struct NativeProcessFixture {
     let directory: URL
     let executable: URL
 
@@ -157,7 +159,7 @@ private struct NativeProcessFixture {
     }
 
     func waitUntilStarted(suffix: String = "started") async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
         while !FileManager.default.fileExists(atPath: self.executable.path + "." + suffix) {
             guard ContinuousClock.now < deadline else { throw LiveBridgeFailure.unavailable }
             try await Task.sleep(for: .milliseconds(10))

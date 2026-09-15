@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Show connection status and username in Settings, with explicit account changes and password-free saved details.
+
+- Restore standard macOS editing shortcuts in sign-in fields, including Command-V paste into the password field.
+
+- Add default native direct sign-in for approved public-client accounts, retain optional 1Password connection, and reuse the CLI-owned Keychain session.
+
 - Preserve missing login-service records as a distinct status; accept them only in fresh task-owned installation proof and retain strict registration cleanup.
 - Add local installation with ad-hoc bundle sealing, saved used/remaining card display and refresh interval, wake refresh, and launch-at-login controls with actual macOS status and restoration-aware installed proof.
 - Allow fresh local installation when unrelated process origins are unavailable; preserve conservative update refusal and prevent overwriting a destination created during the build.
