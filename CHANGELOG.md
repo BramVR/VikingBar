@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add fresh invoice bank-transfer review with exact unpaid amounts, checksum-validated plain or formatted Belgian structured references, a compact offline EPC QR beside invoice details, icon-only copy controls, a persistent compact invoice summary, and synthetic native proof.
 - Add native menu hover and press feedback to plain popover actions, with full padded hit areas, disabled-state handling, and light, dark, and increased-contrast fixture proof.
 - Add daily SIM usage charts and labeled cycle estimates, with bounded Brussels summaries, missing/stale states, independent balance refresh, and a stored-session history proof gate.
 - Fix rejected history date queries by sending whole-second numeric UTC offsets with escaped plus signs, preserving exact interval bounds.

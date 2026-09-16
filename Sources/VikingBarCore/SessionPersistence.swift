@@ -109,6 +109,7 @@ public struct FileBalanceCache: BalanceCache {
             guard record.version == 1, record.state.connectionID == connectionID else { return nil }
             var state = record.state
             state.invoiceDocument = nil
+            state.paymentReview = nil
             state.connectionSummary = nil
             return state
         } catch { throw LiveFailure.storage }
@@ -118,6 +119,7 @@ public struct FileBalanceCache: BalanceCache {
         do {
             var cached = state
             cached.invoiceDocument = nil
+            cached.paymentReview = nil
             // Restore account identity from Keychain, not the balance cache.
             cached.connectionSummary = nil
             let data = try JSONEncoder().encode(CachedBalance(version: 1, state: cached))

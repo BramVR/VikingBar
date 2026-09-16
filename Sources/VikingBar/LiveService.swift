@@ -2,8 +2,9 @@ import Foundation
 import VikingBarCore
 
 enum SessionRequest: Encodable, Sendable {
-    case restore, refresh, refreshPoints, refreshInvoices, refreshHistory, cancel, shutdown
+    case restore, refresh, refreshPoints, refreshInvoices, refreshHistory, clearPaymentReview, cancel, shutdown
     case downloadInvoice(String)
+    case reviewInvoicePayment(String?)
     case selectSubscription(String)
     case selectBundle(Int)
     case configure(RefreshInterval)
@@ -19,13 +20,17 @@ enum SessionRequest: Encodable, Sendable {
         case let .downloadInvoice(id):
             try values.encode("downloadInvoice", forKey: .command)
             try values.encode(id, forKey: .id)
+        case let .reviewInvoicePayment(id):
+            try values.encode("reviewInvoicePayment", forKey: .command)
+            try values.encodeIfPresent(id, forKey: .id)
         case let .selectSubscription(id):
             try values.encode("selectSubscription", forKey: .command)
             try values.encode(id, forKey: .id)
         case let .selectBundle(index):
             try values.encode("selectBundle", forKey: .command)
             try values.encode(index, forKey: .index)
-        case .restore, .refresh, .refreshPoints, .refreshInvoices, .refreshHistory, .cancel, .shutdown:
+        case .restore, .refresh, .refreshPoints, .refreshInvoices, .refreshHistory, .clearPaymentReview,
+             .cancel, .shutdown:
             try values.encode(self.simpleCommand, forKey: .command)
         }
     }
@@ -37,9 +42,10 @@ enum SessionRequest: Encodable, Sendable {
         case .refreshPoints: "refreshPoints"
         case .refreshInvoices: "refreshInvoices"
         case .refreshHistory: "refreshHistory"
+        case .clearPaymentReview: "clearPaymentReview"
         case .cancel: "cancel"
         case .shutdown: "shutdown"
-        case .downloadInvoice, .selectSubscription, .selectBundle, .configure:
+        case .downloadInvoice, .reviewInvoicePayment, .selectSubscription, .selectBundle, .configure:
             preconditionFailure("Payload commands encode their names directly")
         }
     }

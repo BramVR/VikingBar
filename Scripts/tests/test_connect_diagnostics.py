@@ -101,6 +101,7 @@ actor VikingSession {
     func refreshHistory() async throws -> LiveSessionState { LiveSessionState() }
     func refreshInvoices() async throws -> LiveSessionState { LiveSessionState() }
     func downloadInvoice(id: String) async throws -> LiveSessionState { LiveSessionState() }
+    func clearInvoiceDocument() {}
     func selectBundle(index: Int) throws -> LiveSessionState { LiveSessionState() }
     func refreshPoints(forceTokenRefresh: Bool = false) async throws -> LiveSessionState { LiveSessionState() }
     func state() -> LiveSessionState { LiveSessionState() }

@@ -58,11 +58,17 @@ final class AppSession {
     private(set) var bridgeFailure: LiveBridgeFailure?
     private var allowanceExpired = false
     var invoiceError: String?
+    let paymentFixtureEnabled: Bool
+    private(set) var fixtureClipboardValue: String?
     var pendingOptional: [OptionalIntent] = []
     var activeOptional: OptionalIntent?
     @ObservationIgnored var optionalOperation: Task<Void, Never>?
     @ObservationIgnored var optionalRevision = 0
     @ObservationIgnored var optionalCancellation: Task<Void, Never>?
+    @ObservationIgnored var paymentExpiry: Task<Void, Never>?
+    @ObservationIgnored var paymentRevision = 0
+    @ObservationIgnored let paymentFixtureRenderer: (any PaymentQRRendering)?
+    @ObservationIgnored private let clipboardWrite: (String) -> Void
 
     @ObservationIgnored let openDocument: (URL) -> Bool
 
@@ -77,7 +83,7 @@ final class AppSession {
     @ObservationIgnored private let clientFactory: () throws -> any SessionClient
     @ObservationIgnored private let connectorFactory: () throws -> any AccountConnecting
     @ObservationIgnored let now: () -> Date
-    @ObservationIgnored private let sleepUntil: @Sendable (Date) async throws -> Void
+    @ObservationIgnored let sleepUntil: @Sendable (Date) async throws -> Void
     @ObservationIgnored var client: (any SessionClient)?
     @ObservationIgnored private var connector: (any AccountConnecting)?
     @ObservationIgnored private var operation: Task<Void, Never>?
@@ -96,6 +102,11 @@ final class AppSession {
         connectorFactory: @escaping () throws -> any AccountConnecting = { throw LiveBridgeFailure.connectFailed },
         now: @escaping () -> Date = Date.init,
         openDocument: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        paymentFixtureRenderer: (any PaymentQRRendering)? = nil,
+        clipboardWrite: @escaping (String) -> Void = { value in
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(value, forType: .string)
+        },
         sleepUntil: @escaping @Sendable (Date) async throws -> Void = { deadline in
             try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
         },
@@ -116,7 +127,13 @@ final class AppSession {
         self.connectorFactory = connectorFactory
         self.now = now
         self.openDocument = openDocument
+        self.paymentFixtureRenderer = paymentFixtureRenderer
+        self.paymentFixtureEnabled = paymentFixtureRenderer != nil
+        self.clipboardWrite = clipboardWrite
         self.sleepUntil = sleepUntil
+        if self.paymentFixtureEnabled {
+            self.liveState.installPaymentFixture(at: referenceDate)
+        }
     }
 }
 
@@ -304,7 +321,7 @@ extension AppSession {
                 state.mergeHistory(from: self.liveState)
             }
             state.mergePoints(from: self.liveState)
-            state.mergeInvoices(from: self.liveState)
+            state.mergeInvoices(from: self.liveState, includePaymentReview: false)
         } else {
             self.pendingOptional.removeAll()
         }
@@ -329,6 +346,15 @@ extension AppSession {
         self.snapshotRevision += 1
         self.scheduledExpiry?.cancel()
         self.scheduledExpiry = nil
+    }
+
+    func copyPaymentField(_ value: String) {
+        if self.paymentFixtureEnabled {
+            self.fixtureClipboardValue = value
+        } else {
+            self.clipboardWrite(value)
+        }
+        self.onPresentationChange?()
     }
 
     private func scheduleExpiry() {

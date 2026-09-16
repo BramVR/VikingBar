@@ -26,6 +26,7 @@ struct AppLaunchOptions {
     let credentialReference: URL?
     let proofDirectory: URL?
     let allowLoginItem: Bool
+    let paymentFixture: Bool
 
     init(arguments: [String]) throws {
         var appearance: FixtureAppearance?
@@ -33,13 +34,13 @@ struct AppLaunchOptions {
         var sharedArguments: [String] = []
         var paths: [String: URL] = [:]
         let pathOptions = ["--settings-file", "--credential-reference", "--proof-directory"]
-        var allowLoginItem = false
+        let flagOptions: Set = ["--allow-login-item", "--payment-fixture"]
+        var flags: Set<String> = []
         var index = 0
         while index < arguments.count {
             let option = arguments[index]
-            if option == "--allow-login-item" {
-                guard !allowLoginItem else { throw ArgumentError.invalid("Repeated --allow-login-item.") }
-                allowLoginItem = true
+            if flagOptions.contains(option) {
+                guard flags.insert(option).inserted else { throw ArgumentError.invalid("Repeated \(option).") }
                 index += 1
             } else if option == "--fixture-appearance" {
                 guard appearance == nil else { throw ArgumentError.invalid("Duplicate --fixture-appearance.") }
@@ -67,7 +68,8 @@ struct AppLaunchOptions {
         self.settingsFile = paths["--settings-file"]
         self.credentialReference = paths["--credential-reference"]
         self.proofDirectory = paths["--proof-directory"]
-        self.allowLoginItem = allowLoginItem
+        self.allowLoginItem = flags.contains("--allow-login-item")
+        self.paymentFixture = flags.contains("--payment-fixture")
         try self.validate(paths: paths)
     }
 
@@ -84,6 +86,9 @@ struct AppLaunchOptions {
         }
         guard self.fixtureAppearance == nil && !self.fixtureReduceTransparency || self.shared.fixture != nil else {
             throw ArgumentError.invalid("Fixture appearance options require --fixture.")
+        }
+        guard !self.paymentFixture || self.shared.fixture != nil else {
+            throw ArgumentError.invalid("--payment-fixture requires --fixture.")
         }
     }
 

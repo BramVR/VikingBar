@@ -107,6 +107,7 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var invoices: InvoiceSnapshot?
     public internal(set) var invoiceFailure: LiveFailure?
     public internal(set) var invoiceDocument: InvoiceDocument?
+    public internal(set) var paymentReview: PaymentReview?
     public internal(set) var points: CustomerPoints?
     public internal(set) var selectedBundleIndex: Int?
     public internal(set) var historyRevision: UUID?
@@ -126,9 +127,22 @@ public extension LiveSessionState {
         self.points = state.points
     }
 
-    mutating func mergeInvoices(from state: LiveSessionState) {
+    mutating func mergeInvoices(from state: LiveSessionState, includePaymentReview: Bool = true) {
         guard self.connectionID == state.connectionID else { return }
         self.invoices = state.invoices
         self.invoiceFailure = state.invoiceFailure
+        if includePaymentReview {
+            self.paymentReview = state.paymentReview
+        }
+    }
+
+    mutating func setPaymentReview(_ review: PaymentReview?) {
+        self.paymentReview = review
+    }
+
+    mutating func installPaymentFixture(at now: Date) {
+        self.invoices = InvoicePaymentFixture.snapshot(at: now)
+        self.invoiceFailure = nil
+        self.paymentReview = nil
     }
 }

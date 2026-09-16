@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var terminationReplySent = false
 
     init(options: AppLaunchOptions, preferences: MenuBarPreferences) {
+        let paymentFixtureRenderer = options.paymentFixture
+            ? try? PaymentQRHelper(executableURL: Self.bundledURL("Resources/payment-qr")) : nil
         self.session = AppSession(
             options: options.shared, preferences: preferences,
             loginItems: options.shared.fixture == nil || options.allowLoginItem
@@ -28,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     helperURL: Self.bundledURL("Resources/connect-account.py"),
                 )
             },
+            paymentFixtureRenderer: paymentFixtureRenderer,
         )
         self.options = options
         super.init()
@@ -188,6 +191,7 @@ struct VikingBarApp {
             print("App fixture options: --settings-file ABSOLUTE_PATH [--allow-login-item]")
             print("Fixture appearance: --fixture-appearance light|dark|high-contrast-light|high-contrast-dark")
             print("Fixture material: --fixture-reduce-transparency")
+            print("Payment fixture: --payment-fixture")
             print("Login item maintenance: --login-item status|disable (use alone).")
             print("Live options: --credential-reference ABSOLUTE_PATH --proof-directory ABSOLUTE_PATH")
             return

@@ -5,6 +5,7 @@ extension AppSession {
     enum OptionalIntent: Equatable {
         case points, invoices, history
         case pdf(String)
+        case payment(String)
 
         var request: SessionRequest {
             switch self {
@@ -12,15 +13,24 @@ extension AppSession {
             case .history: .refreshHistory
             case .invoices: .refreshInvoices
             case let .pdf(id): .downloadInvoice(id)
+            case let .payment(id): .reviewInvoicePayment(id)
             }
         }
 
         var isInvoice: Bool {
-            self == .invoices || self.isPDF
+            self == .invoices || self.isPDF || self.isPayment
         }
 
         var isPDF: Bool {
             if case .pdf = self {
+                true
+            } else {
+                false
+            }
+        }
+
+        var isPayment: Bool {
+            if case .payment = self {
                 true
             } else {
                 false
@@ -37,7 +47,7 @@ extension AppSession {
     }
 
     var canLoadInvoices: Bool {
-        self.canSelectAccountData && self.client != nil
+        self.paymentFixtureEnabled || (self.canSelectAccountData && self.client != nil)
     }
 }
 
@@ -50,12 +60,109 @@ extension AppSession {
         )
     }
 
+    var paymentCandidates: [InvoicePaymentCandidate] {
+        InvoicePaymentSelection.candidates(in: self.liveState.invoices)
+    }
+
+    var paymentReview: PaymentReview {
+        self.liveState.paymentReview ?? .idle
+    }
+
     func loadInvoices() {
+        if self.paymentFixtureEnabled {
+            self.liveState.installPaymentFixture(at: self.now())
+            self.clearPaymentReview()
+            return
+        }
         guard !self.isFixtureLaunch, self.isConnected, self.client != nil,
               self.activity != .stopped, self.activity != .connecting, !self.isLoadingInvoices else { return }
+        self.clearPaymentExpiry()
+        self.liveState.setPaymentReview(nil)
         self.invoiceError = nil
         self.enqueueOptional(.invoices)
         self.pumpOptional()
+    }
+
+    func reviewPayment(_ id: String) {
+        guard !self.isLoadingInvoices else { return }
+        guard self.paymentCandidates.contains(where: { $0.id == id }) else {
+            self.liveState.setPaymentReview(.unavailable(.noPayableInvoice, candidates: []))
+            return
+        }
+        self.invoiceError = nil
+        self.clearPaymentExpiry()
+        self.liveState.setPaymentReview(.checking(invoiceID: id))
+        if let renderer = self.paymentFixtureRenderer {
+            let snapshot = self.liveState.invoices ?? .unavailable
+            let revision = self.paymentRevision
+            self.optionalOperation = Task {
+                defer {
+                    if revision == self.paymentRevision {
+                        self.optionalOperation = nil
+                    }
+                }
+                let selection = InvoicePaymentSelection.select(
+                    snapshot: snapshot, requestedInvoiceID: id,
+                    selectedSubscriptionID: self.liveState.selectedSubscriptionID, now: self.now(),
+                )
+                guard case let .selected(details, candidates) = selection else {
+                    if case let .unavailable(reason, candidates) = selection {
+                        self.liveState.setPaymentReview(.unavailable(reason, candidates: candidates))
+                    }
+                    return
+                }
+                do {
+                    let qrCode = try await renderer.render(details, now: self.now())
+                    guard !Task.isCancelled, revision == self.paymentRevision else { return }
+                    self.liveState.setPaymentReview(.ready(qrCode, candidates: candidates))
+                    self.optionalOperation = nil
+                    self.schedulePaymentExpiry(qrCode.expiresAt, candidates: candidates)
+                    self.onPresentationChange?()
+                } catch {
+                    guard !Task.isCancelled, revision == self.paymentRevision else { return }
+                    self.liveState.setPaymentReview(.unavailable(.qrGenerationFailed, candidates: candidates))
+                    self.onPresentationChange?()
+                }
+            }
+            return
+        }
+        guard self.canLoadInvoices else {
+            self.liveState.setPaymentReview(.unavailable(.refreshFailed, candidates: self.paymentCandidates))
+            return
+        }
+        self.enqueueOptional(.payment(id))
+        self.pumpOptional()
+    }
+
+    func clearPaymentReview() {
+        self.clearPaymentExpiry()
+        self.liveState.setPaymentReview(nil)
+        self.pendingOptional.removeAll(where: \.isPayment)
+        if self.paymentFixtureEnabled {
+            self.optionalOperation?.cancel()
+            self.optionalOperation = nil
+        } else if self.activeOptional?.isPayment == true {
+            self.interruptOptional(clear: false)
+        }
+        self.onPresentationChange?()
+    }
+
+    func clearPaymentExpiry() {
+        self.paymentRevision += 1
+        self.paymentExpiry?.cancel()
+        self.paymentExpiry = nil
+    }
+
+    func schedulePaymentExpiry(_ expiry: Date, candidates: [InvoicePaymentCandidate]) {
+        self.clearPaymentExpiry()
+        let revision = self.paymentRevision
+        self.paymentExpiry = Task { [weak self, sleepUntil] in
+            do { try await sleepUntil(expiry) } catch { return }
+            guard let self, !Task.isCancelled, revision == self.paymentRevision,
+                  self.activity != .stopped else { return }
+            self.liveState.setPaymentReview(.unavailable(.reviewExpired, candidates: candidates))
+            self.onPresentationChange?()
+        }
     }
 
     func openInvoice(_ id: String) {
@@ -75,6 +182,8 @@ extension AppSession {
     }
 
     func interruptOptional(clear: Bool) {
+        self.clearPaymentExpiry()
+        self.liveState.setPaymentReview(nil)
         if let active = self.activeOptional {
             switch active {
             case .points, .invoices, .history:
@@ -83,16 +192,21 @@ extension AppSession {
                 }
             case .pdf:
                 self.invoiceError = "Invoice PDF interrupted. Try again."
+            case .payment:
+                self.liveState.setPaymentReview(nil)
             }
         }
         if self.pendingOptional.contains(where: \.isPDF) {
             self.invoiceError = "Invoice PDF interrupted. Try again."
             self.pendingOptional.removeAll(where: \.isPDF)
         }
+        self.pendingOptional.removeAll(where: \.isPayment)
         if clear {
             self.pendingOptional.removeAll()
             self.invoiceError = nil
             self.historyError = nil
+            self.clearPaymentExpiry()
+            self.liveState.setPaymentReview(nil)
         }
         self.optionalRevision += 1
         if self.optionalOperation != nil, let client = self.client {
@@ -114,6 +228,8 @@ extension AppSession {
         self.activeOptional = optional
         let revision = self.optionalRevision
         let connection = self.liveState.connectionID
+        let cancellation = self.optionalCancellation
+        self.optionalCancellation = nil
         self.optionalOperation = Task {
             defer {
                 if revision == self.optionalRevision {
@@ -123,7 +239,9 @@ extension AppSession {
                 }
             }
             do {
+                await cancellation?.value
                 try Task.checkCancellation()
+                guard revision == self.optionalRevision else { return }
                 let state = try await client.request(optional.request)
                 guard !Task.isCancelled, revision == self.optionalRevision,
                       connection == state.connectionID, connection == self.liveState.connectionID,
@@ -136,6 +254,8 @@ extension AppSession {
                     self.liveState.markPointsUnavailable(.transport)
                 } else if optional == .history {
                     self.historyError = "History unavailable. Refresh to try again."
+                } else if optional.isPayment {
+                    self.liveState.setPaymentReview(.unavailable(.refreshFailed, candidates: self.paymentCandidates))
                 } else {
                     self.invoiceError = "Could not load bills. Try again."
                 }
@@ -162,6 +282,11 @@ extension AppSession {
             guard let document = state.invoiceDocument, document.invoiceID == id,
                   document.fileURL.isFileURL, self.openDocument(document.fileURL)
             else { self.invoiceError = "Could not open invoice PDF. Try again."; return }
+        case .payment:
+            self.liveState.mergeInvoices(from: state)
+            if case let .ready(qrCode, candidates) = state.paymentReview {
+                self.schedulePaymentExpiry(qrCode.expiresAt, candidates: candidates)
+            }
         }
     }
 }

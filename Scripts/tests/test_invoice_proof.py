@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -62,6 +63,36 @@ class InvoiceProofTests(unittest.TestCase):
         self.assertEqual(self.run_proof(environment={}), self.receipt)
         self.assertEqual(self.calls, [([str(ROOT / ".build/debug/vikingbar"), "proof", "invoices"],
                                       {"env": {}, "capture_output": True, "timeout": 180, "check": False})])
+
+    def test_payment_evidence_passes_private_witness_by_stdin_and_returns_only_flags(self):
+        witness = b'{"invoiceID":"inv-1","invoiceNumber":"2026-10","reference":"+++123/4567/89002+++","invoiceDate":"2026-09-01","dueDate":"2026-09-15"}'
+        receipt = {"schema_version": 1, "check": "payment-evidence", "passed": True,
+                   "endpoint_matches": True, "pdf_downloaded": True}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "witness.json"
+            path.write_bytes(witness)
+            path.chmod(0o600)
+            environment = dict(self.environment, VIKINGBAR_PAYMENT_EVIDENCE=str(path))
+
+            def execute(command, **options):
+                self.calls.append((command, options))
+                return subprocess.CompletedProcess(command, 0, json.dumps(receipt).encode(), b"private")
+
+            self.assertEqual(RUNNER.run("payment-evidence", environment, execute), receipt)
+        command, options = self.calls[-1]
+        self.assertEqual(command[1:], ["proof", "payment-evidence"])
+        self.assertEqual(options["input"], witness)
+        self.assertNotIn("VIKINGBAR_PAYMENT_EVIDENCE", options["env"])
+        self.assertNotIn("inv-1", json.dumps(receipt))
+
+    def test_payment_evidence_requires_private_bounded_witness(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "witness.json"
+            path.write_text("{}")
+            path.chmod(0o644)
+            with self.assertRaisesRegex(RUNNER.ProofFailure, "^private-payment-evidence-required$"):
+                RUNNER.run("payment-evidence", {"VIKINGBAR_PAYMENT_EVIDENCE": str(path)}, self.execute)
+        self.assertEqual(self.calls, [])
 
     def test_child_environment_strips_credentials_and_injection(self):
         allowed = dict(self.environment)

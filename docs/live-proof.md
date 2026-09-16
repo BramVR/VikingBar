@@ -133,6 +133,8 @@ The strict receipt contains only `schema_version`, `check`, `passed`, `invoice_c
 
 Retain the receipt, source SHA, executable hash, UTC time, and exit status privately. Native Bills-tab and PDF-button coverage are separate and require the Mac UI slot. Opening a personal PDF requires an explicit request. Follow the [invoice feature map](../.agents/skills/verify-vikingbar/features/invoices.md).
 
+Payment metadata/PDF matching is an explicit second proof. After privately reviewing the downloaded PDF, record its endpoint invoice ID, invoice number, structured reference, invoice date, and due date in a mode-0600 JSON witness. Run `VIKINGBAR_PAYMENT_EVIDENCE=/private/path/reviewed-invoice.json make proof-live CHECK=payment-evidence` under the same stored-session authorization. The CLI refreshes invoice metadata, matches every witness field against the exact invoice ID, and downloads that same PDF through the production path. The redacted receipt reports only `schema_version`, `check`, `passed`, `endpoint_matches`, and `pdf_downloaded`. Retain the witness and PDF privately. This proves correspondence with the human-reviewed witness; it does not prove bank-app acceptance or payment authorization.
+
 ## Viking Points proof
 
 Hold fresh coordinator slots for account access and native UI driving. Use an existing connected session and the configured Peekaboo executable, then run:

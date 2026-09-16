@@ -88,23 +88,92 @@ struct InvoiceSessionTests {
             invoiceID: "inv-1",
             fileURL: URL(fileURLWithPath: "/private/synthetic.pdf"),
         )
+        let invoice = try InvoiceTests.invoice(InvoiceTests.item(extra:
+            ",\"reference_number\":\"+++123/4567/89002+++\""))
+        guard case let .selected(details, _) = InvoicePaymentSelection.select(
+            snapshot: .loaded([invoice], updatedAt: LiveModelsTests.now), requestedInvoiceID: nil,
+            selectedSubscriptionID: nil, now: LiveModelsTests.now,
+        ) else {
+            Issue.record("Expected payment details")
+            return
+        }
+        state.paymentReview = .ready(Self.qr(details), candidates: [])
         let cache = FileBalanceCache(url: folder.appendingPathComponent("cache.json"))
         try cache.save(state)
         #expect(try cache.load(connectionID: connection)?.invoiceDocument == nil)
+        #expect(try cache.load(connectionID: connection)?.paymentReview == nil)
         let data = try Data(contentsOf: folder.appendingPathComponent("cache.json"))
         #expect(try !#require(String(bytes: data, encoding: .utf8)).contains("synthetic.pdf"))
+        #expect(try !#require(String(bytes: data, encoding: .utf8)).contains("123/4567"))
         let encoded = try JSONEncoder().encode(LiveSessionState())
         let decoded = try JSONDecoder().decode(LiveSessionState.self, from: encoded)
         #expect(decoded.invoices == nil)
     }
 
-    static func session(_ transport: any ProofHTTPTransport) -> VikingSession {
+    @Test func `payment review refreshes exact selection and publishes generated QR atomically`() async throws {
+        let transport = InvoiceTestTransport(pages: [InvoiceTests.page([
+            InvoiceTests.item(extra: ",\"reference_number\":\"+++123/4567/89002+++\""),
+        ])])
+        let session = Self.session(transport, renderer: TestPaymentRenderer())
+        _ = try await session.bootstrap(credentials: LiveSessionTests.credentials)
+        let balance = try await session.refresh()
+        let reviewed = try await session.reviewInvoicePayment(id: "inv-1")
+        guard case let .ready(qrCode, candidates) = reviewed.paymentReview else {
+            Issue.record("Expected ready payment review")
+            return
+        }
+        #expect(qrCode.details.invoiceID == "inv-1")
+        #expect(qrCode.details.amountText == "12.25")
+        #expect(qrCode.validatePayload())
+        #expect(candidates.map(\.id) == ["inv-1"])
+        #expect(reviewed.snapshot == balance.snapshot)
+        #expect(await transport.requests.contains { $0.url?.path.hasSuffix("/pdf") == true } == false)
+        let selectedBundle = try await session.selectBundle(index: 0)
+        #expect(selectedBundle.paymentReview == nil)
+    }
+
+    @Test func `payment refresh failure preserves bills and balance while clearing QR`() async throws {
+        let transport = InvoiceTestTransport(pages: [InvoiceTests.page([
+            InvoiceTests.item(extra: ",\"reference_number\":\"+++123/4567/89002+++\""),
+        ])])
+        let session = Self.session(transport, renderer: TestPaymentRenderer())
+        _ = try await session.bootstrap(credentials: LiveSessionTests.credentials)
+        let balance = try await session.refresh()
+        let loaded = try await session.refreshInvoices()
+        let failed = try await session.reviewInvoicePayment(id: "inv-1")
+        #expect(failed.snapshot == balance.snapshot)
+        #expect(failed.invoices == loaded.invoices)
+        #expect(failed.paymentReview == .unavailable(.refreshFailed, candidates: []))
+    }
+
+    static func session(
+        _ transport: any ProofHTTPTransport,
+        renderer: any PaymentQRRendering = UnavailablePaymentQRRenderer(),
+    ) -> VikingSession {
         VikingSession(
             transport: transport,
             store: MemorySessionStore(),
             lease: MemoryLease(),
             cache: MemoryBalanceCache(),
+            paymentQRRenderer: renderer,
             now: { LiveModelsTests.now },
         )
+    }
+
+    fileprivate static func qr(_ details: InvoicePaymentDetails) -> InvoicePaymentQRCode {
+        InvoicePaymentQRCode(
+            details: details,
+            payload: "BCD\n002\n1\nSCT\nKREDBEBB\nMobile Vikings NV\nBE02737026917240\n"
+                + "EUR\(details.amountText)\n\n\(details.epcReference)\n\n",
+            png: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+            generatedAt: LiveModelsTests.now,
+            expiresAt: LiveModelsTests.now.addingTimeInterval(300),
+        )
+    }
+}
+
+private struct TestPaymentRenderer: PaymentQRRendering {
+    func render(_ details: InvoicePaymentDetails, now _: Date) async throws -> InvoicePaymentQRCode {
+        InvoiceSessionTests.qr(details)
     }
 }

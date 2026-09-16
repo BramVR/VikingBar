@@ -14,6 +14,10 @@ private actor SyntheticSession {
             self.current.selectedSubscriptionID = "unexpected-completion"
         case .refreshInvoices:
             self.current.invoices = .empty(updatedAt: Date(timeIntervalSince1970: 0))
+        case .reviewInvoicePayment:
+            self.current.paymentReview = .unavailable(.noPayableInvoice, candidates: [])
+        case .clearPaymentReview:
+            self.current.paymentReview = nil
         case .downloadInvoice:
             self.current.invoiceDocument = InvoiceDocument(
                 invoiceID: command.id!, fileURL: URL(fileURLWithPath: "/synthetic/invoice.pdf"),
