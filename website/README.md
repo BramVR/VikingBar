@@ -52,6 +52,8 @@ Design exploration files under `output/` are local and excluded from the reposit
 
 Barlow Condensed and DM Sans are self-hosted. Their license files are in `public/assets/fonts`.
 
+`public/THIRD_PARTY_LICENSES.txt` contains the licenses for bundled React, React DOM, Scheduler, and Three.js. Update their versions and license text from the installed packages when changing dependencies.
+
 ## Product information
 
 `src/InfoSections.jsx` adds setup steps, requirements, a compact menu-bar example, native disclosure FAQs, and build/setup/source links. Copy stays factual; connection details remain in the setup guide.
