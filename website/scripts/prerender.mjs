@@ -11,7 +11,7 @@ const schema = {
     { '@type': 'SoftwareApplication', '@id': `${siteURL}#app`, name: 'VikingBar', url: siteURL, description,
       applicationCategory: 'UtilitiesApplication', operatingSystem: 'macOS 14 or later', processorRequirements: 'Apple Silicon',
       softwareRequirements: 'Mobile Vikings account with approved API access and public client ID; no client secret; 1Password optional',
-      screenshot: image, installUrl: 'https://github.com/BramVR/VikingBar/blob/main/docs/RELEASING.md#download-a-development-build' },
+      screenshot: image, installUrl: 'https://github.com/BramVR/VikingBar/releases/tag/v0.1.0' },
     { '@type': 'FAQPage', '@id': `${siteURL}#questions`, mainEntity: questions.map(([name, text]) => ({
       '@type': 'Question', name, acceptedAnswer: { '@type': 'Answer', text },
     })) },
@@ -46,7 +46,7 @@ await writeFile(new URL('index.html', output), html);
 await copyFile(new URL('../../docs/assets/vikingbar-header.png', import.meta.url), new URL('assets/social-card.png', output));
 await writeFile(new URL('sitemap.xml', output), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${siteURL}</loc></url></urlset>\n`);
 await writeFile(new URL('robots.txt', output), `User-agent: *\nAllow: /\nSitemap: ${siteURL}sitemap.xml\n`);
-await writeFile(new URL('llms.txt', output), `# VikingBar\n\n> ${description}\n\nDevelopment build for Apple Silicon Macs running macOS 14+. Independent project, not an official Mobile Vikings app. The website preview uses synthetic balances.\n\n## Documentation\n- [Website](${siteURL})\n- [Source and README](https://github.com/BramVR/VikingBar)\n- [Account setup](https://github.com/BramVR/VikingBar/blob/main/docs/live-account.md)\n- [Development builds](https://github.com/BramVR/VikingBar/blob/main/docs/RELEASING.md#download-a-development-build)\n\n## Questions\n${questions.map(([q, a]) => `### ${q}\n${a}\n`).join('\n')}`);
+await writeFile(new URL('llms.txt', output), `# VikingBar\n\n> ${description}\n\nFree unsigned preview for Apple Silicon Macs running macOS 14+. No GitHub account is required. The app is not Developer ID signed or notarized. Independent project, not an official Mobile Vikings app. The website preview uses synthetic balances.\n\n## Documentation\n- [Website](${siteURL})\n- [Download unsigned preview](https://github.com/BramVR/VikingBar/releases/tag/v0.1.0)\n- [Install the unsigned preview](https://github.com/BramVR/VikingBar/blob/main/docs/RELEASING.md#install-the-unsigned-preview)\n- [Source and README](https://github.com/BramVR/VikingBar)\n- [Account setup](https://github.com/BramVR/VikingBar/blob/main/docs/live-account.md)\n\n## Questions\n${questions.map(([q, a]) => `### ${q}\n${a}\n`).join('\n')}`);
 await writeFile(new URL('.nojekyll', output), '');
 await writeFile(new URL('404.html', output), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="robots" content="noindex"><title>Page not found — VikingBar</title><body><h1>Page not found</h1><p><a href="${siteURL}">Return to VikingBar</a></p></body></html>`);
 console.log('Pre-rendered product text, metadata, structured data, sitemap, and llms.txt.');

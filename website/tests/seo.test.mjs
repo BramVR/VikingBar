@@ -17,6 +17,13 @@ test('product and setup information are readable before JavaScript executes', ()
     '1Password',
     'No client secret is required',
     'macOS 14 or later',
+    'free unsigned preview',
+    'without an account',
+    'not Developer ID signed or notarized',
+    'System Settings',
+    'Privacy &amp; Security',
+    'Open Anyway',
+    'Updates may require approval again.',
     '30 days of SIM usage.',
     'Missing days remain distinct from confirmed zero usage.',
     'Grouped totals stay labeled as account-level amounts',
@@ -27,7 +34,9 @@ test('product and setup information are readable before JavaScript executes', ()
   ]) assert.ok(html.includes(text), text);
   assert.doesNotMatch(html, /Manual sign-in is not implemented|manual sign-in is not available|requires a configured 1Password helper/);
   assert.doesNotMatch(html, /private GitHub repository|Repository access required/);
-  assert.match(html, /Downloading GitHub Actions artifacts requires a GitHub account/);
+  assert.doesNotMatch(html, /Downloading GitHub Actions artifacts requires a GitHub account|actions\/workflows\/checks\.yml|download-a-development-build/);
+  assert.match(html, /https:\/\/github\.com\/BramVR\/VikingBar\/releases\/tag\/v0\.1\.0/);
+  assert.match(html, /docs\/RELEASING\.md#install-the-unsigned-preview/);
   assert.equal((html.match(/<h1[ >]/g) || []).length, 1);
   assert.match(html, /data-nosnippet/);
 });
@@ -37,6 +46,8 @@ test('canonical, social metadata, and FAQ structured data match visible content'
   assert.ok(html.includes(`property="og:url" content="${canonical}"`));
   assert.match(html, /name="twitter:card" content="summary_large_image"/);
   const schema = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/s)[1]);
+  const app = schema['@graph'].find(item => item['@type'] === 'SoftwareApplication');
+  assert.equal(app.installUrl, 'https://github.com/BramVR/VikingBar/releases/tag/v0.1.0');
   const faq = schema['@graph'].find(item => item['@type'] === 'FAQPage');
   assert.deepEqual(faq.mainEntity.map(item => [item.name, item.acceptedAnswer.text]), questions);
   for (const [question, answer] of questions) {

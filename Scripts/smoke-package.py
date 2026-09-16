@@ -100,6 +100,7 @@ def verify(directory):
     assert manifest["configuration"] == "release"
     assert manifest["developmentBuild"] is True
     assert manifest["developerIDSigned"] is False and manifest["notarized"] is False
+    assert manifest["localAdHocSealed"] is True
     assert manifest["toolchain"]["swift"] and manifest["toolchain"]["xcode"]
     stem = f'{manifest["version"]}-arm64-{manifest["commit"]}'
     archive_names = {f"VikingBar-{stem}.zip", f"vikingbar-cli-{stem}.zip"}
@@ -120,6 +121,7 @@ def verify(directory):
         extract(directory / f"vikingbar-cli-{stem}.zip", cli_root)
         assert {p.name for p in app_root.iterdir()} == {"VikingBar.app"}
         bundle = app_root / "VikingBar.app/Contents"
+        subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle.parent)], check=True)
         plist = plistlib.loads((bundle / "Info.plist").read_bytes())
         verify_bundle_metadata(plist, manifest)
         resources = bundle / "Resources"

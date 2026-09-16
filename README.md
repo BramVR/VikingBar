@@ -25,7 +25,7 @@ The daily chart shows 30 days of SIM usage. Hover over a bar for its amount and 
 
 VikingBar currently targets Apple Silicon Macs with macOS 14 or later. Building from source requires Swift 6.2 or later and Python 3.
 
-Development builds have no Developer ID signing or notarization. Packaged releases and automatic updates are not configured. The [build download guide](docs/RELEASING.md#download-a-development-build) covers app and CLI artifacts from GitHub Actions.
+Download the [0.1.0 unsigned preview](https://github.com/BramVR/VikingBar/releases/tag/v0.1.0) without a GitHub account. Follow the [installation and first-launch approval instructions](docs/RELEASING.md#install-the-unsigned-preview). The app has no Developer ID signature or Apple notarization. Automatic updates are not configured. [Development builds](docs/RELEASING.md#download-a-development-build) remain available from GitHub Actions.
 
 The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
 

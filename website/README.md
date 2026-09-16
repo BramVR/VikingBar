@@ -16,7 +16,7 @@ Start the local preview:
 	npm run dev -- --host 127.0.0.1 --port 4173 --strictPort
 ```
 
-Open the address printed by Vite. Select a sample SIM to change the demonstration balance. Select a source file to read its description. **Get VikingBar** opens development-build information and links to the repository's download and account guides.
+Open the address printed by Vite. Select a sample SIM to change the demonstration balance. Select a source file to read its description. **Get VikingBar** opens unsigned-preview information and links to the public release, installation instructions, and account guide.
 
 ## Check the page
 
