@@ -11,11 +11,13 @@ read_when:
 
 A Mobile Vikings account does not automatically include API access. Request it by emailing `api@mobilevikings.be`, including your name, the brand (Mobile Vikings), the application name (VikingBar), and its purpose (viewing your own balance). Wait for approval and client details before attempting to connect. See the provider's [API access instructions](https://docs.uwa.mobilevikings.be/).
 
-Direct sign-in is the default connection method. Enter the approved public client ID, account username, and password in the native app. 1Password remains optional. Native live verification of the new direct form is pending; see [the proof prerequisite](live-proof.md#direct-sign-in-proof).
+Direct sign-in is the default connection method. Enter the approved public client ID, account username, and password in the native app. 1Password remains optional. Both connection methods have [recorded native verification](live-proof.md#direct-sign-in-proof).
 
 VikingBar's verified integration uses the support-approved public client with no client secret. The generic API documentation also describes confidential clients; confirm that Mobile Vikings approves a compatible public-client setup for your use. Do not put a client secret into the public-client ID field. See [authentication context](../CONTEXT.md#authentication).
 
 ## Connect the development app
+
+For the downloadable preview, first follow [installation and first-launch approval](RELEASING.md#install-the-unsigned-preview), then use the same connection form below.
 
 Build the development app with `make package-app`, then open `.build/app/VikingBar.app`. Open the helmet in the menu bar and choose **Connect account**. Enter your public client ID and username, then enter your password in the masked field. Submit the form to connect. Cancel dismisses the form and clears its password. The app passes credentials through a private pipe to the bundled CLI and clears the form password when you submit. It never saves the password in settings or files. This route requires no 1Password, tmux, Python helper, service account, or credential-reference file.
 

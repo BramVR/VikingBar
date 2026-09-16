@@ -153,13 +153,13 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([str(ROOT / "Scripts/build-payment-qr-helper.sh")], cwd=ROOT, check=True)
     info = metadata(args.configuration)
-    info["localAdHocSealed"] = args.local_adhoc
+    info["localAdHocSealed"] = not args.app_only or args.local_adhoc
     with tempfile.TemporaryDirectory(prefix="vikingbar-package-", dir=output.parent) as temporary:
         stage = Path(temporary)
         app_root = stage / "app"
         bundle = app_root / "VikingBar.app"
         build_bundle(bundle, info)
-        if args.local_adhoc:
+        if info["localAdHocSealed"]:
             seal_local(bundle)
         if args.app_only:
             if output.exists():

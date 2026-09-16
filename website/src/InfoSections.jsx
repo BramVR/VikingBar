@@ -3,7 +3,8 @@ import { asset } from './site.js';
 const REPO = 'https://github.com/BramVR/VikingBar';
 const SETUP = `${REPO}/blob/main/docs/live-account.md`;
 const INSTALL = `${REPO}/blob/main/docs/local-install.md`;
-const BUILD = `${REPO}/actions/workflows/checks.yml`;
+const BUILD = `${REPO}/releases/tag/v0.1.0`;
+const PREVIEW_INSTALL = `${REPO}/blob/main/docs/RELEASING.md#install-the-unsigned-preview`;
 
 function StepIcon({ kind }) {
   const paths = {
@@ -16,9 +17,9 @@ function StepIcon({ kind }) {
 
 export function InfoSections() {
   const steps = [
-    { title: 'Download', icon: 'download', body: 'Sign in to GitHub to download a development build from Actions.', link: 'Development build', href: BUILD },
-    { title: 'Connect', icon: 'key', body: 'Sign in directly, or use the optional 1Password helper.', link: 'Account setup', href: SETUP },
-    { title: 'Select a bundle', icon: 'sim', body: 'Choose a SIM and bundle to display in your menu bar.', link: 'Menu preview', href: '#your-balance' },
+    { title: 'Download and install', icon: 'download', body: 'Download the free unsigned preview from GitHub without an account. Extract the app archive, then open VikingBar.app.', link: 'Download preview', href: BUILD },
+    { title: 'Connect your account', icon: 'key', body: 'Click the menu-bar helmet and choose Connect account. Sign in directly with your public client ID, username, and password. You can also use the optional 1Password helper.', link: 'Account setup', href: SETUP },
+    { title: 'Choose your balance', icon: 'sim', body: 'Choose a SIM and data bundle. The helmet shows the selected bundle balance.', link: 'Menu preview', href: '#your-balance' },
   ];
 
   return <div className="info-sections">
@@ -26,9 +27,8 @@ export function InfoSections() {
       <h2 id="setup-heading">Setup</h2>
       <div className="setup-prerequisite">
         <h3>Request API access first</h3>
-        <p>API access is not included automatically with your Mobile Vikings account. Email <a href="mailto:api@mobilevikings.be">api@mobilevikings.be</a> with your name, the brand (Mobile Vikings), the application (VikingBar), and its purpose (viewing your own balance). Wait for approval and your public client ID before connecting.</p>
+        <p>API access is not included automatically with your Mobile Vikings account. Email <a href="mailto:api@mobilevikings.be">api@mobilevikings.be</a> with your name, the brand (Mobile Vikings), the application (VikingBar), and its purpose (viewing your own balance). Ask support to approve VikingBar as a public client without a client secret. Wait for that confirmation and your public client ID before connecting. No client secret is required for the approved public-client setup.</p>
         <a href="https://docs.uwa.mobilevikings.be/" target="_blank" rel="noreferrer">Mobile Vikings API access instructions <span aria-hidden="true">↗</span></a>
-        <p className="connection-requirement"><strong>Connection:</strong> sign in directly with the approved public client ID, username, and password. No client secret is required. The configured 1Password helper in the setup guide is optional.</p>
       </div>
       <ol className="setup-steps">
         {steps.map((step, index) => <li key={step.title}>
@@ -60,9 +60,10 @@ export function InfoSections() {
     </section>
     <section className="info-section info-downloads" aria-labelledby="documentation-heading">
       <h2 id="documentation-heading">Downloads and documentation</h2>
-      <p>Source code and setup documentation are public on GitHub. Sign in to GitHub to download a development build from Actions.</p>
+      <p>Download the free unsigned preview from GitHub without an account. Source code and setup documentation are public.</p>
       <nav aria-label="Downloads and documentation">
-        <a href={BUILD} target="_blank" rel="noreferrer">Development build <span aria-hidden="true">↗</span></a>
+        <a href={BUILD} target="_blank" rel="noreferrer">Unsigned preview <span aria-hidden="true">↗</span></a>
+        <a href={PREVIEW_INSTALL} target="_blank" rel="noreferrer">Installation instructions <span aria-hidden="true">↗</span></a>
         <a href={SETUP} target="_blank" rel="noreferrer">Setup guide <span aria-hidden="true">↗</span></a>
         <a href={INSTALL} target="_blank" rel="noreferrer">Local installation <span aria-hidden="true">↗</span></a>
         <a href={REPO} target="_blank" rel="noreferrer">Source code <span aria-hidden="true">↗</span></a>

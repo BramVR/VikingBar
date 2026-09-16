@@ -1,11 +1,27 @@
 ---
-summary: "Download development builds and create private draft releases from exact version tags."
+summary: "Install the unsigned preview, download development builds, and prepare releases from exact tags."
 read_when:
   - Downloading CI artifacts
   - Preparing or verifying a draft release
 ---
 
 # Download builds and stage a draft release
+
+## Install the unsigned preview
+
+Download the [VikingBar 0.1.0 preview](https://github.com/BramVR/VikingBar/releases/tag/v0.1.0) for Apple Silicon Macs running macOS 14 or later. You do not need a GitHub account or paid Apple Developer membership to download or use it. Intel Macs are not supported by this archive.
+
+The preview has no Developer ID signature or Apple notarization. Its ad-hoc bundle seal requires no Apple account and does not identify a trusted developer to macOS.
+
+1. Under **Assets**, download the ZIP whose name starts with `VikingBar-0.1.0-arm64-`. The separate `vikingbar-cli` archive is for terminal use.
+2. Extract the ZIP and move **VikingBar.app** into **Applications**.
+3. Open **VikingBar.app**. If macOS blocks it because the developer cannot be verified, open **System Settings → Privacy & Security**.
+4. If you trust the downloaded app, choose **Open Anyway**, authenticate when prompted, then choose **Open**.
+5. Click the helmet in the menu bar and follow [account setup](live-account.md). Mobile Vikings API approval and a compatible public client ID are required before connecting.
+
+macOS saves the approval for that installed copy. A downloaded update or replacement may need approval again. This exception is for the unidentified-developer or unnotarized-app warning; do not override a warning that the app contains malware or is damaged. See [Apple's opening instructions](https://support.apple.com/en-us/102445).
+
+To update, quit VikingBar, download the new preview, and replace the app in Applications. Automatic updates are not configured. A new bundled executable may also need renewed approval for its existing Keychain session.
 
 ## Download a development build
 
@@ -20,7 +36,7 @@ Use a trusted, reviewed checkout for inspection, such as an approved `main` revi
 
 For a terminal download, use `gh run download RUN_ID --repo BramVR/VikingBar --dir DESTINATION`. Choose the directory containing `manifest.json` when inspecting an artifact. Downloaded archives include the app and a standalone CLI. Logs are separate diagnostic artifacts.
 
-These are development builds without Developer ID signing or notarization. Signing, published GitHub Releases, Homebrew distribution, and automatic updates require separate setup and authorization.
+These are development builds without Developer ID signing or notarization. Public previews use GitHub Releases. Developer ID signing, notarization, Homebrew distribution, and automatic updates are not configured.
 
 ## Prepare a version tag
 
@@ -55,3 +71,9 @@ The workflow never publishes the draft. An existing published release, changed t
 7. Repeat the dispatch to test asset collision handling. Preserve the first artifact set if the rebuild differs.
 
 Keep task-owned proof releases as private drafts. Record their tag, commit, workflow run, artifact checksums, and draft identity in private proof. Never place account data or desktop captures in release assets.
+
+## Publish an unsigned preview
+
+After release authorization, use the version tag and draft workflow above. Verify the downloaded draft assets before publication. Add the installation and account-setup links to the release notes, retain the complete version changelog and source commit, and state the supported Mac architecture and unsigned status. Mark the release as a prerelease, then publish it. An unsigned preview does not require an Apple Developer Program membership.
+
+Point website downloads at the published release page. After verification, start the next patch's `Unreleased` changelog section and commit the closeout.
