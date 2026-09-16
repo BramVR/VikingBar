@@ -2,6 +2,7 @@ import { asset } from './site.js';
 import { useEffect, useRef, useState } from 'react';
 import { HelmetScene } from './HelmetScene.jsx';
 import { BalanceDemo } from './BalanceDemo.jsx';
+import { DriftBackground } from './DriftBackground.jsx';
 import { InfoSections } from './InfoSections.jsx';
 
 const REPO = 'https://github.com/BramVR/VikingBar';
@@ -10,7 +11,7 @@ const references = [
   { name: 'DataCard.swift', path: 'Sources/VikingBar/DataCard.swift', title: 'The balance card', description: 'The card displays the selected bundle, usage, expiry, and last successful refresh.', code: 'Text(menu.remainingText)\nText(menu.expiryText)\nText(menu.freshnessText)', label: 'Read DataCard.swift' },
   { name: 'HelmetRenderer.swift', path: 'Sources/VikingBar/HelmetRenderer.swift', title: 'The menu bar helmet', description: 'A native template image uses an inset bar for the remaining allowance. Unlimited and unavailable balances have distinct treatments.', code: 'static let size = NSSize(\n    width: 22, height: 18\n)', label: 'Read HelmetRenderer.swift' },
   { name: 'StatusPresentation.swift', path: 'Sources/VikingBarCore/StatusPresentation.swift', title: 'The optional GB label', description: 'A saved setting adds remaining decimal GB beside the helmet. It defaults to off.', code: 'self.title = showRemainingGB\n    ? amount : ""', label: 'Read StatusPresentation.swift' },
-  { name: 'AppSession.swift', path: 'Sources/VikingBar/AppSession.swift', title: 'The selected account data', description: 'The app coordinates SIM and bundle selection, refresh activity, and display preferences.', code: null, label: 'Read AppSession.swift' },
+  { name: 'AppSession.swift', path: 'Sources/VikingBar/AppSession.swift', title: 'The selected account data', description: 'The app coordinates SIM and bundle selection, refresh activity, saved display preferences, Bills, Points, and usage history.', code: null, label: 'Read AppSession.swift' },
 ];
 
 function SourceContent({ selected, setSelected }) {
@@ -33,7 +34,6 @@ function SourceContent({ selected, setSelected }) {
 export function App() {
   const [selected, setSelected] = useState(0);
   const [motion, setMotion] = useState(false);
-  const [phase, setPhase] = useState(null);
   const getDialog = useRef(null);
   const sourceDialog = useRef(null);
   useEffect(() => {
@@ -47,24 +47,23 @@ export function App() {
   return <div className={motion ? 'site motion-on' : 'site'}>
     <a href="#main" className="skip-link">Skip to content</a>
     <div className="front-page">
+      <DriftBackground/>
       <header className="header"><a href="#" className="wordmark" aria-label="VikingBar home"><img src={asset("vikingbar-icon.png")} alt=""/>Viking<span>Bar</span></a><nav className="header-right" aria-label="Main navigation"><a href="#features">Features</a><a href="#setup">Setup</a><a href="#your-balance">Preview</a><button className="source-trigger" onClick={() => sourceDialog.current.showModal()}>Source</button><a className="header-cta" href="#get-vikingbar" onClick={e => {e.preventDefault(); openGet();}}>Get VikingBar <span aria-hidden="true">↗</span></a></nav></header>
       <main id="main">
         <section className="hero" aria-labelledby="hero-heading">
           <div className="hero-copy"><h1 id="hero-heading"><span>Your data.</span><span>One glance.</span></h1><p className="hero-description">Your Mobile Vikings balance. In your Mac's menu bar.</p><a className="primary" href="#your-balance">Explore VikingBar <span aria-hidden="true">→</span></a></div>
-          <HelmetScene motion={motion} phase={phase}/>
+          <HelmetScene motion={motion}/>
           <a href="#your-balance" className="scroll-cue"><span className="scroll-line" aria-hidden="true"/>A closer look</a>
         </section>
-        <section className="allowance-story section" id="allowance-motion" aria-label="Allowance animation demo">
-          <div className="story-heading"><span className="eyebrow">The allowance, at a glance</span><button className="motion-toggle" aria-pressed={motion} onClick={() => setMotion(!motion)}>{motion ? 'Pause motion' : 'Enable motion'}</button></div>
-          <div className="story-stages">{['Full', 'Empty', 'Refill'].map((label, index) => <button key={label} className="story-stage" onClick={() => { setPhase({index, nonce:Date.now()}); window.scrollTo({top:0, behavior:motion ? 'smooth' : 'instant'}); }} aria-label={`Show ${label.toLowerCase()} allowance animation`}>
-            <span className={`story-helmet story-helmet-${index}`} aria-hidden="true"/>
-            <span className="story-label"><strong>{['100%', '0%', 'Reset'][index]}</strong><span>{label}</span></span>
-          </button>)}</div>
-        </section>
-        <section className="balance-section section" id="your-balance" aria-labelledby="balance-heading"><BalanceDemo/><div className="section-copy"><span className="eyebrow">Less checking</span><h2 id="balance-heading">Skip the<br/>account page.</h2><p>Open VikingBar to see what's left, what you've used, and when your bundle expires. Your balance is one click away.</p><p className="quiet">Want the number at a glance? Show your remaining GB beside the helmet.</p></div></section>
+        <section className="balance-section section" id="your-balance" aria-labelledby="balance-heading"><BalanceDemo/><div className="section-copy"><h2 id="balance-heading">Your usage.<br/>Day by day.</h2><p>Check your remaining allowance and the last 30 days of SIM usage. Select a day to open the detailed chart and current-cycle estimate.</p><p className="quiet">Try another SIM, explore the bars, or change the display in Settings.</p></div></section>
+        <section className="balance-section billing-section section" id="your-bills" aria-labelledby="billing-heading"><BalanceDemo initialView="bills"/><div className="section-copy"><h2 id="billing-heading">Your bill.<br/>Ready to review.</h2><p>See the amount due, open the invoice, and expand its bank-transfer details. Copy an individual field or review the QR in your banking app.</p><p className="quiet">Try Bills with sample invoices. The demo QR contains no payment instructions.</p></div></section>
         <section className="details-section section" id="features" aria-label="What VikingBar shows">
-          <article><h2>Each SIM. Its own balance.</h2><p>Switch between your personal and work SIMs. Each allowance stays separate.</p></article>
-          <article><h2>Extra charges in view.</h2><p>See charges outside your bundle alongside your data.</p></article>
+          <article><h2>Each SIM. Its own balance.</h2><p>Switch between SIMs and bundles. Each SIM keeps its own allowance and extra charges.</p></article>
+          <article><h2>30 days of SIM usage.</h2><p>Inspect daily usage across bundles. Current-cycle totals stay separate from the clearly labeled estimate. Missing days remain distinct from confirmed zero usage.</p></article>
+          <article><h2>Account bills.</h2><p>See the latest invoice or credit note. Grouped totals stay labeled as account-level amounts, the unpaid amount remains separate, and Open PDF is always an explicit action.</p></article>
+          <article><h2>Customer-wide Viking Points.</h2><p>See available, pending, and blocked points with recent transactions. The customer balance stays the same when you switch SIMs.</p></article>
+          <article><h2>Settings that persist.</h2><p>Choose used or remaining data, set a refresh interval, and enable launch at login. VikingBar also refreshes after wake. Settings shows the connection status and username, with an explicit Change account action.</p></article>
+          <article><h2>Bank transfer QR.</h2><p>For an eligible unpaid invoice, Bills refreshes the invoice details and generates a QR locally, with copyable recipient, IBAN, BIC, and reference fields. You review and authorize the transfer in your banking app. VikingBar does not execute the payment.</p></article>
         </section>
         <InfoSections/>
       </main>

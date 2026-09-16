@@ -21,9 +21,19 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Animation drains full to empty, holds, then refills smoothly. Keep this illustrative sequence separate from the native sample balances.
 - Use Mobile Vikings' condensed display typography, black/ivory contrast, and vermilion red more strongly. Preserve independent VikingBar identity.
 - Demo menu follows issue #22: native system typography, cyan allowance, SIM/bundle selection, expiry, details/charges, refresh, account link, footer settings. Synthetic data only.
+- Two interactive showcase rows retain the menu-left/copy-right layout: current balance with 30-day bars and a click-open detailed companion; Bills with the supplied inline QR design, amount beside the QR, paired invoice amounts, and individual copy buttons. Describe bank-transfer QR as available following merged PR #33; use an inert demo QR. On narrow screens, keep companion details in flow.
+- Open Last 30 days and its daily SIM detail panel by default in the main showcase. Keep close/reopen interactions.
 
 - Keep sections free of small explanatory captions: no animation disclaimer, below-card sample caption, or helmet drag hint. Retain the demo label inside the sample menu.
 
 - Horn collars require flat mounting seats, with no bowl clipping through metal. Allowance surround meets the lower metal rim. Metal is polished and reflective, matching the small helmet references.
 
 - Setup starts with requesting Mobile Vikings API access by email and waiting for the approved public client ID. Present direct native sign-in first and the configured 1Password helper as optional. State that no client secret is required; a Mobile Vikings account alone remains insufficient.
+
+- Showcase headings have no eyebrow subtitles above them. Omit “Your data” and “Billing QR · In development”; keep sample context in body copy.
+
+- Omit the Full/Empty/Refill storyboard strip beneath the hero. Keep the animated hero and footer motion control.
+
+- Keep Open PDF disabled in the website demo; no navigation or download on click.
+
+- Sparse drift background: tiny upright pluses continue through the full page, subtle ivory with occasional muted red; background only. Preserve layout, copy, helmet, and demos. Honor motion pause and reduced motion.

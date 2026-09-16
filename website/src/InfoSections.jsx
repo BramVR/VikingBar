@@ -2,6 +2,7 @@ import { questions } from './questions.js';
 import { asset } from './site.js';
 const REPO = 'https://github.com/BramVR/VikingBar';
 const SETUP = `${REPO}/blob/main/docs/live-account.md`;
+const INSTALL = `${REPO}/blob/main/docs/local-install.md`;
 const BUILD = `${REPO}/actions/workflows/checks.yml`;
 
 function StepIcon({ kind }) {
@@ -63,6 +64,7 @@ export function InfoSections() {
       <nav aria-label="Downloads and documentation">
         <a href={BUILD} target="_blank" rel="noreferrer">Development build <span aria-hidden="true">↗</span></a>
         <a href={SETUP} target="_blank" rel="noreferrer">Setup guide <span aria-hidden="true">↗</span></a>
+        <a href={INSTALL} target="_blank" rel="noreferrer">Local installation <span aria-hidden="true">↗</span></a>
         <a href={REPO} target="_blank" rel="noreferrer">Source code <span aria-hidden="true">↗</span></a>
       </nav>
     </section>
