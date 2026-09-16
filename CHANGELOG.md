@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep website background stars anchored when FAQ items or demo panels expand.
+
 - Extend the website background with subtle drifting plus signs through every section, respecting paused and reduced motion.
 
 - Add two interactive website menus with current daily usage bars, an initially open detailed chart, native-style navigation and settings, and a Bills QR demo with sample PDFs, populated reduction and points, and copyable fields.

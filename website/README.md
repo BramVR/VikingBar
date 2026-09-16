@@ -90,4 +90,4 @@ The custom domain serves `robots.txt` at its root and lists `https://vikingbar.b
 
 References: [Google AI search guidance](https://developers.google.com/search/docs/appearance/ai-features), [Google search documentation updates](https://developers.google.com/search/updates), [OpenAI crawler documentation](https://developers.openai.com/api/docs/bots), and [GitHub Pages workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
 
-`src/DriftBackground.jsx` extends the hero motif through the page with sparse decorative pluses. CSS drift shares the footer motion toggle, respects reduced motion, and never intercepts pointer input. Mobile shows half the symbols.
+`src/DriftBackground.jsx` extends the hero motif through the page with sparse decorative pluses. CSS drift shares the footer motion toggle, respects reduced motion, and never intercepts pointer input. Mobile shows half the symbols. Vertical positions use fixed pixel spacing so expanding FAQs or demo panels does not stretch the star field.
