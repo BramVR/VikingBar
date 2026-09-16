@@ -17,17 +17,17 @@ Each SIM keeps its own allowance. Viking Points belong to the whole account. Mis
 
 Install a local build with `make install-app`. Settings also save the card's used/remaining display and refresh interval. Launch-at-login controls report the actual macOS registration state. See [local installation, updates, and removal](docs/local-install.md). Installed native proof is tracked separately in the [verification map](.agents/skills/verify-vikingbar/features/installed-app.md).
 
-The **Bills** tab shows account invoices and credit notes, including grouped scope, payment state, and amount due. For an eligible issued invoice, **Review bank transfer QR** refreshes the account metadata and creates a short-lived offline EPC QR from the exact unpaid amount and Belgian structured reference. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md).
+**Bills** shows account invoices and credit notes, including grouped scope, payment state, and amount due. For an eligible issued invoice, **Review bank transfer QR** refreshes the account metadata and creates a short-lived offline EPC QR from the exact unpaid amount and Belgian structured reference. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md).
 
-Expand **Daily SIM data and estimate** for daily aggregate usage and a labeled cycle estimate. Missing and stale days remain distinct from zero. See [history rules and pending live proof](docs/history.md).
+The daily chart shows 30 days of SIM usage. Hover over a bar for its amount and status, or click it for day details and a labeled cycle estimate. Missing and stale days remain distinct from zero. See [history rules and verification](docs/history.md).
 
 ## Requirements and availability
 
 VikingBar currently targets Apple Silicon Macs with macOS 14 or later. Building from source requires Swift 6.2 or later and Python 3.
 
-Development builds have no Developer ID signing or notarization. Public distribution and automatic updates are not configured. The [build download guide](docs/RELEASING.md#download-a-development-build) covers app and CLI artifacts from GitHub Actions.
+Development builds have no Developer ID signing or notarization. Packaged releases and automatic updates are not configured. The [build download guide](docs/RELEASING.md#download-a-development-build) covers app and CLI artifacts from GitHub Actions.
 
-Required live history proof remains pending. The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
+The [issue tracker](https://github.com/BramVR/VikingBar/issues) contains feature work and acceptance criteria.
 
 ## Getting started
 
@@ -35,7 +35,7 @@ The [development guide](docs/development.md) covers source builds and a demo wit
 
 The app has no Dock icon. Its helmet opens the data card. **Settings** contains **Show remaining GB in menu bar**, which defaults to off. That label uses decimal GB even when the card uses GiB.
 
-The [website](https://bramvr.github.io/VikingBar/) explains setup and includes an interactive sample menu. See the [website development guide](website/README.md) for its separate build and checks.
+The [website](https://vikingbar.bramvanrompuy.be/) explains setup and includes an interactive sample menu. See the [website development guide](website/README.md) for its separate build and checks.
 
 For your own balance, the [account setup guide](docs/live-account.md) covers default direct sign-in and optional **Connect with 1Password**. Direct sign-in needs approved public-client details and your account credentials. The optional 1Password helper requires the 1Password CLI, tmux, `/usr/bin/python3`, and the service-account and credential-reference setup described in that guide.
 
@@ -57,9 +57,10 @@ Project resources:
 - [Documentation index](docs/README.md) for architecture, account setup, and verification.
 - [Changelog](CHANGELOG.md) for implemented changes.
 - [GitHub issues](https://github.com/BramVR/VikingBar/issues) for bug reports and feature requests.
+- [Security policy](SECURITY.md) for private vulnerability reports.
 
 Maintained by [BramVR](https://github.com/BramVR).
 
 ## License and attribution
 
-VikingBar's own code license has not yet been selected. [CodexBar](https://github.com/steipete/CodexBar) is the reference for app structure and contributor guidance. Copied CodexBar code retains its MIT attribution.
+VikingBar is available under the [MIT license](LICENSE). [CodexBar](https://github.com/steipete/CodexBar) is the reference for app structure and contributor guidance. The [third-party notices](THIRD_PARTY_NOTICES.md) preserve its MIT attribution and link the separate notices for bundled components and website fonts.

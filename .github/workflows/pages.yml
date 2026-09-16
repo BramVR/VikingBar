@@ -30,7 +30,7 @@ jobs:
       - run: npm run build
         working-directory: website
         env:
-          VITE_BASE_PATH: /VikingBar/
+          VITE_BASE_PATH: /
       - run: npm test
         working-directory: website
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

@@ -45,7 +45,7 @@ html = html.replace(/<title>.*?<\/title>/, `<title>${escape(title)}</title>`)
 await writeFile(new URL('index.html', output), html);
 await copyFile(new URL('../../docs/assets/vikingbar-header.png', import.meta.url), new URL('assets/social-card.png', output));
 await writeFile(new URL('sitemap.xml', output), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${siteURL}</loc></url></urlset>\n`);
-await writeFile(new URL('robots.txt', output), `# Project path only; origin robots policy lives at /robots.txt.\nUser-agent: *\nAllow: /\nSitemap: ${siteURL}sitemap.xml\n`);
+await writeFile(new URL('robots.txt', output), `User-agent: *\nAllow: /\nSitemap: ${siteURL}sitemap.xml\n`);
 await writeFile(new URL('llms.txt', output), `# VikingBar\n\n> ${description}\n\nDevelopment build for Apple Silicon Macs running macOS 14+. Independent project, not an official Mobile Vikings app. The website preview uses synthetic balances.\n\n## Documentation\n- [Website](${siteURL})\n- [Source and README](https://github.com/BramVR/VikingBar)\n- [Account setup](https://github.com/BramVR/VikingBar/blob/main/docs/live-account.md)\n- [Development builds](https://github.com/BramVR/VikingBar/blob/main/docs/RELEASING.md#download-a-development-build)\n\n## Questions\n${questions.map(([q, a]) => `### ${q}\n${a}\n`).join('\n')}`);
 await writeFile(new URL('.nojekyll', output), '');
 await writeFile(new URL('404.html', output), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="robots" content="noindex"><title>Page not found — VikingBar</title><body><h1>Page not found</h1><p><a href="${siteURL}">Return to VikingBar</a></p></body></html>`);
