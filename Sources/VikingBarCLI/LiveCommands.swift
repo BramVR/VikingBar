@@ -95,6 +95,7 @@ extension VikingBarCLI {
       vikingbar proof balance-api
       vikingbar proof history-api
       vikingbar proof invoices
+      vikingbar proof payment-evidence
       vikingbar proof points-api
 
     Live commands use the explicitly connected account and may access Keychain.
@@ -205,6 +206,47 @@ extension VikingBarCLI {
             self.writeJSON(CommandFailure(error: "invoices-proof-failed"))
             exit(1)
         }
+    }
+
+    static func paymentEvidenceProof() async {
+        var session: VikingSession?
+        do {
+            let witness = try self.readPaymentEvidence()
+            let active = try VikingSession.production()
+            session = active
+            _ = try await active.restore()
+            _ = try await active.refresh(forceTokenRefresh: true)
+            let refreshed = try await active.refreshInvoices()
+            guard let snapshot = refreshed.invoices,
+                  case let .loaded(invoices, _) = snapshot,
+                  let invoice = invoices.first(where: { $0.id == witness.invoiceID }),
+                  let api = InvoicePaymentEvidence(invoice: invoice),
+                  InvoicePaymentEvidenceMatch.compare(api: api, reviewedPDF: witness) == .matches
+            else { throw LiveFailure.malformedResponse }
+            let downloaded = try await active.downloadInvoice(id: witness.invoiceID)
+            guard downloaded.invoiceDocument?.invoiceID == witness.invoiceID else {
+                throw LiveFailure.malformedResponse
+            }
+            self.writeJSON(InvoicePaymentEvidenceReceipt())
+        } catch {
+            if let session {
+                await session.clearInvoiceDocument()
+            }
+            self.writeJSON(CommandFailure(error: "payment-evidence-proof-failed"))
+            exit(1)
+        }
+    }
+
+    private static func readPaymentEvidence() throws -> InvoicePaymentEvidence {
+        var input = Data()
+        while let chunk = try FileHandle.standardInput.read(upToCount: 4096), !chunk.isEmpty {
+            input.append(chunk)
+            guard input.count <= 65536 else { throw ProofFailure.invalidInput }
+        }
+        guard let object = try JSONSerialization.jsonObject(with: input) as? [String: Any],
+              Set(object.keys) == ["invoiceID", "invoiceNumber", "reference", "invoiceDate", "dueDate"]
+        else { throw ProofFailure.invalidInput }
+        return try JSONDecoder().decode(InvoicePaymentEvidence.self, from: input)
     }
 
     static func pointsProof() async {

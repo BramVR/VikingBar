@@ -49,6 +49,8 @@ def child_environment(environment):
 def run(check, environment, execute=subprocess.run):
     if check == "invoices":
         return run_invoices(environment, execute)
+    if check == "payment-evidence":
+        return run_payment_evidence(environment, execute)
     if check in ("points", "installed-balance"):
         filename = "points-proof.py" if check == "points" else "installed-app-proof.py"
         spec = importlib.util.spec_from_file_location("native_proof", Path(__file__).with_name(filename))
@@ -121,6 +123,37 @@ def run_invoices(environment, execute):
         raise ProofFailure("invoices-proof-failed")
     try:
         return validate_invoice_receipt(json.loads(result.stdout))
+    except (ValueError, TypeError, KeyError):
+        raise ProofFailure("invalid-proof-receipt") from None
+
+
+def run_payment_evidence(environment, execute):
+    executable = Path(__file__).resolve().parent.parent / ".build/debug/vikingbar"
+    if not executable.is_file():
+        raise ProofFailure("build-required")
+    witness = Path(environment.get("VIKINGBAR_PAYMENT_EVIDENCE", ""))
+    try:
+        if not witness.is_file() or witness.stat().st_mode & 0o077:
+            raise ValueError()
+        payload = witness.read_bytes()
+        if not payload or len(payload) > 65536:
+            raise ValueError()
+    except (OSError, ValueError):
+        raise ProofFailure("private-payment-evidence-required") from None
+    result = execute(
+        [str(executable), "proof", "payment-evidence"], input=payload,
+        env=child_environment(environment), capture_output=True, timeout=180, check=False,
+    )
+    if result.returncode:
+        raise ProofFailure("payment-evidence-proof-failed")
+    try:
+        receipt = json.loads(result.stdout)
+        expected = {"schema_version", "check", "passed", "endpoint_matches", "pdf_downloaded"}
+        if set(receipt) != expected or receipt != {
+                "schema_version": 1, "check": "payment-evidence", "passed": True,
+                "endpoint_matches": True, "pdf_downloaded": True}:
+            raise ValueError()
+        return receipt
     except (ValueError, TypeError, KeyError):
         raise ProofFailure("invalid-proof-receipt") from None
 

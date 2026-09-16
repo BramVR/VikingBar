@@ -54,9 +54,11 @@ Run `node --test tests/*.test.mjs` for website checks, including the animation b
 
 Open PDF is disabled in the website template. Local fixture PDFs remain available as demo assets. Regenerate them with `scripts/generate-demo-invoices.py` using Python with ReportLab. On macOS, `swift scripts/generate-demo-qr.swift` regenerates the QR and independently decodes its payload with Vision. Assets are checked in; neither generator nor its tooling runs in the website or its build.
 
-The base header is `../output/imagegen/vikingbar-round-03.png`, with bricks replaced by plus-sign stars at the user's request; the animation storyboard comes from `vikingbar-round-01.png`. Earlier page-flow concepts remain in `vikingbar-flow-01.png` through `03.png`. See [reference observations](design-reference-notes.md).
+Design exploration files under `output/` are local and excluded from the repository. The website's runtime assets are in `public/assets`. See [reference observations](design-reference-notes.md).
 
 Barlow Condensed and DM Sans are self-hosted. Their license files are in `public/assets/fonts`.
+
+`public/THIRD_PARTY_LICENSES.txt` contains the licenses for bundled React, React DOM, Scheduler, and Three.js. Update their versions and license text from the installed packages when changing dependencies.
 
 ## Product information
 
@@ -64,25 +66,27 @@ Barlow Condensed and DM Sans are self-hosted. Their license files are in `public
 
 ## GitHub Pages and search
 
-Public URL: https://bramvr.github.io/VikingBar/.
+Public URL: https://vikingbar.bramvanrompuy.be/.
 
 `.github/workflows/pages.yml` builds and tests pull requests. Changes to the website on `main` publish `dist/client` to GitHub Pages through the `github-pages` environment. The workflow can also be dispatched manually. Repository Settings → Pages must use GitHub Actions as its source.
 
 Reproduce the Pages build locally:
 
 ```sh
-VITE_BASE_PATH=/VikingBar/ npm run build
+VITE_BASE_PATH=/ npm run build
 npm test
-VITE_BASE_PATH=/VikingBar/ npm run preview -- --host 127.0.0.1 --port 4183 --strictPort
+VITE_BASE_PATH=/ npm run preview -- --host 127.0.0.1 --port 4183 --strictPort
 ```
 
-Open `http://127.0.0.1:4183/VikingBar/`. Without `VITE_BASE_PATH`, builds and development previews use `/`.
+Open `http://127.0.0.1:4183/`. Production and development previews use `/`.
+
+Set the repository's Pages custom domain to `vikingbar.bramvanrompuy.be`. In Antagonist DNS for `bramvanrompuy.be`, use a `CNAME` named `vikingbar` pointing to `bramvr.github.io.`. Enable HTTPS enforcement after GitHub issues the certificate. GitHub Actions deployments use the Pages setting and do not require a `CNAME` file.
 
 The build pre-renders the React page, then hydrates the same content for interactions. Search crawlers receive product information, requirements, setup, and FAQ answers without executing JavaScript. `src/site.js` owns production metadata; `src/questions.js` supplies both visible FAQ answers and JSON-LD. The build emits canonical and social tags, WebSite/SoftwareApplication/FAQPage structured data, a sitemap, a noindex 404 page, and a factual `llms.txt`. Sample balances are marked `data-nosnippet`.
 
 The social image comes from `docs/assets/vikingbar-header.png`. No invented ratings, prices, or official-provider affiliation appear in structured data. FAQ markup describes the content; it does not promise a Google rich result. Google removed FAQ rich results in May 2026.
 
-GitHub Pages serves this project under a path. Crawlers consult `https://bramvr.github.io/robots.txt`, not this project's `robots.txt`; the origin currently returns 404 and has no blocking robots policy. The project file documents its sitemap but cannot control origin-wide crawling. Submit `https://bramvr.github.io/VikingBar/sitemap.xml` through a verified Search Console or Bing Webmaster Tools property if available. No ownership verification, search indexing, or ranking is implied by deployment. `llms.txt` is an optional convenience for readers and tools, not a search-engine requirement.
+The custom domain serves `robots.txt` at its root and lists `https://vikingbar.bramvanrompuy.be/sitemap.xml`. Submit that sitemap through a verified Search Console or Bing Webmaster Tools property if available. No ownership verification, search indexing, or ranking is implied by deployment. `llms.txt` is an optional convenience for readers and tools, not a search-engine requirement.
 
 References: [Google AI search guidance](https://developers.google.com/search/docs/appearance/ai-features), [Google search documentation updates](https://developers.google.com/search/updates), [OpenAI crawler documentation](https://developers.openai.com/api/docs/bots), and [GitHub Pages workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
 

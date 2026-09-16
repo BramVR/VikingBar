@@ -11,7 +11,7 @@ read_when:
 
 Use a trusted, reviewed checkout for inspection, such as an approved `main` revision. `Scripts/smoke-package.py` executes the downloaded CLI binaries. Run it only when you also trust the artifact's source commit and build workflow. Checksums verify integrity against the supplied checksum list. They do not establish authenticity or execution safety.
 
-1. Open a successful `VikingBar checks` run on the repository's **Actions** page.
+1. Sign in to GitHub and open a successful `VikingBar checks` run on the repository's **Actions** page. Source and documentation are public, but Actions artifact downloads require a GitHub account.
 2. Download the development artifact for the desired full commit SHA.
 3. Extract the Actions artifact into a new directory.
 4. Run `shasum -a 256 -c SHA256SUMS` inside that directory.
@@ -20,7 +20,7 @@ Use a trusted, reviewed checkout for inspection, such as an approved `main` revi
 
 For a terminal download, use `gh run download RUN_ID --repo BramVR/VikingBar --dir DESTINATION`. Choose the directory containing `manifest.json` when inspecting an artifact. Downloaded archives include the app and a standalone CLI. Logs are separate diagnostic artifacts.
 
-These are development builds without Developer ID signing or notarization. Signing, public publishing, Homebrew distribution, and automatic updates require separate setup and authorization.
+These are development builds without Developer ID signing or notarization. Signing, published GitHub Releases, Homebrew distribution, and automatic updates require separate setup and authorization.
 
 ## Prepare a version tag
 

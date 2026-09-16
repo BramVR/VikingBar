@@ -2,7 +2,7 @@ SWIFTFORMAT ?= swiftformat
 SWIFTLINT ?= swiftlint
 ACTIONLINT ?= actionlint
 
-.PHONY: check build test format docs-check package-app smoke-app-fixture smoke-cli smoke-package workflow-check
+.PHONY: check build test format docs-check package-app smoke-app-fixture smoke-payment-fixture smoke-cli smoke-package workflow-check
 build:
 	swift build
 
@@ -13,6 +13,7 @@ format:
 	$(SWIFTFORMAT) Sources Tests
 
 check:
+	./Scripts/build-payment-qr-helper.sh
 	$(SWIFTFORMAT) Sources Tests --lint
 	DYLD_FRAMEWORK_PATH="$$(xcode-select -p)/usr/lib$${DYLD_FRAMEWORK_PATH:+:$$DYLD_FRAMEWORK_PATH}" $(SWIFTLINT) --strict
 	swift build
@@ -29,6 +30,9 @@ package-app:
 
 smoke-app-fixture:
 	python3 Scripts/smoke-app-fixture.py
+
+smoke-payment-fixture:
+	python3 Scripts/smoke-payment-fixture.py
 
 smoke-cli: build
 	python3 Scripts/smoke-cli.py

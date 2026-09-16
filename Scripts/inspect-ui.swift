@@ -99,7 +99,8 @@ func record(_ element: AXUIElement, redactText: Bool = false) -> [String: Any] {
     var result: [String: Any] = [:]
     let keys = redactText
         ? ["AXRole", "AXSubrole", "AXIdentifier", "AXEnabled"]
-        : ["AXRole", "AXSubrole", "AXTitle", "AXDescription", "AXHelp", "AXValue", "AXIdentifier", "AXEnabled"]
+        : ["AXRole", "AXSubrole", "AXTitle", "AXDescription", "AXHelp", "AXValue", "AXIdentifier", "AXEnabled",
+           "AXFocused"]
     for key in keys {
         if let value = attribute(element, key) { result[key] = String(describing: value) }
     }
@@ -396,6 +397,24 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
         perform: { try press($0, application: app) }
     )
     try writeJSON(["pressed": arguments[2], "pid": pid])
+} else if arguments.count == 3, arguments[1] == "focus" {
+    try resolveAndPerform(
+        timeout: 3,
+        now: { ProcessInfo.processInfo.systemUptime },
+        pause: { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05)) },
+        resolve: {
+            guard !app.isTerminated else { throw ResolutionFailure.unavailable }
+            return try resolveTarget(root: root, selector: arguments[2])
+        },
+        perform: { target in
+            guard AXUIElementSetAttributeValue(
+                target, kAXFocusedAttribute as CFString, kCFBooleanTrue
+            ) == .success,
+                (attribute(target, kAXFocusedAttribute as String) as? Bool) == true
+            else { throw ResolutionFailure.unavailable }
+        }
+    )
+    try writeJSON(["focused": arguments[2], "pid": pid])
 } else if arguments.count == 4, arguments[1] == "choose" {
     try resolveAndPerform(
         timeout: 3,
@@ -457,7 +476,7 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
     ])
 } else {
     guard arguments.count == 1 else {
-        fatalError("Use PID, PID press SELECTOR, PID choose PICKER TITLE, or PID hover/click SELECTOR [X Y].")
+        fatalError("Use PID, PID press/focus SELECTOR, PID choose PICKER TITLE, or PID hover/click SELECTOR [X Y].")
     }
     let windows = (CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? [])
         .filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }
@@ -466,7 +485,7 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
     let safeWindows = windows.map { window in
         formVisible ? window.filter { $0.key != kCGWindowName as String } : window
     }
-    let result: [String: Any] = ["pid": pid, "activationPolicy": app.activationPolicy.rawValue,
+    let result: [String: Any] = ["pid": pid, "active": app.isActive, "activationPolicy": app.activationPolicy.rawValue,
                                "elements": tree.map { record($0, redactText: formVisible) }, "windows": safeWindows]
     try writeJSON(result)
 }

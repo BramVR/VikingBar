@@ -8,7 +8,7 @@ read_when:
 
 # Build and verify VikingBar
 
-Use macOS 14 or later, Swift 6.2 or later, SwiftFormat, SwiftLint, and Python 3. The initial build targets Apple Silicon. SwiftFormat 0.63.0 and SwiftLint 0.65.0 are the verified formatter versions. No Swift package dependencies are required.
+Use macOS 14 or later, Swift 6.2 or later, SwiftFormat, SwiftLint, Python 3, and Go 1.24 or later. Go is used only at build time for the pinned payment QR helper; packaged apps and CLI archives need no Go runtime. The initial build targets Apple Silicon. SwiftFormat 0.63.0 and SwiftLint 0.65.0 are the verified formatter versions. No Swift package dependencies are required.
 
 For a stable local app destination, saved card and refresh settings, and launch at login, follow [local installation](local-install.md). The installed-app gates require their own reviewed target and runtime slots.
 
@@ -62,7 +62,7 @@ make smoke-app-fixture
 
 The command builds a fresh bundle, starts a task-owned process, checks its identity, captures the visible helmet, opens the real data card, and checks its accessibility text with a targeted native probe. Card screenshots require the same unique, opaque, display-contained AXPopover/CoreGraphics window pair in two consecutive inspections. One classic exact-window capture then targets that process ID and window ID. Capture errors and malformed or mismatched receipts fail without retry or area fallback. The command selects fixtures in Settings, switches the saved display toggle, and verifies both menu bar modes. It drives two synthetic SIMs and their separate bundles, expands bundle details, refreshes the selected balance, and opens Points.
 
-The smoke also records normal, hover, and exit captures for menu actions. Pointer receipts cover adjacent-row transfer, a near-edge Settings click, and unchanged AX and popover frames. Bills is visible in fixture mode so the smoke can verify its real route. The existing fixture guard keeps Load bills disabled and prevents account services. Each appearance launch captures the disabled action without a selection fill. App-local overrides cover explicit light, dark, high-contrast light, and high-contrast dark appearances. The final launch enables reduced transparency. The options change no system preferences.
+The smoke also records normal, hover, and exit captures for menu actions. Pointer receipts cover adjacent-row transfer, a near-edge Settings click, and unchanged AX and popover frames. Bills is visible in fixture mode so the smoke can verify its real route. The existing fixture guard keeps Load bills disabled and prevents account services. Each appearance launch captures the disabled action without a selection fill. App-local overrides cover explicit light, dark, high-contrast light, and high-contrast dark appearances. The final launch enables reduced transparency. The options change no system preferences. `make smoke-payment-fixture` is a separate opt-in synthetic payment fixture with an in-memory clipboard receipt and the actual bundled QR helper.
 
 Task-owned relaunches verify that on and off choices persist in the isolated settings file. Cropped status images, card and Settings captures, pointer receipts, `result.json`, and cleanup receipts remain under `.build/proof/`. Cleanup stops only recorded task processes. Missing permissions, a hidden status item, or missing required behavior fail the command.
 

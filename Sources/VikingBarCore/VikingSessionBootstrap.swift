@@ -18,6 +18,7 @@ public extension VikingSession {
             transport: transport, store: KeychainSessionStore(),
             lease: FileSessionLease(url: directory.appendingPathComponent("session.lock")),
             cache: FileBalanceCache(url: directory.appendingPathComponent("balance-v1.json")),
+            paymentQRRenderer: PaymentQRHelper(executableURL: PaymentQRHelper.productionExecutableURL()),
         )
     }
 

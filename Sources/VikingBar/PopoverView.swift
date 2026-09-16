@@ -71,6 +71,12 @@ struct PopoverView: View {
                 reference: self.connect,
                 dismiss: { self.destination = returnTo.destination },
             )
+        case .bills:
+            VStack(alignment: .leading, spacing: 6) {
+                self.backButton
+                Divider().padding(.vertical, 6)
+                InvoicesView(session: self.session)
+            }
         default:
             ViewThatFits(in: .vertical) {
                 self.adaptiveDestination
@@ -79,15 +85,26 @@ struct PopoverView: View {
         }
     }
 
+    private var backButton: some View {
+        Button { self.destination = .balance } label: {
+            Label("Back", systemImage: "chevron.left")
+        }
+        .keyboardShortcut(.leftArrow, modifiers: .command)
+        .accessibilityIdentifier("vikingbar.back")
+        .buttonStyle(.menuAction)
+    }
+
     private var adaptiveDestination: some View {
         VStack(alignment: .leading, spacing: 6) {
             if self.destination != .balance {
-                Button { self.destination = self.destination == .account ? .settings : .balance } label: {
-                    Label("Back", systemImage: "chevron.left")
+                if self.destination == .account {
+                    Button { self.destination = .settings } label: { Label("Back", systemImage: "chevron.left") }
+                        .keyboardShortcut(.leftArrow, modifiers: .command)
+                        .accessibilityIdentifier("vikingbar.back")
+                        .buttonStyle(.menuAction)
+                } else {
+                    self.backButton
                 }
-                .keyboardShortcut(.leftArrow, modifiers: .command)
-                .accessibilityIdentifier("vikingbar.back")
-                .buttonStyle(.menuAction)
                 Divider().padding(.vertical, 6)
             }
             switch self.destination {
@@ -122,7 +139,7 @@ struct PopoverView: View {
             case .points:
                 PointsCard(session: self.session, expanded: self.$pointsExpanded)
             case .bills:
-                InvoicesView(session: self.session)
+                EmptyView()
             case .connection:
                 EmptyView()
             }

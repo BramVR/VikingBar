@@ -16,7 +16,7 @@ function StepIcon({ kind }) {
 
 export function InfoSections() {
   const steps = [
-    { title: 'Download', icon: 'download', body: 'Get the development build from GitHub. Repository access required.', link: 'Development build', href: BUILD },
+    { title: 'Download', icon: 'download', body: 'Sign in to GitHub to download a development build from Actions.', link: 'Development build', href: BUILD },
     { title: 'Connect', icon: 'key', body: 'Sign in directly, or use the optional 1Password helper.', link: 'Account setup', href: SETUP },
     { title: 'Select a bundle', icon: 'sim', body: 'Choose a SIM and bundle to display in your menu bar.', link: 'Menu preview', href: '#your-balance' },
   ];
@@ -60,7 +60,7 @@ export function InfoSections() {
     </section>
     <section className="info-section info-downloads" aria-labelledby="documentation-heading">
       <h2 id="documentation-heading">Downloads and documentation</h2>
-      <p>Builds, setup documentation, and source code are in the private GitHub repository. Access is required to open these links.</p>
+      <p>Source code and setup documentation are public on GitHub. Sign in to GitHub to download a development build from Actions.</p>
       <nav aria-label="Downloads and documentation">
         <a href={BUILD} target="_blank" rel="noreferrer">Development build <span aria-hidden="true">↗</span></a>
         <a href={SETUP} target="_blank" rel="noreferrer">Setup guide <span aria-hidden="true">↗</span></a>

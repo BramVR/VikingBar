@@ -5,7 +5,7 @@ import { questions } from '../src/questions.js';
 
 const output = new URL('../dist/client/', import.meta.url);
 const html = await readFile(new URL('index.html', output), 'utf8');
-const canonical = 'https://bramvr.github.io/VikingBar/';
+const canonical = 'https://vikingbar.bramvanrompuy.be/';
 
 test('product and setup information are readable before JavaScript executes', () => {
   assert.match(html, /<div id="root"><[\s\S]+<main/);
@@ -26,6 +26,8 @@ test('product and setup information are readable before JavaScript executes', ()
     'VikingBar does not execute the payment.',
   ]) assert.ok(html.includes(text), text);
   assert.doesNotMatch(html, /Manual sign-in is not implemented|manual sign-in is not available|requires a configured 1Password helper/);
+  assert.doesNotMatch(html, /private GitHub repository|Repository access required/);
+  assert.match(html, /Downloading GitHub Actions artifacts requires a GitHub account/);
   assert.equal((html.match(/<h1[ >]/g) || []).length, 1);
   assert.match(html, /data-nosnippet/);
 });
@@ -47,7 +49,7 @@ test('canonical, social metadata, and FAQ structured data match visible content'
 test('all local HTML and CSS assets exist below the configured base', async () => {
   const script = html.match(/<script type="module"[^>]*src="([^"]+)"/)[1];
   const base = script.slice(0, script.indexOf('assets/'));
-  assert.ok(['/', '/VikingBar/'].includes(base));
+  assert.equal(base, '/');
   const urls = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map(match => match[1]).filter(url => url.startsWith('/'));
   for (const url of urls) {
     assert.ok(url.startsWith(base), url);
