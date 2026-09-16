@@ -61,6 +61,24 @@ def verify_connect_helper(resources, manifest):
     assert digest(helper) == expected, "Connection helper differs from build manifest"
 
 
+def verify_payment_helper(resources, manifest):
+    helper = resources / "payment-qr"
+    expected = manifest["paymentQR"]
+    assert expected["revision"] == "cca812bc1acf5ce970f45d02b8f17b55743c623b"
+    assert expected["archiveSHA256"] == "6366d4cc3d5c5a027a5315636f0deb211b298b510aaf3957da161f9d15c831bb"
+    assert all(re.fullmatch(r"[0-9a-f]{64}", expected[key]) for key in (
+        "archiveSHA256", "helperSourceSHA256", "executableSHA256"))
+    assert helper.is_file() and not helper.is_symlink() and os.access(helper, os.X_OK)
+    assert digest(helper) == expected["executableSHA256"]
+    assert (resources / "go-qr-LICENSE").is_file()
+    notice = (resources / "payment-qr-notices.md").read_text()
+    assert expected["revision"] in notice and "github.com/piglig/go-qr" in notice
+    assert subprocess.check_output(["lipo", "-archs", helper], text=True).strip() == "arm64"
+    build = subprocess.check_output(["xcrun", "vtool", "-show-build", helper], text=True)
+    match = re.search(r"platform MACOS\s+minos (\d+)\.(\d+)(?:\.\d+)?\s", build)
+    assert match and (int(match.group(1)), int(match.group(2))) <= (14, 0), build
+
+
 def verify_bundle_metadata(plist, manifest):
     expected = dict(CFBundleExecutable="VikingBarApp", CFBundleIdentifier="be.bram.vikingbar",
                     CFBundleName="VikingBar", CFBundlePackageType="APPL",
@@ -106,6 +124,8 @@ def verify(directory):
         verify_bundle_metadata(plist, manifest)
         resources = bundle / "Resources"
         verify_connect_helper(resources, manifest)
+        verify_payment_helper(resources, manifest)
+        verify_payment_helper(cli_root, manifest)
         for path in (resources, cli_root):
             assert json.loads((path / "build-manifest.json").read_text()) == embedded
             notice = (path / "DEVELOPMENT.txt").read_text()

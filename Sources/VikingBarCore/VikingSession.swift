@@ -5,6 +5,7 @@ public actor VikingSession {
     private let store: any SessionStore
     let lease: any SessionLease
     let cache: any BalanceCache
+    let paymentQRRenderer: any PaymentQRRendering
     var current = LiveSessionState()
     var token: LiveToken?
     var tokenGeneration: UInt64?
@@ -16,12 +17,14 @@ public actor VikingSession {
     public init(
         transport: any ProofHTTPTransport, store: any SessionStore,
         lease: any SessionLease, cache: any BalanceCache,
+        paymentQRRenderer: any PaymentQRRendering = UnavailablePaymentQRRenderer(),
         now: @escaping @Sendable () -> Date = { Date() },
     ) {
         self.api = LiveAPI(transport: transport, now: now)
         self.store = store
         self.lease = lease
         self.cache = cache
+        self.paymentQRRenderer = paymentQRRenderer
     }
 
     public func state() -> LiveSessionState {
@@ -121,6 +124,7 @@ public actor VikingSession {
     public func selectBundle(index: Int) throws -> LiveSessionState {
         guard self.flight == nil else { throw LiveFailure.busy }
         return try self.withConnectionLease(expected: self.current.connectionID) { _ in
+            self.current.paymentReview = nil
             try self.current.selectBundle(index: index, at: self.api.now(), interval: self.refreshInterval)
             try? self.cache.save(self.current)
             return self.current
@@ -136,6 +140,7 @@ public actor VikingSession {
     public func cancel() {
         self.generation &+= 1
         self.flight?.task.cancel()
+        self.current.paymentReview = nil
     }
 }
 

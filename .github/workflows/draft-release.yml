@@ -49,6 +49,11 @@ jobs:
           test "$(uname -m)" = arm64
           xcodebuild -version | grep -Fx 'Xcode 26.2'
           swift --version | grep -F 'Apple Swift version 6.2.3 '
+      - name: Install Go for payment QR helper
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.3'
+          cache: false
       - name: Install pinned tools
         run: ./trusted/Scripts/bootstrap-ci-tools.sh
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830

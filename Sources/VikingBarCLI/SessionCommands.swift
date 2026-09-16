@@ -4,6 +4,7 @@ import VikingBarCore
 struct SessionCommand: Decodable, Sendable {
     enum Name: String, Decodable, Sendable {
         case restore, refresh, refreshHistory, refreshPoints, refreshInvoices, downloadInvoice
+        case reviewInvoicePayment, clearPaymentReview
         case selectSubscription, selectBundle, configure, cancel, shutdown
     }
 
@@ -14,6 +15,26 @@ struct SessionCommand: Decodable, Sendable {
 
     func execute(on session: VikingSession) async throws {
         await session.clearInvoiceDocument()
+        if try await self.executePayment(on: session) {
+            return
+        }
+        try await self.executeStandard(on: session)
+    }
+
+    private func executePayment(on session: VikingSession) async throws -> Bool {
+        if case .reviewInvoicePayment = self.command {
+            _ = try await session.reviewInvoicePayment(id: self.id)
+            return true
+        }
+        if case .clearPaymentReview = self.command {
+            await session.clearPaymentReview()
+            return true
+        }
+        return false
+    }
+
+    // swiftlint:disable:next cyclomatic_complexity
+    private func executeStandard(on session: VikingSession) async throws {
         switch self.command {
         case .configure: _ = await session.configure(refreshInterval: self.refreshInterval!)
         case .restore: _ = try await session.restore()
@@ -25,6 +46,7 @@ struct SessionCommand: Decodable, Sendable {
         case .selectSubscription: _ = try await session.selectSubscription(id: self.id!)
         case .selectBundle: _ = try await session.selectBundle(index: self.index!)
         case .cancel, .shutdown: await session.cancel()
+        case .reviewInvoicePayment, .clearPaymentReview: preconditionFailure()
         }
     }
 
@@ -33,25 +55,43 @@ struct SessionCommand: Decodable, Sendable {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ProofFailure.invalidInput
         }
+        try value.validate(object: object)
+        return value
+    }
+
+    private func validate(object: [String: Any]) throws {
+        if case .reviewInvoicePayment = self.command {
+            let keys: Set = self.id == nil ? ["command"] : ["command", "id"]
+            if let id = self.id {
+                _ = try ProofEndpoint.invoicePDF(id: id).request()
+            }
+            guard Set(object.keys) == keys else { throw ProofFailure.invalidInput }
+            return
+        }
+        try self.validateStandard(object: object)
+    }
+
+    private func validateStandard(object: [String: Any]) throws {
         let keys: Set<String>
-        switch value.command {
+        switch self.command {
         case .configure:
             keys = ["command", "refreshInterval"]
-            guard value.refreshInterval != nil else { throw ProofFailure.invalidInput }
+            guard self.refreshInterval != nil else { throw ProofFailure.invalidInput }
         case .downloadInvoice, .selectSubscription:
             keys = ["command", "id"]
-            guard let id = value.id else { throw ProofFailure.invalidInput }
-            let endpoint: ProofEndpoint = value.command == .downloadInvoice
+            guard let id = self.id else { throw ProofFailure.invalidInput }
+            let endpoint: ProofEndpoint = self.command == .downloadInvoice
                 ? .invoicePDF(id: id) : .balance(subscriptionID: id)
             _ = try endpoint.request()
         case .selectBundle:
             keys = ["command", "index"]
-            guard let index = value.index, index >= 0 else { throw ProofFailure.invalidInput }
-        case .restore, .refresh, .refreshHistory, .refreshPoints, .refreshInvoices, .cancel, .shutdown:
+            guard let index = self.index, index >= 0 else { throw ProofFailure.invalidInput }
+        case .restore, .refresh, .refreshHistory, .refreshPoints, .refreshInvoices, .clearPaymentReview,
+             .cancel, .shutdown:
             keys = ["command"]
+        case .reviewInvoicePayment: preconditionFailure()
         }
         guard Set(object.keys) == keys else { throw ProofFailure.invalidInput }
-        return value
     }
 }
 

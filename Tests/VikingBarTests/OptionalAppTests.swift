@@ -292,6 +292,17 @@ final class OptionalModelClient: SessionClient {
     }
 
     private func name(for request: SessionRequest) -> String {
+        if case .reviewInvoicePayment = request {
+            return "payment"
+        }
+        if case .clearPaymentReview = request {
+            return "clearPayment"
+        }
+        return self.standardName(for: request)
+    }
+
+    // swiftlint:disable:next cyclomatic_complexity
+    private func standardName(for request: SessionRequest) -> String {
         switch request {
         case .restore: "restore"
         case .refresh: "refresh"
@@ -300,6 +311,7 @@ final class OptionalModelClient: SessionClient {
         case .refreshHistory: "history"
         case .refreshInvoices: "invoices"
         case .downloadInvoice: "pdf"
+        case .reviewInvoicePayment, .clearPaymentReview: preconditionFailure()
         case .cancel: "cancel"
         case .shutdown: "shutdown"
         case .selectSubscription, .selectBundle: "selection"

@@ -48,6 +48,12 @@ def metadata(configuration):
                 minimumMacOS="14.0", configuration=configuration, developmentBuild=True,
                 developerIDSigned=False, notarized=False,
                 connectHelperSHA256=digest(ROOT / "Scripts/connect-account.py"),
+                paymentQR=dict(
+                    revision=(ROOT / ".build/payment-qr/revision.txt").read_text().strip(),
+                    archiveSHA256=(ROOT / ".build/payment-qr/archive-sha256.txt").read_text().strip(),
+                    helperSourceSHA256=(ROOT / ".build/payment-qr/helper-sha256.txt").read_text().strip(),
+                    executableSHA256=digest(ROOT / ".build/payment-qr/payment-qr"),
+                ),
                 toolchain=dict(xcode=xcode, swift=command("swift", "--version")))
 
 
@@ -85,6 +91,13 @@ def build_bundle(bundle, info):
     helper.chmod(0o755)
     if digest(helper) != info["connectHelperSHA256"]:
         raise ValueError("Connection helper changed during packaging")
+    payment_helper = resources / "payment-qr"
+    shutil.copy2(ROOT / ".build/payment-qr/payment-qr", payment_helper)
+    payment_helper.chmod(0o755)
+    if digest(payment_helper) != info["paymentQR"]["executableSHA256"]:
+        raise ValueError("Payment QR helper changed during packaging")
+    shutil.copy2(ROOT / ".build/payment-qr/go-qr-LICENSE", resources / "go-qr-LICENSE")
+    shutil.copy2(ROOT / "docs/payment-qr-notices.md", resources / "payment-qr-notices.md")
     write_json(resources / "build-manifest.json", info)
     (resources / "DEVELOPMENT.txt").write_text(NOTICE)
     plist = dict(CFBundleExecutable="VikingBarApp", CFBundleIdentifier="be.bram.vikingbar",
@@ -138,6 +151,7 @@ def main():
         if any(not path.is_file() or path.is_symlink() for path in output.iterdir()):
             raise ValueError("Prior artifacts must be regular files")
     output.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([str(ROOT / "Scripts/build-payment-qr-helper.sh")], cwd=ROOT, check=True)
     info = metadata(args.configuration)
     info["localAdHocSealed"] = args.local_adhoc
     with tempfile.TemporaryDirectory(prefix="vikingbar-package-", dir=output.parent) as temporary:
@@ -164,6 +178,8 @@ def main():
             cli_root = stage / "cli"
             cli_root.mkdir()
             shutil.copy2(bundle / "Contents/MacOS/vikingbar", cli_root / "vikingbar")
+            for name in ("payment-qr", "go-qr-LICENSE", "payment-qr-notices.md"):
+                shutil.copy2(bundle / "Contents/Resources" / name, cli_root / name)
             for resource in bundle.glob("*.bundle"):
                 shutil.copytree(resource, cli_root / resource.name)
             write_json(cli_root / "build-manifest.json", info)

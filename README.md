@@ -17,7 +17,7 @@ Each SIM keeps its own allowance. Viking Points belong to the whole account. Mis
 
 Install a local build with `make install-app`. Settings also save the card's used/remaining display and refresh interval. Launch-at-login controls report the actual macOS registration state. See [local installation, updates, and removal](docs/local-install.md). Installed native proof is tracked separately in the [verification map](.agents/skills/verify-vikingbar/features/installed-app.md).
 
-The **Bills** tab shows the latest account invoice or credit note, including grouped scope, payment state, and amount due. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md).
+The **Bills** tab shows account invoices and credit notes, including grouped scope, payment state, and amount due. For an eligible issued invoice, **Review bank transfer QR** refreshes the account metadata and creates a short-lived offline EPC QR from the exact unpaid amount and Belgian structured reference. **Open PDF** explicitly downloads and opens that document. See [invoice handling and proof](docs/invoices.md).
 
 Expand **Daily SIM data and estimate** for daily aggregate usage and a labeled cycle estimate. Missing and stale days remain distinct from zero. See [history rules and pending live proof](docs/history.md).
 

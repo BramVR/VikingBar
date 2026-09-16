@@ -28,6 +28,7 @@ extension VikingSession {
         let generation = self.generation
         if !kind.isOptional {
             self.current.isRefreshing = true
+            self.current.paymentReview = nil
         }
         let task = Task {
             defer {
@@ -77,11 +78,12 @@ enum OperationKind: Equatable {
     case history
     case invoices
     case invoicePDF(String)
+    case paymentReview(String?)
     case refresh(subscriptionID: String?)
 
     var isOptional: Bool {
         switch self {
-        case .points, .history, .invoices, .invoicePDF: true
+        case .points, .history, .invoices, .invoicePDF, .paymentReview: true
         case .bootstrap, .refresh: false
         }
     }

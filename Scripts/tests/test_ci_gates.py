@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-CHECK_STAGES = ["format", "lint", "build", "test", "docs", "cli", "python-tests"]
+CHECK_STAGES = ["payment-helper", "format", "lint", "build", "test", "docs", "cli", "python-tests"]
 CI_STAGES = ["check", "workflow-check", "smoke-package"]
 STUB = '''#!/bin/sh
 case "${0##*/}" in
@@ -23,6 +23,7 @@ case "${0##*/}" in
         esac ;;
     make) stage="$1" ;;
     xcode-select) echo /synthetic/Xcode.app/Contents/Developer; exit 0 ;;
+    build-payment-qr-helper.sh) stage=payment-helper ;;
     *) exit 99 ;;
 esac
 printf '%s\\n' "$stage" >> "$STAGE_LOG"
@@ -39,8 +40,10 @@ class CIGateTests(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         (self.root / "Scripts").mkdir()
-        for relative in ["Makefile", "Scripts/test.sh", "Scripts/ci-build.sh"]:
+        for relative in ["Makefile", "Scripts/test.sh", "Scripts/ci-build.sh", "Scripts/build-payment-qr-helper.sh"]:
             shutil.copy2(ROOT / relative, self.root / relative)
+        (self.root / "Scripts/build-payment-qr-helper.sh").write_text("#!/bin/sh\n" + STUB)
+        (self.root / "Scripts/build-payment-qr-helper.sh").chmod(0o755)
         self.log = self.root / "stages.txt"
         self.environment = {**os.environ, "PATH": f"{self.bin}:/usr/bin:/bin", "STAGE_LOG": str(self.log)}
         for key in ["MAKEFLAGS", "MFLAGS", "MAKELEVEL", "SWIFTFORMAT", "SWIFTLINT", "SHELL"]:

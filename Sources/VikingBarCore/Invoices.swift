@@ -53,6 +53,33 @@ public struct Invoice: Codable, Equatable, Sendable, Identifiable {
     public let kind: Kind
     public let linkedInvoiceID: String?
     public let scope: Scope
+    public let referenceNumber: String?
+    public let expirationDate: String?
+    public let sepaGenerationDate: String?
+    public let paidDate: String?
+
+    public init(
+        id: String, number: String, date: String, amount: Decimal, amountDue: Decimal,
+        reduction: Decimal?, loyaltyPointsAmount: Decimal?, status: Status, kind: Kind,
+        linkedInvoiceID: String?, scope: Scope, referenceNumber: String?, expirationDate: String?,
+        sepaGenerationDate: String?, paidDate: String?,
+    ) {
+        self.id = id
+        self.number = number
+        self.date = date
+        self.amount = amount
+        self.amountDue = amountDue
+        self.reduction = reduction
+        self.loyaltyPointsAmount = loyaltyPointsAmount
+        self.status = status
+        self.kind = kind
+        self.linkedInvoiceID = linkedInvoiceID
+        self.scope = scope
+        self.referenceNumber = referenceNumber
+        self.expirationDate = expirationDate
+        self.sepaGenerationDate = sepaGenerationDate
+        self.paidDate = paidDate
+    }
 
     public func membership(of subscriptionID: String?) -> Membership {
         guard let subscriptionID else { return .unknown }
@@ -93,6 +120,10 @@ struct InvoiceDTO: Decodable {
     let status: Invoice.Status
     let type: Invoice.Kind
     let linkedInvoiceID: String?
+    let referenceNumber: String?
+    let expirationDate: String?
+    let sepaGenerationDate: String?
+    let paidDate: String?
     let bundles: [InvoiceLineDTO]
     let outOfBundleCosts: [InvoiceLineDTO]
 
@@ -103,6 +134,10 @@ struct InvoiceDTO: Decodable {
         case loyaltyPointsAmount = "loyalty_points_amount"
         case linkedInvoiceID = "linked_invoice_id"
         case outOfBundleCosts = "out_of_bundle_costs"
+        case referenceNumber = "reference_number"
+        case expirationDate = "expiration_date"
+        case sepaGenerationDate = "sepa_generation_date"
+        case paidDate = "paid_date"
     }
 
     static func parsedDate(_ text: String) -> Date? {
@@ -134,6 +169,8 @@ struct InvoiceDTO: Decodable {
             id: self.id, number: self.number, date: self.date, amount: self.amount, amountDue: self.amountDue,
             reduction: self.reduction, loyaltyPointsAmount: self.loyaltyPointsAmount,
             status: self.status, kind: self.type, linkedInvoiceID: self.linkedInvoiceID, scope: scope,
+            referenceNumber: self.referenceNumber, expirationDate: self.expirationDate,
+            sepaGenerationDate: self.sepaGenerationDate, paidDate: self.paidDate,
         )
     }
 }
@@ -164,17 +201,7 @@ public struct InvoicePresentation: Codable, Equatable, Sendable {
         case .truncated: "Recent account invoices. More invoices are available in My Viking."
         }
         self.rows = snapshot.invoices.map { invoice in
-            let scope: String = switch invoice.scope {
-            case .subscription:
-                invoice.membership(of: selectedSubscriptionID) == .included ? "Selected SIM" : "Other SIM"
-            case .customer: "Customer invoice. SIM membership unknown."
-            case .grouped:
-                switch invoice.membership(of: selectedSubscriptionID) {
-                case .included: "Grouped invoice. Includes selected SIM."
-                case .excluded: "Grouped invoice. Other SIMs."
-                case .unknown: "Grouped invoice. Selected SIM membership unknown."
-                }
-            }
+            let scope = Self.scope(invoice, selectedSubscriptionID: selectedSubscriptionID)
             return Row(
                 id: invoice.id, title: "\(invoice.kind == .creditNote ? "Credit note" : "Invoice") \(invoice.number)",
                 date: Self.date(invoice.date, timeZone: timeZone), status: invoice.status.label,
@@ -183,6 +210,20 @@ public struct InvoicePresentation: Codable, Equatable, Sendable {
                 points: invoice.loyaltyPointsAmount.map { NSDecimalNumber(decimal: $0).stringValue } ?? "Unavailable",
                 scope: scope, linkedInvoice: invoice.linkedInvoiceID,
             )
+        }
+    }
+
+    static func scope(_ invoice: Invoice, selectedSubscriptionID: String?) -> String {
+        switch invoice.scope {
+        case .subscription:
+            invoice.membership(of: selectedSubscriptionID) == .included ? "Selected SIM" : "Other SIM"
+        case .customer: "Customer invoice. SIM membership unknown."
+        case .grouped:
+            switch invoice.membership(of: selectedSubscriptionID) {
+            case .included: "Grouped invoice. Includes selected SIM."
+            case .excluded: "Grouped invoice. Other SIMs."
+            case .unknown: "Grouped invoice. Selected SIM membership unknown."
+            }
         }
     }
 
