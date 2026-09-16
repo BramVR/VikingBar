@@ -28,4 +28,4 @@ SOFTWARE.
 
 ## Bundled components
 
-See the [payment QR notices](docs/payment-qr-notices.md) and the [website font licenses](website/public/assets/fonts) for their separate terms.
+See the [payment QR notices](docs/payment-qr-notices.md), [website library licenses](website/public/THIRD_PARTY_LICENSES.txt), and [website font licenses](website/public/assets/fonts) for their separate terms.
