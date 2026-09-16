@@ -5,5 +5,9 @@ export const questions = [
     ['Where is the session stored?', 'The refresh session is stored in macOS Keychain.'],
     ['What happens if a refresh fails?', 'The last successful balance stays visible and is marked as out of date.'],
     ['Can I switch between SIMs?', 'Yes. Choose a SIM and then a bundle in the menu. Each SIM keeps its own allowance and extra charges.'],
+    ['What does the 30-day chart show?', 'It shows daily SIM data use across bundles. Current-cycle totals stay separate from the clearly labeled estimate. A missing day stays different from a confirmed zero.'],
+    ['What account information does VikingBar show?', 'Bills show grouped account totals, a separate unpaid amount, and an explicit PDF action. Viking Points are customer-wide and keep available, pending, and blocked balances separate.'],
+    ['Can VikingBar pay an invoice?', 'No. For an eligible unpaid invoice, Bills refreshes the invoice details and generates a bank-transfer QR locally using a bundled helper. No Go installation is needed. You can copy the recipient, IBAN, BIC, and reference individually. You review and authorize the transfer in your banking app. VikingBar does not execute the payment.'],
+    ['Which settings are saved?', 'VikingBar saves the used or remaining display choice and refresh interval. It refreshes after your Mac wakes and can launch at login when enabled in Settings.'],
     ['Is VikingBar an official Mobile Vikings app?', 'No. VikingBar is an independent project for Mobile Vikings users.'],
   ];

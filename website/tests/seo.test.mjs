@@ -9,7 +9,22 @@ const canonical = 'https://bramvr.github.io/VikingBar/';
 
 test('product and setup information are readable before JavaScript executes', () => {
   assert.match(html, /<div id="root"><[\s\S]+<main/);
-  for (const text of ['Your data.', 'Mobile Vikings', 'Request API access first', 'Sign in directly', '1Password', 'No client secret is required', 'macOS 14 or later']) assert.ok(html.includes(text), text);
+  for (const text of [
+    'Your data.',
+    'Mobile Vikings',
+    'Request API access first',
+    'Sign in directly',
+    '1Password',
+    'No client secret is required',
+    'macOS 14 or later',
+    '30 days of SIM usage.',
+    'Missing days remain distinct from confirmed zero usage.',
+    'Grouped totals stay labeled as account-level amounts',
+    'Customer-wide Viking Points.',
+    'refresh interval',
+    'Bank transfer QR.',
+    'VikingBar does not execute the payment.',
+  ]) assert.ok(html.includes(text), text);
   assert.doesNotMatch(html, /Manual sign-in is not implemented|manual sign-in is not available|requires a configured 1Password helper/);
   assert.equal((html.match(/<h1[ >]/g) || []).length, 1);
   assert.match(html, /data-nosnippet/);

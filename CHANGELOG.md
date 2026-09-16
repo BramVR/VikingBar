@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Extend the website background with subtle drifting plus signs through every section, respecting paused and reduced motion.
+
+- Add two interactive website menus with current daily usage bars, an initially open detailed chart, native-style navigation and settings, and a Bills QR demo with sample PDFs, populated reduction and points, and copyable fields.
+- Refresh the website with 30-day SIM history, cycle estimates, Bills, Viking Points, saved settings, and local bank-transfer QR support with its bundled helper.
 - Add native menu hover and press feedback to plain popover actions, with full padded hit areas, disabled-state handling, and light, dark, and increased-contrast fixture proof.
 - Add daily SIM usage charts and labeled cycle estimates, with bounded Brussels summaries, missing/stale states, independent balance refresh, and a stored-session history proof gate.
 - Fix rejected history date queries by sending whole-second numeric UTC offsets with escaped plus signs, preserving exact interval bounds.
