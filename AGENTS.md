@@ -1,7 +1,5 @@
 # Repository Guidelines
 
-Adapted from [steipete/CodexBar](https://github.com/steipete/CodexBar/blob/98b86f39db63d230e2a7f78cdb013a845af33213/AGENTS.md). Preserve applicable upstream wording; change project-specific instructions only where needed.
-
 ## Project Structure & Modules
 - SwiftPM builds the app, shared core, CLI, and tests. Live API integration and release automation remain separate tickets.
 - `Sources/VikingBar`: Swift 6 menu bar app (usage/allowance display, icon renderer, settings). Keep changes small and reuse existing helpers.
