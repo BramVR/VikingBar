@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.1.1 (Unreleased)
+
 ## 0.1.0
 
 - Publish the unsigned Apple Silicon preview with a sealed app bundle, public downloads, and macOS first-launch approval instructions.
