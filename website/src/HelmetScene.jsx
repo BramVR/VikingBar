@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createHelmet, disposeHelmet } from './helmet-model.js';
-import { PHASE_STARTS } from './allowance-motion.js';
 import { createStarField } from './star-field.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -11,7 +10,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 
-export function HelmetScene({ motion, phase }) {
+export function HelmetScene({ motion }) {
   const host = useRef(null);
   const runtime = useRef(null);
   const [ready, setReady] = useState(false);
@@ -256,12 +255,7 @@ export function HelmetScene({ motion, phase }) {
     runtime.current.requestDraw();
   }, [motion, ready]);
 
-  useEffect(() => {
-    if (!runtime.current || !phase) return;
-    runtime.current.state.elapsed = PHASE_STARTS[phase.index] + (phase.index === 2 && !runtime.current.state.motion ? .9 : 0);
-    runtime.current.state.lastTime = 0;
-    runtime.current.requestDraw();
-  }, [phase, ready]);
+
 
   return <div className="helmet-viewer">
     {(!ready || failed) && <div className="helmet-fallback rounded-fallback" role="img" aria-label="Rounded ivory VikingBar helmet with a red allowance bar"/>}

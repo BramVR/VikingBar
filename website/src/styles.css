@@ -158,3 +158,25 @@
 .setup-prerequisite p{font-size:16px;line-height:1.65;color:#b9b9bd;margin:0 0 15px}
 .setup-prerequisite .connection-requirement{margin:22px 0 0}
 .connection-requirement strong{font-weight:500;color:#eee8e1}
+
+.front-page { position: relative; isolation: isolate; }
+.front-page > header, .front-page > main, .front-page > footer { position: relative; z-index: 1; }
+.drift-background { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; mask-image: linear-gradient(to bottom, transparent, #000 650px); }
+.drift-plus { position: absolute; color: #bcb5a7; opacity: .46; animation: sparse-drift 32s ease-in-out infinite alternate; animation-play-state: paused; }
+.drift-plus::before, .drift-plus::after { content: ''; position: absolute; background: currentColor; }
+.drift-plus::before { width: 100%; height: 1px; top: 50%; }
+.drift-plus::after { height: 100%; width: 1px; left: 50%; }
+.drift-red { color: #d65b50; opacity: .58; }
+.motion-on .drift-plus { animation-play-state: running; }
+@keyframes sparse-drift { from { transform: translate(-14px, 22px); } to { transform: translate(18px, -26px); } }
+@media (max-width: 640px) { .drift-plus:nth-child(2n) { display: none; } .drift-plus { opacity: .34; } }
+
+.helmet-canvas { mask-image: linear-gradient(to bottom, transparent, #000 5%, #000 82%, transparent 100%); }
+.drift-background { mask-image: linear-gradient(to bottom, transparent 200px, #000 700px); }
+.drift-plus { color: #e5dcc4; }
+.drift-plus::before, .drift-plus::after { border-radius: 2px; box-shadow: 0 0 5px 1px currentColor, 0 0 12px currentColor; }
+.drift-plus::before { height: 1.5px; }
+.drift-plus::after { width: 1.5px; }
+.drift-red { color: #dd3023; }
+.drift-violet { color: #9c65c7; }
+@media (max-width: 640px) { .drift-background { opacity: .75; } }
