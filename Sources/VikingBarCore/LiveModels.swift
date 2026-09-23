@@ -99,6 +99,7 @@ public struct LiveBalance: Codable, Equatable, Sendable {
 }
 
 public struct LiveSessionState: Codable, Equatable, Sendable {
+    public internal(set) var account: AccountContext?
     public internal(set) var connectionID: ConnectionID?
     public internal(set) var connectionSummary: AccountConnectionSummary?
     public internal(set) var subscriptions: [MobileSubscription] = []
@@ -123,12 +124,12 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
 
 public extension LiveSessionState {
     mutating func mergePoints(from state: LiveSessionState) {
-        guard self.connectionID == state.connectionID else { return }
+        guard self.account?.key == state.account?.key, self.connectionID == state.connectionID else { return }
         self.points = state.points
     }
 
     mutating func mergeInvoices(from state: LiveSessionState, includePaymentReview: Bool = true) {
-        guard self.connectionID == state.connectionID else { return }
+        guard self.account?.key == state.account?.key, self.connectionID == state.connectionID else { return }
         self.invoices = state.invoices
         self.invoiceFailure = state.invoiceFailure
         if includePaymentReview {

@@ -5,49 +5,37 @@ struct SessionCommand: Decodable, Sendable {
     enum Name: String, Decodable, Sendable {
         case restore, refresh, refreshHistory, refreshPoints, refreshInvoices, downloadInvoice
         case reviewInvoicePayment, clearPaymentReview
-        case selectSubscription, selectBundle, configure, cancel, shutdown
+        case selectSubscription, selectService, selectBundle, configure, cancel, shutdown
     }
 
     let command: Name
     let id: String?
     let index: Int?
     let refreshInterval: RefreshInterval?
-
-    func execute(on session: VikingSession) async throws {
-        await session.clearInvoiceDocument()
-        if try await self.executePayment(on: session) {
-            return
-        }
-        try await self.executeStandard(on: session)
-    }
-
-    private func executePayment(on session: VikingSession) async throws -> Bool {
-        if case .reviewInvoicePayment = self.command {
-            _ = try await session.reviewInvoicePayment(id: self.id)
-            return true
-        }
-        if case .clearPaymentReview = self.command {
-            await session.clearPaymentReview()
-            return true
-        }
-        return false
-    }
+    let service: ServiceKey?
 
     // swiftlint:disable:next cyclomatic_complexity
-    private func executeStandard(on session: VikingSession) async throws {
+    func operation(account: AccountKey) throws -> AccountOperation {
         switch self.command {
-        case .configure: _ = await session.configure(refreshInterval: self.refreshInterval!)
-        case .restore: _ = try await session.restore()
-        case .refresh: _ = try await session.refresh()
-        case .refreshHistory: _ = try await session.refreshHistory()
-        case .refreshInvoices: _ = try await session.refreshInvoices()
-        case .downloadInvoice: _ = try await session.downloadInvoice(id: self.id!)
-        case .refreshPoints: _ = try await session.refreshPoints()
-        case .selectSubscription: _ = try await session.selectSubscription(id: self.id!)
-        case .selectBundle: _ = try await session.selectBundle(index: self.index!)
-        case .cancel, .shutdown: await session.cancel()
-        case .reviewInvoicePayment, .clearPaymentReview: preconditionFailure()
+        case .configure: .configure(self.refreshInterval!)
+        case .restore: .restore
+        case .refresh: .refresh
+        case .refreshHistory: .refreshHistory
+        case .refreshPoints: .refreshPoints
+        case .refreshInvoices: .refreshInvoices
+        case .downloadInvoice: .downloadInvoice(self.id!)
+        case .reviewInvoicePayment: .reviewInvoicePayment(self.id)
+        case .clearPaymentReview: .clearPaymentReview
+        case .selectSubscription: .selectService(ServiceKey(account: account, kind: .mobile, providerID: self.id!))
+        case .selectService: try self.serviceOperation(account: account)
+        case .selectBundle: .selectBundle(self.index!)
+        case .cancel, .shutdown: .cancel
         }
+    }
+
+    private func serviceOperation(account: AccountKey) throws -> AccountOperation {
+        guard let service, service.account == account else { throw LiveFailure.invalidSelection }
+        return .selectService(service)
     }
 
     static func parse(_ data: Data) throws -> Self {
@@ -63,7 +51,7 @@ struct SessionCommand: Decodable, Sendable {
         if case .reviewInvoicePayment = self.command {
             let keys: Set = self.id == nil ? ["command"] : ["command", "id"]
             if let id = self.id {
-                _ = try ProofEndpoint.invoicePDF(id: id).request()
+                try Self.validateID(id)
             }
             guard Set(object.keys) == keys else { throw ProofFailure.invalidInput }
             return
@@ -71,6 +59,7 @@ struct SessionCommand: Decodable, Sendable {
         try self.validateStandard(object: object)
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func validateStandard(object: [String: Any]) throws {
         let keys: Set<String>
         switch self.command {
@@ -80,9 +69,11 @@ struct SessionCommand: Decodable, Sendable {
         case .downloadInvoice, .selectSubscription:
             keys = ["command", "id"]
             guard let id = self.id else { throw ProofFailure.invalidInput }
-            let endpoint: ProofEndpoint = self.command == .downloadInvoice
-                ? .invoicePDF(id: id) : .balance(subscriptionID: id)
-            _ = try endpoint.request()
+            try Self.validateID(id)
+        case .selectService:
+            keys = ["command", "service"]
+            guard let service else { throw ProofFailure.invalidInput }
+            try Self.validateID(service.providerID)
         case .selectBundle:
             keys = ["command", "index"]
             guard let index = self.index, index >= 0 else { throw ProofFailure.invalidInput }
@@ -93,6 +84,14 @@ struct SessionCommand: Decodable, Sendable {
         }
         guard Set(object.keys) == keys else { throw ProofFailure.invalidInput }
     }
+
+    private static func validateID(_ id: String) throws {
+        guard !id.isEmpty, id.utf8.count <= 256,
+              id.utf8.allSatisfy({ $0 > 32 && $0 < 127 && $0 != 47 && $0 != 92 })
+        else {
+            throw ProofFailure.invalidInput
+        }
+    }
 }
 
 struct SessionCommandHandler: Sendable {
@@ -100,10 +99,10 @@ struct SessionCommandHandler: Sendable {
     let state: @Sendable () async -> LiveSessionState
     let cancel: @Sendable () async -> Void
 
-    static func production() throws -> Self {
-        let session = try VikingSession.production()
+    static func production(key: AccountKey, catalog: AccountCatalog) throws -> Self {
+        let session = try ProviderRegistry.production.open(key, catalog: catalog)
         return Self(
-            execute: { try await $0.execute(on: session) },
+            execute: { try await session.perform($0.operation(account: key)) },
             state: { await session.state() },
             cancel: { await session.cancel() },
         )
@@ -145,7 +144,7 @@ private actor SessionCommandQueue {
                 } catch { failure = "session-command-failed" }
             }
             let state = await session?.state() ?? LiveSessionState()
-            self.report(LiveReport(state: state, error: failure))
+            self.report(LiveReport(state: state, error: failure, schemaVersion: 2))
             self.pending[id] = nil
         }
         self.pending[id] = task
@@ -165,10 +164,23 @@ private actor SessionCommandQueue {
 }
 
 extension VikingBarCLI {
-    static func sessionLoop() async {
+    static func sessionLoop(arguments: [String]) async {
+        let options: AccountOptions
+        let key: AccountKey
+        do {
+            options = try AccountOptions(arguments: arguments)
+            guard options.remaining.isEmpty else { throw ProofFailure.invalidInput }
+            key = try options.account ?? AccountCatalog.production().selectedAtInvocation(provider: options.provider)
+        } catch {
+            self.writeJSON(CommandFailure(error: "invalid-session-command"))
+            exit(2)
+        }
         let passed = await self.runSession(
             input: .standardInput,
-            makeSession: { try .production() },
+            makeSession: {
+                let catalog = try AccountCatalog.production()
+                return try .production(key: catalog.resolve(key, provider: options.provider), catalog: catalog)
+            },
             report: { self.writeJSON($0) },
         )
         if !passed {

@@ -7,7 +7,7 @@ struct DirectConnectionProcessTests {
     @Test func `direct process receives only stdin credentials and writes a private fixed receipt`() async throws {
         let fixture = try NativeProcessFixture(script: """
         import json, os, sys
-        assert sys.argv[1:] == ['connect'], 'unexpected arguments'
+        assert sys.argv[1:] == ['connect', '--account', '\(AccountKey.legacy.id)'], 'unexpected arguments'
         forbidden = {'OP_SERVICE_ACCOUNT_TOKEN', 'BRAM_OP_SERVICE_ACCOUNT_TOKEN', 'DYLD_INSERT_LIBRARIES', 'PYTHONPATH'}
         assert not forbidden.intersection(os.environ), 'unexpected environment'
         data = json.load(sys.stdin)

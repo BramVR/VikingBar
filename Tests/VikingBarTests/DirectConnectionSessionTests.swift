@@ -61,8 +61,8 @@ struct DirectConnectionSessionTests {
         var creations = 0
         let model = try AppSession(
             options: LaunchOptions(arguments: ["--fixture", "finite"]), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { creations += 1; throw LiveBridgeFailure.unavailable },
-            connectorFactory: { creations += 1; throw LiveBridgeFailure.connectFailed },
+            clientFactory: { _ in creations += 1; throw LiveBridgeFailure.unavailable },
+            connectorFactory: { _ in creations += 1; throw LiveBridgeFailure.connectFailed },
         )
         let credentials = try Self.credentials()
         let connectionAttempt = model.connect(input: .credentials(credentials), resultURL: nil)

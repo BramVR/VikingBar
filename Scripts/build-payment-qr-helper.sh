@@ -30,7 +30,7 @@ tar -xzf "$archive" -C "$stage" --strip-components 1 \
 cp Scripts/payment-qr-helper/main.go "$stage/cmd/payment-qr/main.go"
 (
     cd "$stage"
-    CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 GOMODCACHE="$build/module-cache" \
+    CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 GOMODCACHE="$build/module-cache" GOCACHE="$build/build-cache" \
         go build -buildvcs=false -trimpath -o "$output" ./cmd/payment-qr
 )
 chmod 0755 "$output"

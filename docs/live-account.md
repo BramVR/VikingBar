@@ -70,7 +70,7 @@ For an automated native connection, pass `--credential-reference /absolute/priva
 
 If the app asks you to reconnect, use direct sign-in or **Connect with 1Password** again. Each successful connection creates a new local connection identity. Cached subscriptions from the previous connection cannot supply the new connection's balance.
 
-The bundled `vikingbar` executable owns the refresh session in macOS Keychain under service `be.bram.vikingbar.oauth` and account `mobile-vikings`. The native app sends commands to that executable over private pipes. It never reads the token directly. Bootstrap and refresh use the same executable identity, and separate CLI processes share a lease around token rotation.
+The bundled `vikingbar` executable owns each refresh session in macOS Keychain under service `be.bram.vikingbar.oauth`. The original slot uses account `mobile-vikings`; added slots use their opaque account key. The native app sends commands to that executable over private pipes. It never reads the token directly. Bootstrap and refresh use the same executable identity, and separate CLI processes share a lease around token rotation.
 
 The CLI updates the whole Keychain record during rotation. A rebuilt development executable may require renewed Keychain authorization. VikingBar never grants all applications access to the token.
 
@@ -84,8 +84,23 @@ With the coordinator's credential and Mac UI slots, run `make proof-live CHECK=b
 
 Private account values and screenshots stay in the local proof directory. Publish only the redacted pass/fail receipt and build identity. Synthetic tests and fixture screenshots do not complete this live gate.
 
-## View or change the connected account
+## Add, select, or reconnect an account
 
-Open **Settings → Account** to see connection status and username. **Change account…** opens the sign-in form with the known client ID and username filled in; the password is always empty. Cancel returns to the account summary without submitting a connection.
+Open **Settings → Account** to see connection status and username. **Reconnect account…** opens the sign-in form with the known client ID and username filled in; the password is always empty. Cancel returns to the account summary without submitting a connection.
 
 New connections store the username alongside the refresh session in Keychain. VikingBar never saves the password. Older sessions keep working: their public client ID remains available to the change-account form, while the summary explains when the username is unavailable. Changing the connection records the username on the next successful sign-in. The account summary always belongs to the saved connection, not the selected SIM.
+
+
+Use the **Provider** and **Account** pickers above the balance to select a retained account. Only Mobile Vikings is available in production. Settings → Account → **Add Mobile Vikings account…** reserves a separate slot when sign-in is submitted. Successful sign-in selects the new account. Failure or cancellation retains the prior selection and credentials; the reserved slot remains in the picker for a later reconnect. **Reconnect account…** replaces only the selected slot's connection, keeping the others available.
+
+The app and CLI share one persisted default. Inspect and change it with:
+
+```sh
+vikingbar accounts list
+vikingbar accounts add --provider mobile-vikings
+vikingbar connect --account mobile-vikings/UUID
+vikingbar accounts select mobile-vikings/UUID
+vikingbar live --account mobile-vikings/UUID --service SERVICE-ID
+```
+
+Replace `UUID` with the opaque slot returned by `accounts add`; connect still reads credentials through private stdin or the packaged helper. `--provider mobile-vikings` optionally constrains an explicit or default account. `live --account` and `connect --account` do not change the default. Bare `connect` reconnects the selected slot for compatibility. Account listing and reservation read no credentials. New slots store their tokens and caches separately. The original slot keeps its existing Keychain item and cache without copying or rewriting either during catalog initialization.

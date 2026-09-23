@@ -10,8 +10,8 @@ struct AppSessionTests {
         let model = try AppSession(
             options: LaunchOptions(arguments: ["--fixture", "finite"]),
             preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { created += 1; throw LiveBridgeFailure.unavailable },
-            connectorFactory: { created += 1; throw LiveBridgeFailure.connectFailed },
+            clientFactory: { _ in created += 1; throw LiveBridgeFailure.unavailable },
+            connectorFactory: { _ in created += 1; throw LiveBridgeFailure.connectFailed },
             sleepUntil: { _ in Issue.record("Fixture launched a refresh timer") },
         )
         model.fixture = nil
@@ -132,8 +132,8 @@ struct AppSessionTests {
         var creations = 0
         let model = try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { creations += 1; return creations == 1 ? first : second },
-            connectorFactory: { connector }, now: { LiveModelsTests.now },
+            clientFactory: { _ in creations += 1; return creations == 1 ? first : second },
+            connectorFactory: { _ in connector }, now: { LiveModelsTests.now },
         )
         model.start()
         try await Self.until { model.activity == .idle }
@@ -172,8 +172,8 @@ struct AppSessionTests {
         var creations = 0
         let model = try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { creations += 1; return ModelTestClient() },
-            connectorFactory: { connector },
+            clientFactory: { _ in creations += 1; return ModelTestClient() },
+            connectorFactory: { _ in connector },
         )
         model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         try await Self.until { connector.pendingConnect != nil }
@@ -188,7 +188,7 @@ struct AppSessionTests {
         var creations = 0
         let model = try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { creations += 1; return ModelTestClient() },
+            clientFactory: { _ in creations += 1; return ModelTestClient() },
         )
         model.start()
         await model.stop()
@@ -251,7 +251,7 @@ extension AppSessionTests {
         var now = LiveModelsTests.now
         let model = try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { client }, now: { now }, sleepUntil: { try await sleeper.sleep(until: $0) },
+            clientFactory: { _ in client }, now: { now }, sleepUntil: { try await sleeper.sleep(until: $0) },
         )
         var presentations: [UsageSnapshot] = []
         model.onPresentationChange = { [weak model] in model.map { presentations.append($0.snapshot) } }
@@ -280,7 +280,7 @@ extension AppSessionTests {
     ) throws -> AppSession {
         try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { client }, connectorFactory: { connector }, now: { LiveModelsTests.now },
+            clientFactory: { _ in client }, connectorFactory: { _ in connector }, now: { LiveModelsTests.now },
             sleepUntil: { try await sleeper.sleep(until: $0) },
         )
     }

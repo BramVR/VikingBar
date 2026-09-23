@@ -104,7 +104,7 @@ struct AppSessionExpiryTests {
     ) throws -> AppSession {
         try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { client }, connectorFactory: { ModelTestConnector(fails: true) },
+            clientFactory: { _ in client }, connectorFactory: { _ in ModelTestConnector(fails: true) },
             now: now, sleepUntil: { try await sleeper.sleep(until: $0) },
         )
     }

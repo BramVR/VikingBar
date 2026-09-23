@@ -91,7 +91,7 @@ def write_receipt(path, receipt):
         json.dump(receipt, stream, sort_keys=True)
 
 
-def inside(cli, reference, environment, execute=subprocess.run):
+def inside(cli, reference, environment, execute=subprocess.run, account=None):
     if not environment.get("TMUX") or not environment.get("BRAM_OP_SERVICE_ACCOUNT_TOKEN"):
         raise ConnectFailure("credential-context-required")
     selector = reference_at(reference)
@@ -115,7 +115,7 @@ def inside(cli, reference, environment, execute=subprocess.run):
     payload = json.dumps(credentials).encode()
     del credentials
     try:
-        result = execute([str(cli), "connect"], input=payload, env=child_environment(environment),
+        result = execute([str(cli), "connect"] + (["--account", account] if account else []), input=payload, env=child_environment(environment),
                          capture_output=True, timeout=90, check=False)
     except subprocess.TimeoutExpired:
         raise ConnectFailure("connect-command-timeout") from None
@@ -132,7 +132,7 @@ def inside(cli, reference, environment, execute=subprocess.run):
 
 
 def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sleep, clock=time.monotonic,
-              ownership=None):
+              ownership=None, account=None):
     reference_at(reference)
     tmux = shutil.which("tmux", path=environment.get("PATH"))
     if not tmux or not Path(cli).is_file():
@@ -148,6 +148,8 @@ def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sl
         script = Path(__file__).resolve()
         child = [sys.executable, "-I", str(script), "--inside-tmux", "--cli", str(Path(cli).resolve()),
                  "--reference", str(Path(reference).resolve()), "--result", str(result_path)]
+        if account:
+            child += ["--account", account]
         command = 'set +x; source "$HOME/.profile" >/dev/null 2>&1; set +x; exec ' + shlex.join(child)
         clean = child_environment(environment)
         # The approved profile uses USER to select the service-account Keychain item.
@@ -211,8 +213,11 @@ def main(arguments=None, environment=None):
     parser.add_argument("--cli", required=True)
     parser.add_argument("--reference", required=True)
     parser.add_argument("--result")
+    parser.add_argument("--account")
     parser.add_argument("--inside-tmux", action="store_true")
     args = parser.parse_args(arguments)
+    if args.account and not re.fullmatch(r"mobile-vikings/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", args.account):
+        parser.error("invalid account selector")
     environment = os.environ if environment is None else environment
     previous_handlers = {}
     ownership = {} if args.result and not args.inside_tmux else None
@@ -222,8 +227,8 @@ def main(arguments=None, environment=None):
         for signum in (signal.SIGTERM, signal.SIGINT):
             previous_handlers[signum] = signal.signal(signum, interrupted)
     try:
-        receipt = (inside(args.cli, args.reference, environment) if args.inside_tmux
-                   else supervise(args.cli, args.reference, environment, ownership=ownership))
+        receipt = (inside(args.cli, args.reference, environment, account=args.account) if args.inside_tmux
+                   else supervise(args.cli, args.reference, environment, ownership=ownership, account=args.account))
     except ConnectFailure as error:
         code = str(error)
         receipt = {"passed": False, "error": code if code in FAILURE_CODES else "connect-helper-failed"}

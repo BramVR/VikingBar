@@ -32,12 +32,16 @@ struct DataCard: View {
                 if !self.session.isFixtureLaunch, let content = HistoryCompanionContent(session: self.session) {
                     HistoryCard(content: content, companion: self.historyCompanion)
                 }
-                self.details
+                if self.session.selectedServiceKind == .mobile {
+                    self.details
+                }
                 Divider().padding(.vertical, 2)
                 HStack {
                     self.refreshAction
                     Spacer()
-                    self.myViking
+                    if self.session.selectedAccount.provider == .mobileVikings {
+                        self.myViking
+                    }
                 }
                 Text(self.session.menu.freshnessText)
                     .font(.caption).foregroundStyle(.secondary)
@@ -45,7 +49,9 @@ struct DataCard: View {
             }
             if self.session.needsConnection {
                 Divider().padding(.vertical, 2)
-                self.myViking
+                if self.session.selectedAccount.provider == .mobileVikings {
+                    self.myViking
+                }
             }
             Text(self.session.menu.sourceLabel)
                 .font(.caption).foregroundStyle(.secondary)
@@ -57,7 +63,7 @@ struct DataCard: View {
 
     private var selection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Picker("SIM", selection: Binding(
+            Picker(self.session.selectedServiceKind == .mobile ? "SIM" : "Home service", selection: Binding(
                 get: { self.session.selectedSubscriptionID },
                 set: { self.session.selectSubscription($0) },
             )) {
@@ -75,8 +81,10 @@ struct DataCard: View {
                 .accessibilityIdentifier("vikingbar.bundlePicker")
                 .disabled(!self.session.canSelectAccountData)
             }
-            Text(self.session.bundleSelectionLabel).font(.caption).foregroundStyle(.secondary)
-                .accessibilityIdentifier("vikingbar.bundleSelectionLabel")
+            if self.session.selectedServiceKind == .mobile {
+                Text(self.session.bundleSelectionLabel).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("vikingbar.bundleSelectionLabel")
+            }
         }
         .pickerStyle(.menu)
     }

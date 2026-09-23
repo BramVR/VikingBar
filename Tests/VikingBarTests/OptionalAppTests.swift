@@ -244,7 +244,7 @@ struct OptionalAppTests {
     ) throws -> AppSession {
         try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { client }, connectorFactory: { ModelTestConnector(fails: true) },
+            clientFactory: { _ in client }, connectorFactory: { _ in ModelTestConnector(fails: true) },
             now: { LiveModelsTests.now }, openDocument: open,
             sleepUntil: { try await sleeper.sleep(until: $0) },
         )
@@ -314,7 +314,7 @@ final class OptionalModelClient: SessionClient {
         case .reviewInvoicePayment, .clearPaymentReview: preconditionFailure()
         case .cancel: "cancel"
         case .shutdown: "shutdown"
-        case .selectSubscription, .selectBundle: "selection"
+        case .selectSubscription, .selectService, .selectBundle: "selection"
         }
     }
 

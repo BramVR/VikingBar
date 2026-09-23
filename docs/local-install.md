@@ -68,7 +68,7 @@ To stop automatic launch, turn the control off and confirm **Off**. A successful
 
 ## Log out of the account
 
-Quit VikingBar and finish any standalone VikingBar CLI command. Open **Keychain Access**, locate the generic password with service `be.bram.vikingbar.oauth` and account `mobile-vikings`, and delete only that item. Remove `~/Library/Application Support/VikingBar/balance-v1.json` if you also want to erase the saved account display data.
+Quit VikingBar and finish any standalone VikingBar CLI command. Open **Keychain Access** and locate the generic password with service `be.bram.vikingbar.oauth`. The original account uses Keychain account `mobile-vikings`; added accounts use the opaque `mobile-vikings/UUID` key from `vikingbar accounts list`. Delete only the intended account item. To erase its saved display data, remove `~/Library/Application Support/VikingBar/balance-v1.json` for the original slot or `~/Library/Application Support/VikingBar/accounts/mobile-vikings/UUID/balance-v1.json` for an added slot. Retained catalog slots remain selectable for reconnect.
 
 The next normal launch shows account setup. This removes the local connection. It does not change your Mobile Vikings account or revoke sessions on other devices. Display preferences and launch-at-login registration remain separate.
 

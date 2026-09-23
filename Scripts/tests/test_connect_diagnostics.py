@@ -27,6 +27,7 @@ class ConnectDiagnosticsTests(unittest.TestCase):
         result = subprocess.run([
             "swiftc", "-parse-as-library", "-I", str(ROOT / ".build/debug/Modules"),
             str(ROOT / "Sources/VikingBarCLI/LiveCommands.swift"),
+            str(ROOT / "Sources/VikingBarCLI/AccountCommands.swift"),
             str(ROOT / "Sources/VikingBarCLI/BalanceOracle.swift"),
             str(ROOT / "Sources/VikingBarCLI/PointsOracle.swift"), str(source), *map(str, objects),
             "-o", str(cls.executable),
@@ -110,10 +111,25 @@ actor VikingSession {
     }
 }
 
+struct SyntheticProvider: ProviderAccountSession {
+    let key = AccountKey.legacy
+    let session: VikingSession
+    func connect(credentials: ProviderCredentials) async throws -> ConnectionID {
+        guard case let .mobileVikings(input) = credentials else { throw BootstrapFailure.credentialInput }
+        let state = try await session.bootstrapWithDiagnostics(credentials: input)
+        return state.connectionID!
+    }
+    func perform(_ operation: AccountOperation) async throws {}
+    func state() async -> LiveSessionState { LiveSessionState() }
+    func cancel() async {}
+}
+
 @main struct VikingBarCLI {
     static func main() async {
         let arguments = CommandLine.arguments[1] == "bad-arguments" ? ["connect", "extra"] : ["connect"]
-        await self.connect(arguments: arguments)
+        await self.connect(arguments: arguments, makeSession: { _ in
+            try SyntheticProvider(session: VikingSession.production())
+        })
     }
 }
 '''

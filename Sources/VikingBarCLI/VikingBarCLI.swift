@@ -6,11 +6,15 @@ struct VikingBarCLI {
     static func main() async {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if arguments.first == "session" {
-            guard arguments == ["session"] else {
-                self.writeJSON(CommandFailure(error: "invalid-session-command"))
-                exit(2)
-            }
-            await self.sessionLoop()
+            await self.sessionLoop(arguments: Array(arguments.dropFirst()))
+            return
+        }
+        if arguments.first == "fixture-accounts" {
+            await self.fixtureAccounts(arguments: Array(arguments.dropFirst()))
+            return
+        }
+        if arguments.first == "accounts" {
+            self.accounts(arguments: Array(arguments.dropFirst()))
             return
         }
         if arguments.first == "connect" {

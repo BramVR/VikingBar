@@ -61,3 +61,7 @@ The repeatable [local auth/balance gate](docs/live-proof.md) completed password 
 - [OAuth security guidance](https://www.rfc-editor.org/rfc/rfc9700.html#section-2.4).
 - [Build issues](https://github.com/BramVR/VikingBar/issues).
 - [Architecture decision](docs/architecture.md).
+
+## Provider account identity
+
+A provider identifies an integration; an account slot is a stable local connection address. An account slot is neither a username nor a SIM. Reconnect replaces its connection incarnation while preserving the slot. A service key includes account, provider service ID, and mobile/home kind. Points belong to the customer/account; invoices keep their reported grouped, customer, or subscription scope. The selected account is a shared app/CLI default. Explicit CLI account selectors do not change it. The original Mobile Vikings slot aliases the old credential, lease, and cache addresses without credential discovery or data migration. Production currently registers Mobile Vikings only; home-provider fixtures are synthetic and make no Telenet capability claim.

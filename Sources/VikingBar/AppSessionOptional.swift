@@ -174,6 +174,12 @@ extension AppSession {
     }
 
     func enqueueOptional(_ intent: OptionalIntent) {
+        if intent == .points, !self.supportsPoints {
+            return
+        }
+        if intent == .invoices, !self.supportsInvoices {
+            return
+        }
         guard self.activeOptional != intent, !self.pendingOptional.contains(intent) else { return }
         if intent == .history {
             self.historyError = nil
@@ -244,6 +250,7 @@ extension AppSession {
                 guard revision == self.optionalRevision else { return }
                 let state = try await client.request(optional.request)
                 guard !Task.isCancelled, revision == self.optionalRevision,
+                      state.account?.key == self.liveState.account?.key,
                       connection == state.connectionID, connection == self.liveState.connectionID,
                       self.activity == .idle else { return }
                 self.publishOptional(state, intent: optional)

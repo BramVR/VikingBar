@@ -21,12 +21,16 @@ public protocol BalanceCache: Sendable {
 }
 
 public struct KeychainSessionStore: SessionStore {
-    public init() {}
+    private let account: String
+
+    public init(account: String = "mobile-vikings") {
+        self.account = account
+    }
 
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: "be.bram.vikingbar.oauth",
-         kSecAttrAccount as String: "mobile-vikings"]
+         kSecAttrAccount as String: self.account]
     }
 
     public func load() throws -> Data? {

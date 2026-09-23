@@ -3,6 +3,7 @@ import SwiftUI
 struct AccountView: View {
     let account: AccountPresentation
     let changeAccount: () -> Void
+    let addAccount: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -30,12 +31,14 @@ struct AccountView: View {
             .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.08)))
             Button(action: self.changeAccount) {
-                Text(self.account.isConnected ? "Change account…" : "Sign in again…")
+                Text(self.account.isConnected ? "Reconnect account…" : "Sign in again…")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .accessibilityIdentifier("vikingbar.account.change")
+            Button("Add Mobile Vikings account…", action: self.addAccount)
+                .accessibilityIdentifier("vikingbar.account.add")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

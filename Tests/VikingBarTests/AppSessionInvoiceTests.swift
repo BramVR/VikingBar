@@ -10,7 +10,7 @@ struct AppSessionInvoiceTests {
         var opened = 0
         let model = try AppSession(
             options: LaunchOptions(arguments: ["--fixture", "finite"]), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { clients += 1; throw LiveBridgeFailure.unavailable },
+            clientFactory: { _ in clients += 1; throw LiveBridgeFailure.unavailable },
             openDocument: { _ in opened += 1; return true },
         )
         model.start()
@@ -215,7 +215,7 @@ struct AppSessionInvoiceTests {
     ) throws -> AppSession {
         try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { client }, now: { LiveModelsTests.now }, openDocument: open,
+            clientFactory: { _ in client }, now: { LiveModelsTests.now }, openDocument: open,
             sleepUntil: { try await sleeper.sleep(until: $0) },
         )
     }

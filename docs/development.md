@@ -87,3 +87,9 @@ Normal launches inherit macOS appearance and native popover material. The fixtur
 The default **Example SIM** monthly bundle has 36 GB of 50 GB remaining. Its **Extra data** bundle has 4 GB of 5 GB. **Travel SIM** has 8 GB of 10 GB monthly and 1 GB of 2 GB extra. Switching SIMs selects its monthly bundle. Fixture Refresh preserves the selected scenario and amounts, shows a busy state, and advances the synthetic update timestamp. These controls never start the account worker.
 
 Issue 22's redesigned fixture gate passed on 2026-09-14 with fresh runtime captures and four native Quit exits. The [data-card evidence](../.agents/skills/verify-vikingbar/features/data-card.md#proof-status) records the tested build, appearance checks, and keyboard-selection boundary.
+
+## Provider and account fixtures
+
+`swift run vikingbar fixture-accounts` exercises the synthetic home-provider adapter. Add `--service second-service` to select its second home service. `--account mobile-vikings/00000000-0000-0000-0000-000000000002` selects a second synthetic mobile account; `fixture-home/00000000-0000-0000-0000-000000000004` reports a synthetic provider failure. These explicit fixtures never discover production account storage.
+
+A native `--fixture finite` launch exposes provider and account pickers alongside the existing usage-state controls. `make smoke-app-fixture` switches home services, visits a failing home account, selects a second mobile account, and returns to the original mobile allowance. The normal `make check` includes the corresponding CLI fixture path and isolated multi-account tests.

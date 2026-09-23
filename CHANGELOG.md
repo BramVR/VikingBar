@@ -2,6 +2,8 @@
 
 ## 0.1.1 (Unreleased)
 
+- Retain multiple Mobile Vikings accounts with native and CLI selection, isolated credentials and cached balances, explicit add/reconnect actions, and a provider adapter boundary verified with synthetic home services.
+
 - Add a read-only local Telenet feasibility gate with bounded IDX login, two-pass service usage checks, redacted receipts, and synthetic coverage; native provider support remains pending.
 
 ## 0.1.0
