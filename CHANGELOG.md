@@ -2,6 +2,8 @@
 
 ## 0.1.1 (Unreleased)
 
+- Add a read-only local Telenet feasibility gate with bounded IDX login, two-pass service usage checks, redacted receipts, and synthetic coverage; native provider support remains pending.
+
 ## 0.1.0
 
 - Publish the unsigned Apple Silicon preview with a sealed app bundle, public downloads, and macOS first-launch approval instructions.

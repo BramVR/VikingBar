@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -46,7 +47,81 @@ def child_environment(environment):
     return {key: environment[key] for key in allowed if key in environment}
 
 
+def telenet_reference(path):
+    try:
+        reference = json.loads(Path(path).read_text())
+        selector = reference["item_id"]
+        if (set(reference) != {"vault", "item_id", "fields"}
+                or reference["vault"] != "Codex Automation"
+                or not isinstance(selector, str)
+                or not re.fullmatch(r"[A-Za-z0-9._ -]{1,100}", selector)
+                or reference["fields"] != ["username", "password"]):
+            raise ValueError()
+        return reference
+    except (OSError, ValueError, KeyError, TypeError):
+        raise ProofFailure("invalid-telenet-credential-reference") from None
+
+
+def telenet_credentials(item_bytes):
+    try:
+        fields = json.loads(item_bytes)["fields"]
+        if not isinstance(fields, list):
+            raise ValueError()
+        credentials = {}
+        for label in ("username", "password"):
+            values = [field.get("value") for field in fields
+                      if isinstance(field, dict) and field.get("label") == label]
+            if len(values) != 1 or not isinstance(values[0], str) or not values[0]:
+                raise ValueError()
+            credentials[label] = values[0]
+        return credentials
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise ProofFailure("missing-or-ambiguous-telenet-field") from None
+
+
+def run_telenet(environment, execute):
+    if not environment.get("TMUX"):
+        raise ProofFailure("named-tmux-session-required")
+    if not environment.get("BRAM_OP_SERVICE_ACCOUNT_TOKEN"):
+        raise ProofFailure("service-account-token-required")
+    reference = telenet_reference(environment.get("VIKINGBAR_TELENET_CREDENTIAL_REFERENCE", ""))
+    op_binary = shutil.which("op", path=environment.get("PATH"))
+    if not op_binary:
+        raise ProofFailure("one-password-cli-required")
+    op_environment = child_environment(environment)
+    op_environment["OP_SERVICE_ACCOUNT_TOKEN"] = environment["BRAM_OP_SERVICE_ACCOUNT_TOKEN"]
+    item = execute(
+        [op_binary, "item", "get", reference["item_id"], "--vault", reference["vault"], "--format", "json"],
+        env=op_environment, capture_output=True, timeout=60, check=False,
+    )
+    if item.returncode:
+        raise ProofFailure("credential-read-failed")
+    credentials = telenet_credentials(item.stdout)
+    del item
+    result = execute(
+        [sys.executable, str(Path(__file__).with_name("telenet-proof.py"))],
+        input=json.dumps(credentials).encode(), env=child_environment(environment),
+        capture_output=True, timeout=180, check=False,
+    )
+    del credentials
+    try:
+        spec = importlib.util.spec_from_file_location("telenet_proof", Path(__file__).with_name("telenet-proof.py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        safe = module.validate_receipt(json.loads(result.stdout))
+    except (ValueError, TypeError, KeyError, UnicodeDecodeError):
+        raise ProofFailure("invalid-telenet-proof-receipt") from None
+    if not safe["passed"] or result.returncode:
+        if safe["passed"] or result.returncode != 1:
+            raise ProofFailure("invalid-telenet-proof-receipt")
+        raise ProofFailure("telenet-" + safe["stage"] + "-" + safe["failure"])
+    return safe
+
+
 def run(check, environment, execute=subprocess.run):
+    if check == "telenet-auth-usage":
+        return run_telenet(environment, execute)
     if check == "invoices":
         return run_invoices(environment, execute)
     if check == "payment-evidence":

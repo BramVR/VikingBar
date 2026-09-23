@@ -12,6 +12,8 @@ read_when:
 
 The proof runs in the shared Swift core through `vikingbar proof auth-balance`. Explicit fixture app and CLI runs remain synthetic. This auth-balance proof persists no refresh token. The default native app uses the separate [live account session](live-account.md).
 
+For the separate proof-local Telenet gate, see [Telenet proof](telenet-proof.md). It uses a distinct two-field reference and does not add a native provider.
+
 ## Setup
 
 Use the project's Swift toolchain, Python 3, tmux, and the installed 1Password CLI. Obtain the exact approved item ID and field labels privately. Never enumerate vaults or items. Keep the reference outside the repository, with this structure and the real item ID substituted locally:
