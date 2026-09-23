@@ -48,6 +48,7 @@ workflow-check:
 check-proof:
 	./Scripts/test.sh --filter Proof
 	python3 Scripts/test-proof-runner.py
+	python3 -m unittest discover -s Scripts/tests -p 'test_telenet_proof.py'
 
 proof-live: build
 	INSTALL_TARGET="$(INSTALL_TARGET)" python3 Scripts/proof-live.py "$(CHECK)"

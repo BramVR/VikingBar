@@ -28,6 +28,10 @@ Use direct credential entry or optional 1Password to bootstrap authentication, a
 
 CodexBar already demonstrates the desired menu-bar workflow. Sharing the core gives the UI and CLI identical allowance semantics and makes most behavior testable without launching AppKit. A single telecom provider does not need CodexBar's multi-provider macro registry, browser-cookie imports, or AI-specific data models.
 
+## Telenet feasibility boundary
+
+Telenet research runs in a separate dependency-free Python proof gate with an explicit read-only HTTP policy. Its IDX password flow and cookie session are not part of the Mobile Vikings Swift core. The gate can establish login, discovered-service usage accuracy, and cookie reuse before a native provider design is committed. Missing home or mobile services, natural session expiry, renewal, and native presentation remain separate coverage questions. See [Telenet proof](telenet-proof.md).
+
 ## Verification and delivery
 
 Local gates prove parsing, state, and calculations using synthetic data. Automatic app smoke tests prove the packaged UI. The configured local live runner proves real API behavior with redacted output. Missing required live proof cannot pass through a skip.
