@@ -11,7 +11,7 @@ struct NativeProcessTests {
         state = json.loads('\(Self.stateJSON())')
         def reply(index):
             state['selectedBundleIndex'] = index
-            print(json.dumps({'schemaVersion': 1, 'state': state}), flush=True)
+            print(json.dumps({'schemaVersion': 2, 'state': state}), flush=True)
         pending = False
         for line in sys.stdin:
             request = json.loads(line)
@@ -49,6 +49,8 @@ struct NativeProcessTests {
         let decoded = try LiveAPI.decodeBalance(Data("{\"bundles\":[\(jsonBundle)]}".utf8))
         let precise = decoded.bundles[0]
         var state = LiveSessionState()
+        state.account = AccountContext(key: .legacy, providerName: "Mobile Vikings", services: [],
+                                       selectedService: nil, capabilities: .mobileVikings)
         state.connectionID = ConnectionID()
         state.selectedSubscriptionID = "sim-a"
         state.publish(
@@ -64,7 +66,7 @@ struct NativeProcessTests {
         import json, sys
         state = json.loads('\(json)')
         for line in sys.stdin:
-            print(json.dumps({'schemaVersion': 1, 'state': state}), flush=True)
+            print(json.dumps({'schemaVersion': 2, 'state': state}), flush=True)
             if json.loads(line)['command'] == 'shutdown': break
         """)
         defer { fixture.cleanup() }
@@ -81,7 +83,7 @@ struct NativeProcessTests {
     @Test func `invalid oversized unsupported and truncated worker replies fail closed`() async throws {
         for script in try [
             "print('not-json', flush=True)",
-            "print('{\"schemaVersion\":2,\"state\":\(Self.stateJSON())}', flush=True)",
+            "print('{\"schemaVersion\":99,\"state\":\(Self.stateJSON())}', flush=True)",
             "import sys; sys.stdout.write('x' * 1048577); sys.stdout.flush()",
             "import sys; sys.stdout.write('{'); sys.stdout.flush()",
         ] {
@@ -180,7 +182,10 @@ struct NativeProcessTests {
     private static func stateJSON() throws -> String {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        return try #require(String(data: encoder.encode(LiveSessionState()), encoding: .utf8))
+        var state = LiveSessionState()
+        state.account = AccountContext(key: .legacy, providerName: "Mobile Vikings", services: [],
+                                       selectedService: nil, capabilities: .mobileVikings)
+        return try #require(String(data: encoder.encode(state), encoding: .utf8))
     }
 }
 

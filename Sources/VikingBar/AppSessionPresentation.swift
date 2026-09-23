@@ -27,9 +27,9 @@ extension AppSession {
 
 extension AppSession {
     var points: PointsPresentation {
-        var values = self.isFixtureLaunch
+        var values = self.usesMobileFixture
             ? self.fixture?.points(referenceDate: self.referenceDate) : self.liveState.points(at: self.now())
-        if !self.isFixtureLaunch, self.bridgeFailure != nil {
+        if !self.usesMobileFixture, self.bridgeFailure != nil {
             values?.markUnavailable(.transport)
         }
         return PointsPresentation(points: values, timeZone: self.timeZone)
@@ -46,12 +46,12 @@ extension AppSession {
 extension AppSession {
     var canRefresh: Bool {
         self.activity == .idle
-            && (self.isFixtureLaunch ? self.fixture != nil : self.isConnected || self.canRestartWorker)
+            && (self.usesMobileFixture ? self.fixture != nil : self.isConnected || self.canRestartWorker)
     }
 
     var canSelectAccountData: Bool {
         self.activity == .idle
-            && (self.isFixtureLaunch ? self.fixture != nil : self.isConnected && self.bridgeFailure == nil)
+            && (self.usesMobileFixture ? self.fixture != nil : self.isConnected && self.bridgeFailure == nil)
     }
 }
 

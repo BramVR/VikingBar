@@ -10,14 +10,16 @@ actor SessionProcessClient: SessionClient {
     private enum Lifecycle { case idle, running, stopping, stopped }
 
     private let executableURL: URL
+    private let account: AccountKey
     private var lifecycle = Lifecycle.idle
     private var child: OwnedProcess?
     private var reader: Task<Void, Never>?
     private var pending: [CheckedContinuation<LiveSessionState, any Error>] = []
     private var buffer = Data()
 
-    init(executableURL: URL) {
+    init(executableURL: URL, account: AccountKey = .legacy) {
         self.executableURL = executableURL
+        self.account = account
     }
 
     func request(_ request: SessionRequest) async throws -> LiveSessionState {
@@ -57,7 +59,10 @@ actor SessionProcessClient: SessionClient {
 
     private func start() throws {
         let child: OwnedProcess
-        do { child = try OwnedProcess.launch(executable: self.executableURL, arguments: ["session"]) } catch {
+        do { child = try OwnedProcess.launch(
+            executable: self.executableURL,
+            arguments: ["session", "--account", self.account.id],
+        ) } catch {
             throw LiveBridgeFailure.unavailable
         }
         self.child = child
@@ -100,7 +105,8 @@ actor SessionProcessClient: SessionClient {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = SessionDateCoding.decodingStrategy
                 let reply = try decoder.decode(Reply.self, from: line)
-                guard reply.schemaVersion == 1 else { throw LiveBridgeFailure.invalidReply }
+                guard reply.schemaVersion == 2,
+                      reply.state.account?.key == self.account else { throw LiveBridgeFailure.invalidReply }
                 self.buffer.removeSubrange(...newline)
                 self.pending.removeFirst().resume(returning: reply.state)
             }

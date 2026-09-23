@@ -17,10 +17,12 @@ private struct AccountConnectReceipt: Decodable {
 
 actor AccountConnector: AccountConnecting {
     private let cliURL: URL
+    private let account: AccountKey
     private let helperURL: URL
     private var child: OwnedProcess?
 
-    init(cliURL: URL, helperURL: URL) {
+    init(cliURL: URL, helperURL: URL, account: AccountKey = .legacy) {
+        self.account = account
         self.cliURL = cliURL
         self.helperURL = helperURL
     }
@@ -121,9 +123,13 @@ actor AccountConnector: AccountConnecting {
     private func launch(input: AccountConnectionInput, resultURL: URL?) throws -> OwnedProcess {
         switch input {
         case .credentials:
-            return try OwnedProcess.launch(executable: self.cliURL, arguments: ["connect"])
+            return try OwnedProcess.launch(
+                executable: self.cliURL,
+                arguments: ["connect", "--account", self.account.id],
+            )
         case let .reference(reference):
-            var arguments = ["-I", self.helperURL.path, "--cli", self.cliURL.path, "--reference", reference.path]
+            var arguments = ["-I", self.helperURL.path, "--cli", self.cliURL.path, "--reference", reference.path,
+                             "--account", self.account.id]
             if let resultURL {
                 arguments += ["--result", resultURL.path]
             }

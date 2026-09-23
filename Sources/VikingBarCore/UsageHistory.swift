@@ -210,7 +210,8 @@ public extension LiveSessionState {
 
     @discardableResult
     mutating func mergeHistory(from state: LiveSessionState) -> Bool {
-        guard let history = state.history, let context = self.historyContext,
+        guard self.account?.key == state.account?.key,
+              let history = state.history, let context = self.historyContext,
               history.context == context, state.historyContext == context else { return false }
         self.history = history
         return true

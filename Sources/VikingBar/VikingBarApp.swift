@@ -21,15 +21,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             options: options.shared, preferences: preferences,
             loginItems: options.shared.fixture == nil || options.allowLoginItem
                 ? SystemLoginItemManager() : DisabledLoginItemManager(),
-            clientFactory: {
-                try SessionProcessClient(executableURL: Self.bundledURL("MacOS/vikingbar"))
+            clientFactory: { account in
+                try SessionProcessClient(executableURL: Self.bundledURL("MacOS/vikingbar"), account: account)
             },
-            connectorFactory: {
+            connectorFactory: { account in
                 try AccountConnector(
                     cliURL: Self.bundledURL("MacOS/vikingbar"),
-                    helperURL: Self.bundledURL("Resources/connect-account.py"),
+                    helperURL: Self.bundledURL("Resources/connect-account.py"), account: account,
                 )
             },
+            accountDirectory: options.shared.fixture == nil
+                ? try? ProcessAccountDirectory(executableURL: Self.bundledURL("MacOS/vikingbar")) : nil,
             paymentFixtureRenderer: paymentFixtureRenderer,
         )
         self.options = options
@@ -71,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationDidBecomeActive(_: Notification) {
         self.session.checkLoginItem()
+        self.session.reloadAccounts()
     }
 
     private static func bundledURL(_ path: String) throws -> URL {
@@ -79,10 +82,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         return bundle.appending(path: "Contents/" + path)
     }
 
-    private func connect() {
+    private func connect(adding: Bool) {
         guard !self.session.isFixtureLaunch else { return }
         if let reference = self.options.credentialReference {
-            self.connect(reference: reference)
+            self.connect(reference: reference, adding: adding)
             return
         }
         let panel = NSOpenPanel()
@@ -92,14 +95,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         panel.allowsMultipleSelection = false
         panel.begin { [weak self] result in
             guard result == .OK, let url = panel.url else { return }
-            self?.connect(reference: url)
+            self?.connect(reference: url, adding: adding)
         }
     }
 
-    private func connect(reference: URL) {
+    private func connect(reference: URL, adding: Bool) {
         self.session.connect(
             input: .reference(reference),
-            resultURL: self.options.proofDirectory?.appending(path: "connect-result.json"),
+            resultURL: self.options.proofDirectory?.appending(path: "connect-result.json"), adding: adding,
         )
     }
 
@@ -148,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self.popover.performClose(nil)
         } else {
             self.session.checkLoginItem()
+            self.session.reloadAccounts()
             NSApplication.shared.activate()
             self.popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             self.popover.contentViewController?.view.window?.makeKey()

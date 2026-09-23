@@ -10,7 +10,7 @@ struct AppSettingsTests {
         preferences.setRefreshInterval(.thirtyMinutes)
         let client = ModelTestClient()
         let model = try AppSession(options: LaunchOptions(arguments: []), preferences: preferences,
-                                   clientFactory: { client })
+                                   clientFactory: { _ in client })
         model.start()
         try await AppSessionTests.until { model.activity == .idle }
         #expect(client.requests == ["configure-1800", "restore"])
@@ -72,7 +72,7 @@ struct AppSettingsTests {
         client.state.nextRefreshAt = now.addingTimeInterval(30)
         let sleeper = ModelTestSleeper()
         let model = try AppSession(options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-                                   clientFactory: { client }, now: { now },
+                                   clientFactory: { _ in client }, now: { now },
                                    sleepUntil: { try await sleeper.sleep(until: $0) })
         model.start()
         try await AppSessionTests.until { model.activity == .idle }
@@ -88,7 +88,7 @@ struct AppSettingsTests {
         await model.stop()
         let fixture = try AppSession(options: LaunchOptions(arguments: ["--fixture", "finite"]),
                                      preferences: MenuBarPreferences(fileURL: nil),
-                                     clientFactory: { Issue.record("Fixture created worker"); return client })
+                                     clientFactory: { _ in Issue.record("Fixture created worker"); return client })
         fixture.didWake()
         fixture.refreshInterval = .oneHour
         #expect(fixture.activity == .idle)

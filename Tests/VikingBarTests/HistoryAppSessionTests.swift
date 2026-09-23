@@ -92,7 +92,7 @@ struct HistoryAppSessionTests {
         let sleeper = ModelTestSleeper()
         let model = try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { creations += 1; return creations == 1 ? failed : healthy },
+            clientFactory: { _ in creations += 1; return creations == 1 ? failed : healthy },
             now: { LiveModelsTests.now }, sleepUntil: { try await sleeper.sleep(until: $0) },
         )
         model.start()
@@ -131,7 +131,7 @@ struct HistoryAppSessionTests {
         let sleeper = ModelTestSleeper()
         return try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { client }, now: { LiveModelsTests.now },
+            clientFactory: { _ in client }, now: { LiveModelsTests.now },
             sleepUntil: { try await sleeper.sleep(until: $0) },
         )
     }

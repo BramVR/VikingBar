@@ -28,6 +28,18 @@ def identity(pid):
 
 
 class BalanceUICleanupTests(unittest.TestCase):
+    def test_account_worker_identity_matches_only_recorded_canonical_selector(self):
+        account = "mobile-vikings/00000000-0000-0000-0000-000000000001"
+        launch = {"cli": "/private/app/vikingbar", "accountSelector": account}
+        expected = UI.account_worker_command(launch, "session")
+        self.assertEqual(expected, "/private/app/vikingbar session --account " + account)
+        self.assertNotEqual(expected, "/private/app/vikingbar session")
+        self.assertNotEqual(expected, expected.replace("000001", "000002"))
+        self.assertNotEqual(expected, expected + " --provider mobile-vikings")
+        for invalid in ["mobile-vikings/../../bad", "other/00000000-0000-0000-0000-000000000001", account + " x"]:
+            with self.assertRaises(UI.UIFailure):
+                UI.account_worker_command({**launch, "accountSelector": invalid}, "connect")
+
     def test_inspection_failure_cleans_app_and_blocked_worker_but_not_lookalike(self):
         with tempfile.TemporaryDirectory(prefix="vikingbar-cleanup-test-") as directory:
             root = Path(directory)

@@ -3,21 +3,24 @@ import Foundation
 public extension VikingSession {
     static func production(
         transport: any ProofHTTPTransport = EphemeralProofTransport(),
+        account: AccountKey? = nil,
     ) throws -> VikingSession {
-        let directory = try FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true,
-        ).appendingPathComponent("VikingBar", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700],
-        )
-        guard try directory.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else {
-            throw LiveFailure.storage
-        }
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        let catalog = try AccountCatalog.production()
+        let key = try catalog.resolve(account, provider: .mobileVikings)
+        let storage = AccountStorage(root: catalog.root, key: key)
+        return try Self.production(storage: storage, transport: transport)
+    }
+
+    static func production(
+        storage: AccountStorage,
+        transport: any ProofHTTPTransport = EphemeralProofTransport(),
+    ) throws -> VikingSession {
+        guard storage.key.provider == .mobileVikings else { throw LiveFailure.invalidSelection }
+        try storage.prepare()
         return VikingSession(
-            transport: transport, store: KeychainSessionStore(),
-            lease: FileSessionLease(url: directory.appendingPathComponent("session.lock")),
-            cache: FileBalanceCache(url: directory.appendingPathComponent("balance-v1.json")),
+            transport: transport, store: KeychainSessionStore(account: storage.keychainAccount),
+            lease: FileSessionLease(url: storage.leaseURL),
+            cache: FileBalanceCache(url: storage.cacheURL),
             paymentQRRenderer: PaymentQRHelper(executableURL: PaymentQRHelper.productionExecutableURL()),
         )
     }

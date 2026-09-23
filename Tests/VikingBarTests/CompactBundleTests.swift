@@ -53,8 +53,8 @@ struct CompactBundleTests {
         let model = try AppSession(
             options: LaunchOptions(arguments: []),
             preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { throw LiveBridgeFailure.unavailable },
-            connectorFactory: {
+            clientFactory: { _ in throw LiveBridgeFailure.unavailable },
+            connectorFactory: { _ in
                 Issue.record("Retry must not bootstrap credentials"); throw LiveBridgeFailure.connectFailed
             },
         )
@@ -92,8 +92,8 @@ struct CompactBundleTests {
     @Test func `disconnected presentation exposes restore and connection failures`() async throws {
         let model = try AppSession(
             options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { throw LiveBridgeFailure.unavailable },
-            connectorFactory: { throw LiveBridgeFailure.connectFailed },
+            clientFactory: { _ in throw LiveBridgeFailure.unavailable },
+            connectorFactory: { _ in throw LiveBridgeFailure.connectFailed },
         )
         model.start()
         #expect(model.connectionTitle == "Restoring account…")
@@ -139,8 +139,10 @@ struct CompactBundleTests {
         try AppSession(
             options: LaunchOptions(arguments: ["--fixture", "finite"]),
             preferences: MenuBarPreferences(fileURL: nil),
-            clientFactory: { Issue.record("Fixture created a live client"); throw LiveBridgeFailure.unavailable },
-            connectorFactory: { Issue.record("Fixture created a connector"); throw LiveBridgeFailure.connectFailed },
+            clientFactory: { _ in Issue.record("Fixture created a live client"); throw LiveBridgeFailure.unavailable },
+            connectorFactory: { _ in
+                Issue.record("Fixture created a connector"); throw LiveBridgeFailure.connectFailed
+            },
         )
     }
 }

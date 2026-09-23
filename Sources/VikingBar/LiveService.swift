@@ -6,10 +6,11 @@ enum SessionRequest: Encodable, Sendable {
     case downloadInvoice(String)
     case reviewInvoicePayment(String?)
     case selectSubscription(String)
+    case selectService(ServiceKey)
     case selectBundle(Int)
     case configure(RefreshInterval)
 
-    private enum CodingKeys: String, CodingKey { case command, id, index, refreshInterval }
+    private enum CodingKeys: String, CodingKey { case command, id, index, refreshInterval, service }
 
     func encode(to encoder: any Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
@@ -23,6 +24,9 @@ enum SessionRequest: Encodable, Sendable {
         case let .reviewInvoicePayment(id):
             try values.encode("reviewInvoicePayment", forKey: .command)
             try values.encodeIfPresent(id, forKey: .id)
+        case let .selectService(service):
+            try values.encode("selectService", forKey: .command)
+            try values.encode(service, forKey: .service)
         case let .selectSubscription(id):
             try values.encode("selectSubscription", forKey: .command)
             try values.encode(id, forKey: .id)
@@ -45,7 +49,7 @@ enum SessionRequest: Encodable, Sendable {
         case .clearPaymentReview: "clearPaymentReview"
         case .cancel: "cancel"
         case .shutdown: "shutdown"
-        case .downloadInvoice, .reviewInvoicePayment, .selectSubscription, .selectBundle, .configure:
+        case .downloadInvoice, .reviewInvoicePayment, .selectSubscription, .selectService, .selectBundle, .configure:
             preconditionFailure("Payload commands encode their names directly")
         }
     }

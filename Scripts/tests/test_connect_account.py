@@ -30,6 +30,22 @@ class ConnectAccountTests(unittest.TestCase):
         self.receipt = {"schema_version": 1, "check": "connect", "passed": True, "connected": True,
                         "connection_sha256": "7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052"}
 
+    def test_account_selector_is_forwarded_without_credential_arguments(self):
+        selector = "mobile-vikings/00000000-0000-0000-0000-000000000002"
+        calls = []
+        def execute(command, **kwargs):
+            calls.append((command, kwargs))
+            value = ({"fields": [{"label": key, "value": "synthetic-" + key}
+                                  for key in ("client_id", "username", "password")]}
+                     if len(calls) == 1 else self.receipt)
+            return subprocess.CompletedProcess(command, 0, json.dumps(value).encode(), b"")
+        with patch.object(CONNECT.shutil, "which", return_value="/synthetic/op"):
+            result = CONNECT.inside(self.cli, self.reference, self.environment, execute, account=selector)
+        self.assertEqual(result, self.receipt)
+        self.assertEqual(calls[1][0], [str(self.cli), "connect", "--account", selector])
+        self.assertNotIn("synthetic-password", calls[1][0])
+        self.assertEqual(json.loads(calls[1][1]["input"])["password"], "synthetic-password")
+
     def test_exactly_one_read_and_cli_stdin_isolation(self):
         calls = []
         def execute(command, **kwargs):

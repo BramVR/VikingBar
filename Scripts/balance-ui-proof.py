@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import resource
 import signal
 import shutil
@@ -238,6 +239,16 @@ def process_identity(pid, *, timeout=5):
             "command": parts[7], "identity": row}
 
 
+def account_worker_command(launch, command):
+    selector = launch.get("accountSelector")
+    if selector is None:
+        return launch["cli"] + " " + command
+    if not isinstance(selector, str) or not re.fullmatch(
+            r"mobile-vikings/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", selector):
+        raise UIFailure("runtime-worker-identity-mismatch")
+    return launch["cli"] + " " + command + " --account " + selector
+
+
 class NativeProof:
     direct = None
     human_deadline = None
@@ -246,6 +257,7 @@ class NativeProof:
     termination_requested = False
 
     def __init__(self, environment, *, stored_session=False, direct_connect=False):
+        self.account_selector = ""
         self.direct = direct_configuration(environment) if direct_connect else None
         self.environment = environment
         self.peekaboo = environment.get("PEEKABOO_BIN")
@@ -385,6 +397,13 @@ class NativeProof:
             if self.reference is None:
                 raise UIFailure("credential-reference-required")
             arguments += ["--credential-reference", self.reference]
+        if getattr(self, "account_selector", None) == "":
+            catalog = self.run([str(self.cli), "accounts", "list"], "account-catalog.json")
+            selected = catalog["selected"]
+            provider = selected["provider"]
+            if provider != "mobile-vikings":
+                raise UIFailure("runtime-worker-identity-mismatch")
+            self.account_selector = provider + "/" + selected["slot"].lower()
         if self.direct is not None:
             direct_configuration(self.environment)
             arguments = ["/usr/bin/sandbox-exec", "-p", direct_sandbox(self.executable, self.cli), *arguments]
@@ -409,6 +428,8 @@ class NativeProof:
             self.identity = identity["identity"]
             self.launch_record.update(identity=self.identity, cli=str(self.cli),
                                       cliSHA256=hashlib.sha256(self.cli.read_bytes()).hexdigest())
+            if getattr(self, "account_selector", None) is not None:
+                self.launch_record["accountSelector"] = self.account_selector
             workers = self.capture_worker(self.process, self.launch_record, seconds=3)
             if len(workers) != 1:
                 raise UIFailure("runtime-worker-identity-mismatch")
@@ -541,13 +562,13 @@ class NativeProof:
             for pid in pids:
                 worker = self.bounded_process_identity(int(pid))
                 if (worker is not None and worker["parentPID"] == process.pid
-                        and worker["command"] in (launch["cli"] + " session", launch["cli"] + " connect")):
+                        and worker["command"] in (account_worker_command(launch, "session"), account_worker_command(launch, "connect"))):
                     worker["cliSHA256"] = launch["cliSHA256"]
                     if not any(saved["pid"] == worker["pid"] and saved["startTime"] == worker["startTime"]
                                for saved in self.workers):
                         self.workers.append(worker)
                         private_write(self.directory / "workers.json", self.workers)
-                    if worker["command"] == launch["cli"] + " session":
+                    if worker["command"] == account_worker_command(launch, "session"):
                         matches.append(worker)
             if matches or time.monotonic() >= deadline:
                 return matches
@@ -569,12 +590,12 @@ class NativeProof:
         except (OSError, ValueError, TypeError, KeyError):
             raise UIFailure("direct-child-ownership-unverified") from None
         matches = [worker for worker in self.workers if worker["pid"] == candidate["pid"]
-                   and worker["parentPID"] == launch["pid"] and worker["command"] == launch["cli"] + " connect"
+                   and worker["parentPID"] == launch["pid"] and worker["command"] == account_worker_command(launch, "connect")
                    and worker["cliSHA256"] == launch["cliSHA256"]]
         if not matches:
             worker = self.bounded_process_identity(candidate["pid"])
             if (worker is None or worker["parentPID"] != launch["pid"]
-                    or worker["command"] != launch["cli"] + " connect"
+                    or worker["command"] != account_worker_command(launch, "connect")
                     or hashlib.sha256(Path(launch["cli"]).read_bytes()).hexdigest() != launch["cliSHA256"]):
                 raise UIFailure("direct-child-ownership-unverified")
             worker["cliSHA256"] = launch["cliSHA256"]

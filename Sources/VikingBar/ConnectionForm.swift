@@ -32,12 +32,12 @@ struct ConnectionForm: View {
     @State private var attempt = ConnectionFormAttempt()
     @FocusState private var clientIDFocused: Bool
     let resultURL: URL?
-    let reference: () -> Void
+    let reference: (Bool) -> Void
     let dismiss: () -> Void
 
     init(
         session: AppSession, resultURL: URL?, initialAccount: AccountConnectionSummary? = nil,
-        reference: @escaping () -> Void, dismiss: @escaping () -> Void,
+        reference: @escaping (Bool) -> Void, dismiss: @escaping () -> Void,
     ) {
         self.session = session
         self.resultURL = resultURL
@@ -120,7 +120,7 @@ struct ConnectionForm: View {
                     .accessibilityIdentifier("vikingbar.connect.password")
                 Text("VikingBar uses your password once to sign in. The saved connection is kept in Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
-                if let error = self.fields.error ?? self.session.bridgeError {
+                if let error = self.fields.error ?? self.session.connectionError ?? self.session.bridgeError {
                     Text(error)
                         .foregroundStyle(.red)
                         .accessibilityIdentifier("vikingbar.connect.error")
@@ -140,14 +140,15 @@ struct ConnectionForm: View {
     private func finishIfNeeded() {
         guard self.attempt.finishIfNeeded(in: self.session) else { return }
         self.fields.clear()
-        if self.session.bridgeError == nil, self.session.isConnected {
+        if self.session.bridgeError == nil, self.session.connectionError == nil, self.session.isConnected {
             self.dismiss()
         }
     }
 
-    private func connectReference() {
+    func connectReference() {
         guard self.fields.useReference(isFixture: self.session.isFixtureLaunch) else { return }
+        let adding = self.session.addingAccount
         self.dismiss()
-        self.reference()
+        self.reference(adding)
     }
 }

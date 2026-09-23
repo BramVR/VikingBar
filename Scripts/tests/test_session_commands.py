@@ -19,7 +19,7 @@ class SessionCommandTests(unittest.TestCase):
         build = ROOT / ".build/debug"
         sources = [ROOT / "Scripts/tests/session-command-driver.swift"]
         sources.extend(ROOT / "Sources/VikingBarCLI" / name for name in (
-            "SessionCommands.swift", "LiveCommands.swift", "BalanceOracle.swift", "PointsOracle.swift", "HistoryOracle.swift"))
+            "AccountCommands.swift", "SessionCommands.swift", "LiveCommands.swift", "BalanceOracle.swift", "PointsOracle.swift", "HistoryOracle.swift"))
         objects = list((build / "VikingBarCore.build").glob("*.swift.o"))
         if not objects:
             raise AssertionError("Run swift build before session tests")
@@ -28,6 +28,15 @@ class SessionCommandTests(unittest.TestCase):
                                    "-o", str(cls.executable)], cwd=ROOT, capture_output=True, text=True)
         if compiled.returncode:
             raise AssertionError(compiled.stderr)
+
+    def test_live_discovers_target_without_refreshing_failing_previous_home_service(self):
+        result = subprocess.run([str(self.executable), "--live-discovery"], capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        service = report["state"]["account"]["selectedService"]
+        self.assertEqual(service["kind"], "home")
+        self.assertEqual(service["providerID"], "home/new-service")
+        self.assertEqual(service["account"]["provider"], "fixture-home")
 
     def start(self, *arguments):
         process = subprocess.Popen([str(self.executable), *arguments], stdin=subprocess.PIPE,

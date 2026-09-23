@@ -26,7 +26,7 @@ struct PopoverView: View {
     @State private var detailsExpanded = false
     @State private var pointsExpanded = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var connect: () -> Void = {}
+    var connect: (Bool) -> Void = { _ in }
     var connectResultURL: URL?
     var fixtureReduceTransparency = false
 
@@ -67,9 +67,10 @@ struct PopoverView: View {
             ConnectionForm(
                 session: self.session,
                 resultURL: self.connectResultURL,
-                initialAccount: returnTo == .account ? self.session.accountPresentation.summary : nil,
+                initialAccount: returnTo == .account && !self.session.addingAccount
+                    ? self.session.accountPresentation.summary : nil,
                 reference: self.connect,
-                dismiss: { self.destination = returnTo.destination },
+                dismiss: { self.session.addingAccount = false; self.destination = returnTo.destination },
             )
         case .bills:
             VStack(alignment: .leading, spacing: 6) {
@@ -109,6 +110,7 @@ struct PopoverView: View {
             }
             switch self.destination {
             case .balance:
+                self.accountSelection
                 DataCard(
                     session: self.session,
                     detailsExpanded: self.$detailsExpanded,
@@ -117,13 +119,17 @@ struct PopoverView: View {
                 )
                 Divider().padding(.vertical, 2)
                 HStack {
-                    Button { self.destination = .bills } label: { Label("Bills", systemImage: "doc.text") }
-                        .accessibilityIdentifier("vikingbar.bills")
-                        .buttonStyle(.menuAction)
+                    if self.session.supportsInvoices {
+                        Button { self.destination = .bills } label: { Label("Bills", systemImage: "doc.text") }
+                            .accessibilityIdentifier("vikingbar.bills")
+                            .buttonStyle(.menuAction)
+                    }
                     Spacer()
-                    Button { self.destination = .points } label: { Label("Points", systemImage: "star") }
-                        .accessibilityIdentifier("vikingbar.points")
-                        .buttonStyle(.menuAction)
+                    if self.session.supportsPoints {
+                        Button { self.destination = .points } label: { Label("Points", systemImage: "star") }
+                            .accessibilityIdentifier("vikingbar.points")
+                            .buttonStyle(.menuAction)
+                    }
                     Spacer()
                     Button { self.destination = .settings } label: { Label("Settings", systemImage: "gearshape") }
                         .keyboardShortcut(",")
@@ -133,9 +139,13 @@ struct PopoverView: View {
             case .settings:
                 self.settings
             case .account:
-                AccountView(account: self.session.accountPresentation) {
+                AccountView(account: self.session.accountPresentation, changeAccount: {
+                    self.session.addingAccount = false
                     self.destination = .connection(.account)
-                }
+                }, addAccount: {
+                    self.session.addingAccount = true
+                    self.destination = .connection(.account)
+                })
             case .points:
                 PointsCard(session: self.session, expanded: self.$pointsExpanded)
             case .bills:
@@ -144,6 +154,40 @@ struct PopoverView: View {
                 EmptyView()
             }
         }
+    }
+
+    private var accountSelection: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Picker("Provider", selection: Binding(
+                get: { self.session.selectedAccount.provider },
+                set: { provider in
+                    if let account = self.session.accounts.first(where: { $0.key.provider == provider }) {
+                        self.session.selectAccount(account.key)
+                    }
+                },
+            )) {
+                Text("Mobile Vikings").tag(ProviderID.mobileVikings)
+                if self.session.isFixtureLaunch {
+                    Text("Home fixture").tag(ProviderID.fixtureHome)
+                }
+            }
+            .accessibilityIdentifier("vikingbar.providerPicker")
+            Picker("Account", selection: Binding(
+                get: { self.session.selectedAccount }, set: { self.session.selectAccount($0) },
+            )) {
+                ForEach(self.session.accounts.filter { $0.key.provider == self.session.selectedAccount.provider }) {
+                    Text($0.key == .legacy || self.session.isFixtureLaunch ? $0.label
+                        : "\($0.label) · \($0.key.slot.uuidString.prefix(8))").tag($0.key)
+                }
+            }
+            .accessibilityIdentifier("vikingbar.accountPicker")
+            if let error = self.session.connectionError {
+                Text(error).font(.caption).foregroundStyle(.red)
+                    .accessibilityIdentifier("vikingbar.account.addError")
+            }
+        }
+        .pickerStyle(.menu)
+        .disabled(self.session.activity == .connecting || self.session.activity == .switching)
     }
 
     private var settings: some View {

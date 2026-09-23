@@ -39,6 +39,20 @@ def verify(executable):
                                (("finite", "--unit"), "incomplete argument")]:
         result = run(executable, *arguments)
         assert result.returncode == 2 and not result.stdout and message in result.stderr, result
+    home = "fixture-home/00000000-0000-0000-0000-000000000003"
+    mobile = "mobile-vikings/00000000-0000-0000-0000-000000000002"
+    for account, service, amount, kind in [(home, "shared-service", "980.00 GB", "home"),
+                                          (home, "second-service", "960.00 GB", "home"),
+                                          (mobile, "shared-service", "60.00 GB", "mobile")]:
+        result = subprocess.run([str(executable), "fixture-accounts", "--account", account, "--service", service],
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        report = json.loads(result.stdout)
+        assert report["menu"]["remainingText"] == amount
+        assert report["state"]["account"]["selectedService"]["kind"] == kind
+        assert report["state"]["subscriptions"] == []
+        assert report["state"]["account"]["capabilities"]["points"] is False
+        assert "Synthetic data" in report["menu"]["sourceLabel"]
     print(f"CLI fixture smoke passed: {executable}")
 
 

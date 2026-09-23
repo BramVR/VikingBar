@@ -2,11 +2,14 @@ import VikingBarCore
 
 extension AppSession {
     var subscriptions: [AccountChoice] {
-        if self.isFixtureLaunch {
+        if self.usesMobileFixture {
             return self.fixture == nil ? [] : self.fixtureAccount.subscriptions.map { AccountChoice(
                 id: $0.id,
                 title: $0.title,
             ) }
+        }
+        if let services = self.liveState.account?.services {
+            return services.map { AccountChoice(id: $0.key.providerID, title: $0.name) }
         }
         return self.liveState.subscriptions.map { AccountChoice(id: $0.id, title: $0.displayName) }
     }
@@ -20,7 +23,7 @@ extension AppSession {
     }
 
     var bundles: [BundleChoice] {
-        if self.isFixtureLaunch {
+        if self.usesMobileFixture {
             return self.fixture == nil ? [] : self.fixtureAccount.subscription.bundles.enumerated().map {
                 BundleChoice(id: $0.offset, title: $0.element.title)
             }
@@ -34,23 +37,24 @@ extension AppSession {
     }
 
     var selectedSubscriptionID: String {
-        self.isFixtureLaunch ? self.fixtureAccount.subscription.id : self.liveState.selectedSubscriptionID ?? ""
+        self.usesMobileFixture ? self.fixtureAccount.subscription.id : self.liveState.account?.selectedService?
+            .providerID ?? self.liveState.selectedSubscriptionID ?? ""
     }
 
     var selectedBundleIndex: Int {
-        self.isFixtureLaunch ? self.fixtureAccount.bundleIndex : self.liveState.selectedBundleIndex ?? -1
+        self.usesMobileFixture ? self.fixtureAccount.bundleIndex : self.liveState.selectedBundleIndex ?? -1
     }
 
     var bundleDescription: String {
-        self.isFixtureLaunch ? self.fixtureAccount.bundle.description : self.balanceDetails.bundleDescription
+        self.usesMobileFixture ? self.fixtureAccount.bundle.description : self.balanceDetails.bundleDescription
     }
 
     var applicabilityText: String {
-        self.isFixtureLaunch ? "Mobile data · Domestic and EU roaming" : self.balanceDetails.applicabilityText
+        self.usesMobileFixture ? "Mobile data · Domestic and EU roaming" : self.balanceDetails.applicabilityText
     }
 
     var extraChargesText: String {
-        self.isFixtureLaunch ? "Extra charges: €0.00" : self.balanceDetails.extraChargesText
+        self.usesMobileFixture ? "Extra charges: €0.00" : self.balanceDetails.extraChargesText
     }
 
     var connectionTitle: String {
@@ -69,7 +73,7 @@ extension AppSession {
     }
 
     var needsConnection: Bool {
-        self.isFixtureLaunch ? self.fixture == nil : [.notConnected, .reconnectRequired, .unauthorized]
+        self.usesMobileFixture ? self.fixture == nil : [.notConnected, .reconnectRequired, .unauthorized]
             .contains(self.liveState.failure)
             || self.liveState.connectionID == nil
     }
@@ -77,18 +81,22 @@ extension AppSession {
 
 extension AppSession {
     func selectSubscription(_ id: String) {
-        if self.isFixtureLaunch {
+        if self.usesMobileFixture {
             guard self.canSelectAccountData else { return }
             self.fixtureAccount.selectSubscription(id)
             self.onPresentationChange?()
             return
         }
-        guard self.liveState.selectedSubscriptionID != id else { return }
-        self.select(.selectSubscription(id))
+        guard self.selectedSubscriptionID != id else { return }
+        if let service = self.liveState.account?.services.first(where: { $0.key.providerID == id }) {
+            self.select(.selectService(service.key))
+        } else {
+            self.select(.selectSubscription(id))
+        }
     }
 
     func selectBundle(_ index: Int) {
-        if self.isFixtureLaunch {
+        if self.usesMobileFixture {
             guard self.canSelectAccountData else { return }
             self.fixtureAccount.selectBundle(index)
             self.onPresentationChange?()
@@ -103,12 +111,13 @@ struct AccountPresentation {
     let summary: AccountConnectionSummary?
     let isConnected: Bool
     let isDemo: Bool
+    var providerName = "Mobile Vikings"
 
     var status: String {
         if self.isDemo {
-            return "Demo · Mobile Vikings"
+            return "Demo · \(self.providerName)"
         }
-        return self.isConnected ? "Connected to Mobile Vikings" : "Sign in to Mobile Vikings"
+        return self.isConnected ? "Connected to \(self.providerName)" : "Sign in to \(self.providerName)"
     }
 
     var username: String? {
@@ -118,7 +127,7 @@ struct AccountPresentation {
 
 extension AppSession {
     var accountPresentation: AccountPresentation {
-        if self.isFixtureLaunch {
+        if self.usesMobileFixture {
             return AccountPresentation(
                 summary: AccountConnectionSummary(
                     clientID: "demo-public-client", username: "alex@example.invalid",
@@ -129,11 +138,11 @@ extension AppSession {
         return AccountPresentation(
             summary: self.liveState.connectionSummary,
             isConnected: self.isConnected,
-            isDemo: false,
+            isDemo: self.isFixtureLaunch, providerName: self.providerName,
         )
     }
 
     var hasAccount: Bool {
-        self.isFixtureLaunch ? self.fixture != nil : self.liveState.connectionID != nil
+        self.usesMobileFixture ? self.fixture != nil : self.liveState.connectionID != nil
     }
 }

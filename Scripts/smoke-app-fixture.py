@@ -426,6 +426,26 @@ def prove_appearance_hover(name, selector, x=0.5):
     prove_disabled_bills(name)
 
 
+def provider_account_switching():
+    choose_popup('vikingbar.providerPicker', 'Home fixture', 'home-provider')
+    data = wait_for(lambda: inspect('home-provider.json'), lambda d: '980.00 GB' in json.dumps(d))
+    assert 'Example home 1' in json.dumps(data)
+    assert 'vikingbar.points' not in json.dumps(data) and 'vikingbar.bills' not in json.dumps(data)
+    assert 'vikingbar.bundlePicker' not in json.dumps(data)
+    capture_card('home-provider')
+    choose_popup('vikingbar.subscriptionPicker', 'Example home 2', 'home-service')
+    wait_for(lambda: inspect('home-service.json'), lambda d: '960.00 GB' in json.dumps(d))
+    choose_popup('vikingbar.accountPicker', 'Demo · Unavailable home', 'home-failure')
+    wait_for(lambda: inspect('home-failure.json'), lambda d: 'synthetic home provider is unavailable' in json.dumps(d))
+    choose_popup('vikingbar.providerPicker', 'Mobile Vikings', 'mobile-provider-return')
+    wait_for(lambda: inspect('mobile-provider-return.json'), lambda d: '36.00 GB' in json.dumps(d))
+    choose_popup('vikingbar.accountPicker', 'Demo · Second Mobile Vikings', 'second-mobile-account')
+    wait_for(lambda: inspect('second-mobile-account.json'), lambda d: '60.00 GB' in json.dumps(d))
+    choose_popup('vikingbar.accountPicker', 'Demo · Mobile Vikings', 'first-mobile-account-return')
+    wait_for(lambda: inspect('first-mobile-account-return.json'), lambda d: '36.00 GB' in json.dumps(d))
+    capture_card('first-mobile-account-return')
+
+
 def selection_and_refresh():
     for selector, value, amount, total in [
         ('vikingbar.bundlePicker', 'Extra data', '4.00 GB', '5.00 GB'),
@@ -524,6 +544,7 @@ try:
     launch('default', appearance='light')
     prove_light_hover_actions()
     settings_toggle(False, 'default')
+    provider_account_switching()
     connected_account_summary()
     direct_connection_choices()
     for state in STATES:

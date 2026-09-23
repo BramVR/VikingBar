@@ -3,7 +3,7 @@ import Foundation
 import VikingBarCore
 
 struct LiveReport: Encodable, Sendable {
-    let schemaVersion = 1
+    let schemaVersion: Int
     let state: LiveSessionState
     let snapshot: UsageSnapshot
     let menu: MenuPresentation
@@ -13,7 +13,8 @@ struct LiveReport: Encodable, Sendable {
     let points: PointsPresentation
     let error: String?
 
-    init(state: LiveSessionState, error: String? = nil) {
+    init(state: LiveSessionState, error: String? = nil, schemaVersion: Int = 1) {
+        self.schemaVersion = schemaVersion
         self.error = error
         self.state = state
         self.snapshot = state.snapshot
@@ -59,6 +60,7 @@ struct LiveOptions {
     var subscription: String?
     var bundle: Int?
 
+    // swiftlint:disable:next cyclomatic_complexity
     init(arguments: [String]) throws {
         var index = 0
         while index < arguments.count {
@@ -67,10 +69,17 @@ struct LiveOptions {
                 self.cached = true
             case "--history" where !self.history:
                 self.history = true
-            case "--subscription" where self.subscription == nil && index + 1 < arguments.count:
+            case "--subscription", "--service":
+                guard self.subscription == nil, index + 1 < arguments.count else { throw ProofFailure.invalidInput }
+                let legacy = arguments[index] == "--subscription"
                 index += 1
                 self.subscription = arguments[index]
-                _ = try ProofEndpoint.balance(subscriptionID: arguments[index]).request()
+                guard !arguments[index].isEmpty, arguments[index].utf8.count <= 256,
+                      !arguments[index].unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+                else { throw ProofFailure.invalidInput }
+                if legacy {
+                    _ = try ProofEndpoint.balance(subscriptionID: arguments[index]).request()
+                }
             case "--bundle" where self.bundle == nil && index + 1 < arguments.count:
                 index += 1
                 guard let bundle = Int(arguments[index]), bundle >= 0 else { throw ProofFailure.invalidInput }
@@ -89,8 +98,12 @@ extension VikingBarCLI {
     static let liveUsage = """
 
     Live commands:
-      vikingbar live [--cached | [--subscription ID] [--bundle INDEX] [--history]]
-      vikingbar connect
+      vikingbar accounts list
+      vikingbar accounts add [--provider mobile-vikings]
+      vikingbar accounts select ACCOUNT
+      vikingbar live [--account ACCOUNT] [--provider PROVIDER] [--cached | [--service ID] [--bundle INDEX] [--history]]
+      vikingbar connect [--account ACCOUNT] [--provider PROVIDER]
+      vikingbar fixture-accounts [--account ACCOUNT] [--service ID]
       vikingbar proof auth-balance
       vikingbar proof balance-api
       vikingbar proof history-api
@@ -98,7 +111,11 @@ extension VikingBarCLI {
       vikingbar proof payment-evidence
       vikingbar proof points-api
 
-    Live commands use the explicitly connected account and may access Keychain.
+    Live commands default to the catalog selection and may access Keychain.
+    Explicit --account targets one command without changing the selected default.
+    accounts add reserves a disconnected slot; connect reconnects that slot; accounts select activates it.
+    Bare connect reconnects the selected account. Failed connect never changes selection.
+    --subscription remains an alias for --service. fixture-accounts uses only synthetic providers.
     Bundle indices are zero-based positions in the reported provider bundle array.
     connect reads credential JSON from stdin. Use the approved connection helper.
     proof auth-balance reads credential JSON from stdin and never persists tokens.
@@ -129,10 +146,24 @@ extension VikingBarCLI {
         return credentials
     }
 
-    static func connect(arguments: [String]) async {
+    static func connect(
+        arguments: [String],
+        makeSession: (AccountOptions) throws -> any ProviderAccountSession = { options in
+            let catalog = try AccountCatalog.production()
+            return try ProviderRegistry.production.open(options.resolve(in: catalog), catalog: catalog)
+        },
+    ) async {
         do {
-            guard arguments == ["connect"] else { throw BootstrapFailure.credentialInput }
-            let connectionID = try await self.bootstrapFromInput()
+            let options: AccountOptions
+            let credentials: ProofCredentials
+            do {
+                options = try AccountOptions(arguments: Array(arguments.dropFirst()))
+                guard options.remaining.isEmpty else { throw BootstrapFailure.credentialInput }
+                credentials = try self.readCredentials()
+            } catch { throw BootstrapFailure.credentialInput }
+            let session: any ProviderAccountSession
+            do { session = try makeSession(options) } catch { throw BootstrapFailure.localFilesystem }
+            let connectionID = try await session.connect(credentials: .mobileVikings(credentials))
             self.writeJSON(ConnectReceipt(connectionID: connectionID))
         } catch {
             self.writeJSON(CommandFailure(error: (error as? BootstrapFailure ?? .connectFailed).rawValue))
@@ -140,36 +171,16 @@ extension VikingBarCLI {
         }
     }
 
-    private static func bootstrapFromInput() async throws -> ConnectionID {
-        let credentials: ProofCredentials
-        do { credentials = try self.readCredentials() } catch { throw BootstrapFailure.credentialInput }
-        let session: VikingSession
-        do { session = try VikingSession.production() } catch { throw BootstrapFailure.localFilesystem }
-        let state = try await session.bootstrapWithDiagnostics(credentials: credentials)
-        guard let connectionID = state.connectionID, state.failure == nil else { throw BootstrapFailure.connectFailed }
-        return connectionID
-    }
-
     static func live(arguments: [String]) async {
-        var session: VikingSession?
+        var session: (any ProviderAccountSession)?
         do {
-            let options = try LiveOptions(arguments: Array(arguments.dropFirst()))
-            let active = try VikingSession.production()
+            let selectors = try AccountOptions(arguments: Array(arguments.dropFirst()))
+            let options = try LiveOptions(arguments: selectors.remaining)
+            let catalog = try AccountCatalog.production()
+            let key = try selectors.resolve(in: catalog)
+            let active = try ProviderRegistry.production.open(key, catalog: catalog)
             session = active
-            _ = try await active.restore()
-            if !options.cached {
-                _ = try await active.refresh(subscriptionID: options.subscription)
-                if let bundle = options.bundle {
-                    _ = try await active.selectBundle(index: bundle)
-                }
-                if options.history {
-                    _ = try await active.refreshHistory()
-                }
-            }
-            if !options.cached {
-                _ = try? await active.refreshPoints()
-            }
-            let state = await active.state()
+            let state = try await self.loadLive(options: options, active: active)
             self.writeJSON(LiveReport(state: state))
             let historyFailed = options.history && (state.history == nil || state.history?.failure != nil)
             if state.connectionID == nil || state.failure != nil || historyFailed {
@@ -177,13 +188,33 @@ extension VikingBarCLI {
             }
         } catch {
             if let session {
-                let state = await session.state()
-                self.writeJSON(LiveReport(state: state, error: "live-failed"))
+                await self.writeJSON(LiveReport(state: session.state(), error: "live-failed"))
             } else {
                 self.writeJSON(CommandFailure(error: "live-failed"))
             }
             exit(1)
         }
+    }
+
+    static func loadLive(options: LiveOptions, active: any ProviderAccountSession) async throws -> LiveSessionState {
+        try await active.perform(.restore)
+        if !options.cached {
+            if let id = options.subscription {
+                try await active.perform(.refreshService(id))
+            } else {
+                try await active.perform(.refresh)
+            }
+            if let bundle = options.bundle {
+                try await active.perform(.selectBundle(bundle))
+            }
+            if options.history {
+                try await active.perform(.refreshHistory)
+            }
+            if await active.state().account?.capabilities.points == true {
+                try? await active.perform(.refreshPoints)
+            }
+        }
+        return await active.state()
     }
 
     static func invoiceProof() async {

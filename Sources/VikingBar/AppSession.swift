@@ -8,7 +8,7 @@ import VikingBarCore
 @MainActor
 @Observable
 final class AppSession {
-    enum Activity { case idle, restoring, refreshing, selecting, configuring, connecting, stopped }
+    enum Activity { case idle, restoring, refreshing, selecting, switching, configuring, connecting, stopped }
 
     struct ConnectionAttempt: Equatable, Sendable { fileprivate let id: UUID }
 
@@ -53,9 +53,18 @@ final class AppSession {
     var fixtureAccount = FixtureAccount()
     private(set) var settingsError: String?
     var liveState = LiveSessionState()
+    private(set) var accounts: [AccountEntry] = [AccountEntry(key: .legacy, label: "Mobile Vikings")]
+    private(set) var selectedAccount: AccountKey = .legacy
+    var addingAccount = false
+    @ObservationIgnored private var fixtureClients: [AccountKey: any SessionClient] = [:]
+    @ObservationIgnored private var savedAccounts: [AccountKey: LiveSessionState] = [:]
+    @ObservationIgnored private var savedFailures: [AccountKey: LiveBridgeFailure] = [:]
+    @ObservationIgnored private let accountDirectory: (any AccountDirectoryClient)?
+    @ObservationIgnored private var catalogRead: Task<CatalogSnapshot, any Error>?
     private(set) var activity: Activity = .idle
     var historyError: String?
     private(set) var bridgeFailure: LiveBridgeFailure?
+    private(set) var connectionError: String?
     private var allowanceExpired = false
     var invoiceError: String?
     let paymentFixtureEnabled: Bool
@@ -80,14 +89,15 @@ final class AppSession {
     let referenceDate: Date
     @ObservationIgnored var onPresentationChange: (() -> Void)?
     @ObservationIgnored private let preferences: MenuBarPreferences
-    @ObservationIgnored private let clientFactory: () throws -> any SessionClient
-    @ObservationIgnored private let connectorFactory: () throws -> any AccountConnecting
+    @ObservationIgnored private let clientFactory: (AccountKey) throws -> any SessionClient
+    @ObservationIgnored private let connectorFactory: (AccountKey) throws -> any AccountConnecting
     @ObservationIgnored let now: () -> Date
     @ObservationIgnored let sleepUntil: @Sendable (Date) async throws -> Void
     @ObservationIgnored var client: (any SessionClient)?
     @ObservationIgnored private var connector: (any AccountConnecting)?
     @ObservationIgnored private var operation: Task<Void, Never>?
     private var connectionAttempt: ConnectionAttempt?
+    @ObservationIgnored private var pendingConnection: PendingConnection?
     @ObservationIgnored private var scheduledRefresh: Task<Void, Never>?
     @ObservationIgnored private var scheduledExpiry: Task<Void, Never>?
     @ObservationIgnored private var snapshotRevision = 0
@@ -98,8 +108,13 @@ final class AppSession {
         preferences: MenuBarPreferences,
         referenceDate: Date = Date(),
         loginItems: any LoginItemManaging = DisabledLoginItemManager(),
-        clientFactory: @escaping () throws -> any SessionClient = { throw LiveBridgeFailure.unavailable },
-        connectorFactory: @escaping () throws -> any AccountConnecting = { throw LiveBridgeFailure.connectFailed },
+        clientFactory: @escaping (AccountKey) throws -> any SessionClient = { _ in
+            throw LiveBridgeFailure.unavailable
+        },
+        connectorFactory: @escaping (AccountKey) throws -> any AccountConnecting = { _ in
+            throw LiveBridgeFailure.connectFailed
+        },
+        accountDirectory: (any AccountDirectoryClient)? = nil,
         now: @escaping () -> Date = Date.init,
         openDocument: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
         paymentFixtureRenderer: (any PaymentQRRendering)? = nil,
@@ -123,6 +138,10 @@ final class AppSession {
         self.loginItems = loginItems
         self.loginItemStatus = loginItems.status
         self.settingsError = preferences.errorMessage
+        self.accountDirectory = options.fixture == nil ? accountDirectory : FixtureAccountDirectory()
+        if options.fixture != nil {
+            self.accounts = FixtureAccounts.catalog.accounts
+        }
         self.clientFactory = clientFactory
         self.connectorFactory = connectorFactory
         self.now = now
@@ -166,12 +185,13 @@ extension AppSession {
     }
 
     var snapshot: UsageSnapshot {
-        if self.isFixtureLaunch {
+        if self.usesMobileFixture {
             return self.fixture.map { self.fixtureAccount.snapshot(state: $0, referenceDate: self.referenceDate) }
                 ?? .notConnected
         }
         let previous = self.liveState.snapshot
-        let expired = self.allowanceExpired || previous.expiresAt.map { $0 <= self.now() } == true
+        let expired = !self.isFixtureLaunch
+            && (self.allowanceExpired || previous.expiresAt.map { $0 <= self.now() } == true)
         guard expired || self.bridgeError != nil else { return previous }
         let freshness: Freshness = switch previous.freshness {
         case let .current(date), let .stale(date): .stale(lastUpdated: date)
@@ -189,13 +209,23 @@ extension AppSession {
         guard !self.isFixtureLaunch, !self.hasStarted, self.activity != .stopped else { return }
         self.hasStarted = true
         let intent = self.begin(.restoring)
-        self.operation = Task { await self.restoreAndPerform(.refresh, intent: intent) }
+        self.operation = Task {
+            do {
+                if let directory = self.accountDirectory {
+                    let catalog = try await self.catalogSnapshot(from: directory)
+                    guard self.isCurrent(intent) else { return }
+                    self.accounts = catalog.accounts
+                    self.selectedAccount = catalog.selected
+                }
+                await self.restoreAndPerform(.refresh, intent: intent)
+            } catch { await self.failWorker(intent: intent) }
+        }
     }
 
     func refresh() {
         guard self.canRefresh else { return }
         let intent = self.begin(.refreshing)
-        if self.isFixtureLaunch {
+        if self.usesMobileFixture {
             self.operation = Task {
                 do { try await Task.sleep(for: .seconds(3)) } catch { return }
                 guard self.isCurrent(intent) else { return }
@@ -205,6 +235,9 @@ extension AppSession {
             return
         }
         self.operation = Task {
+            if await self.reconcileSelection(intent: intent) {
+                return
+            }
             if self.client == nil {
                 await self.restoreAndPerform(.refresh, intent: intent)
             } else {
@@ -263,10 +296,13 @@ extension AppSession {
             guard let client = self.client else { throw LiveBridgeFailure.unavailable }
             let state = try await client.request(request)
             guard self.isCurrent(intent) else { return }
+            guard state.account == nil || state.account?.key == self.selectedAccount else {
+                throw LiveBridgeFailure.invalidReply
+            }
             self.publish(state)
             try await self.applyInterval(client: client, intent: intent)
             guard self.isCurrent(intent) else { return }
-            if case .refresh = request, self.isConnected {
+            if case .refresh = request, self.isConnected, self.supportsPoints {
                 self.enqueueOptional(.points)
             }
             guard self.isCurrent(intent) else { return }
@@ -315,6 +351,7 @@ extension AppSession {
     }
 
     private func publish(_ state: LiveSessionState) {
+        guard state.account == nil || state.account?.key == self.selectedAccount else { return }
         var state = state
         if state.connectionID == self.liveState.connectionID {
             if state.matchingHistory == nil {
@@ -326,6 +363,7 @@ extension AppSession {
             self.pendingOptional.removeAll()
         }
         self.liveState = state
+        self.savedAccounts[self.selectedAccount] = state
         self.bridgeFailure = nil
         self.scheduleExpiry()
         self.onPresentationChange?()
@@ -395,8 +433,10 @@ extension AppSession {
 
 extension AppSession {
     @discardableResult
-    func connect(input: AccountConnectionInput, resultURL: URL?) -> ConnectionAttempt? {
-        guard !self.isFixtureLaunch, self.activity != .stopped, self.activity != .connecting else {
+    func connect(input: AccountConnectionInput, resultURL: URL?, adding: Bool? = nil) -> ConnectionAttempt? {
+        guard !self.isFixtureLaunch, self.activity != .stopped, self.activity != .connecting,
+              self.activity != .switching
+        else {
             if case let .credentials(credentials) = input {
                 credentials.discard()
             }
@@ -407,33 +447,122 @@ extension AppSession {
         self.connectionAttempt = attempt
         let previous = self.client
         self.client = nil
-        self.liveState = LiveSessionState()
-        self.bridgeFailure = nil
+        let priorState = self.liveState
+        let priorFailure = self.bridgeFailure
+        let priorAccount = self.selectedAccount
+        let adding = adding ?? self.addingAccount
+        self.connectionError = nil
+        if !adding {
+            self.liveState = LiveSessionState()
+            self.bridgeFailure = nil
+        }
         self.scheduleExpiry()
         self.onPresentationChange?()
-        self.operation = Task {
-            defer {
-                if case let .credentials(credentials) = input {
-                    credentials.discard()
-                }
-            }
-            await previous?.shutdown()
-            guard self.isCurrent(intent) else { return }
-            do {
-                let connector = try self.connectorFactory()
-                self.connector = connector
-                try await connector.connect(input: input, resultURL: resultURL)
-                guard self.isCurrent(intent) else { return }
-                self.connector = nil
-                await self.restoreAndPerform(.refresh, intent: intent)
-            } catch {
-                guard self.isCurrent(intent) else { return }
-                self.connector = nil
-                self.bridgeFailure = error as? LiveBridgeFailure ?? .connectFailed
-                self.finish()
+        let context = PendingConnection(intent: intent, adding: adding, account: priorAccount,
+                                        state: priorState, previous: previous, failure: priorFailure)
+        self.pendingConnection = context
+        self.operation = Task { await self.performConnection(input: input, resultURL: resultURL, context: context) }
+        return attempt
+    }
+
+    private struct PendingConnection {
+        let intent: Int
+        let adding: Bool
+        let account: AccountKey
+        let state: LiveSessionState
+        let previous: (any SessionClient)?
+        let failure: LiveBridgeFailure?
+        var target: AccountKey?
+    }
+
+    private func connectionTarget(_ context: PendingConnection) async throws -> AccountKey {
+        guard context.adding else { return context.account }
+        guard let directory = self.accountDirectory else { throw LiveBridgeFailure.unavailable }
+        _ = await self.catalogRead?.result
+        let reserved = try await directory.reserve(provider: .mobileVikings)
+        self.accounts = try await directory.snapshot().accounts
+        return reserved.key
+    }
+
+    private func restoreAddedSelection(_ context: PendingConnection, target: AccountKey?) async throws {
+        guard let target else { return }
+        try await self.accountDirectory?.select(context.account, replacing: target)
+    }
+
+    private func performConnection(
+        input: AccountConnectionInput, resultURL: URL?, context: PendingConnection,
+    ) async {
+        defer {
+            if case let .credentials(credentials) = input {
+                credentials.discard()
             }
         }
-        return attempt
+        await context.previous?.shutdown()
+        guard self.isCurrent(context.intent) else { return }
+        do {
+            let target = try await self.connectionTarget(context)
+            guard self.isCurrent(context.intent) else { return }
+            self.pendingConnection?.target = target
+            let connector = try self.connectorFactory(target)
+            self.connector = connector
+            try await connector.connect(input: input, resultURL: resultURL)
+            guard self.isCurrent(context.intent) else { return }
+            if context.adding {
+                try await self.accountDirectory?.select(target)
+                guard self.isCurrent(context.intent) else {
+                    try await self.restoreAddedSelection(context, target: target)
+                    return
+                }
+            }
+            self.savedAccounts[context.account] = context.state
+            self.selectedAccount = target
+            self.addingAccount = false
+            self.liveState = LiveSessionState()
+            self.connector = nil
+            await self.restoreAndPerform(.refresh, intent: context.intent)
+            if self.isCurrent(context.intent) {
+                self.pendingConnection = nil
+            }
+        } catch { await self.failConnection(error, context: context) }
+    }
+
+    private func failConnection(_ error: any Error, context: PendingConnection) async {
+        guard self.isCurrent(context.intent) else { return }
+        self.connector = nil
+        self.pendingConnection = nil
+        self.liveState = context.adding ? context.state : LiveSessionState()
+        self.selectedAccount = context.account
+        let failure = error as? LiveBridgeFailure ?? .connectFailed
+        if context.adding {
+            self.connectionError = "Could not add account. " + failure.message
+            guard await self.restorePreviousWorker(context, intent: context.intent) else { return }
+        } else {
+            self.bridgeFailure = failure
+        }
+        self.finish()
+    }
+
+    private func restorePreviousWorker(_ context: PendingConnection, intent: Int) async -> Bool {
+        guard self.isCurrent(intent) else { return false }
+        self.activity = .restoring
+        do {
+            let client = try self.clientFactory(context.account)
+            self.client = client
+            self.appliedInterval = .fiveMinutes
+            try await self.applyInterval(client: client, intent: intent)
+            guard self.isCurrent(intent) else { return false }
+            let restored = try await client.request(.restore)
+            guard self.isCurrent(intent) else { return false }
+            guard restored.account == nil || restored.account?.key == context.account else {
+                throw LiveBridgeFailure.invalidReply
+            }
+            self.publish(restored)
+            self.bridgeFailure = context.failure
+            return true
+        } catch {
+            await self.failWorker(intent: intent)
+            return false
+        }
     }
 
     func isConnecting(_ attempt: ConnectionAttempt) -> Bool {
@@ -444,6 +573,10 @@ extension AppSession {
     func cancelConnection(_ attempt: ConnectionAttempt) async -> Bool {
         guard self.isConnecting(attempt) else { return false }
         self.connectionAttempt = nil
+        self.connectionError = nil
+        let context = self.pendingConnection
+        let previousFailure = context?.adding == true ? context?.failure : nil
+        self.pendingConnection = nil
         let operation = self.operation
         let intent = self.begin(.connecting)
         let connector = self.connector
@@ -454,7 +587,19 @@ extension AppSession {
         await operation?.value
         guard self.isCurrent(intent) else { return false }
         self.connector = nil
-        self.bridgeFailure = nil
+        if let context, context.adding {
+            do {
+                try await self.restoreAddedSelection(context, target: context.target)
+            } catch {
+                self.connectionError = "Could not restore the previous account selection. Select it again."
+            }
+            guard self.isCurrent(intent) else { return false }
+            self.selectedAccount = context.account
+            self.liveState = context.state
+            self.scheduleExpiry()
+            guard await self.restorePreviousWorker(context, intent: intent) else { return false }
+        }
+        self.bridgeFailure = previousFailure
         self.finish()
         return true
     }
@@ -470,7 +615,21 @@ extension AppSession {
     private func restoreAndPerform(_ request: SessionRequest, intent: Int) async {
         guard self.isCurrent(intent) else { return }
         do {
-            let client = try self.clientFactory()
+            let client: any SessionClient
+            if self.isFixtureLaunch {
+                let registry = FixtureAccounts.registry(at: self.referenceDate)
+                let registration = try registry.registration(self.selectedAccount.provider)
+                if let existing = self.fixtureClients[self.selectedAccount] {
+                    client = existing
+                } else {
+                    client = try FixtureSessionClient(session: registration.makeSession(AccountStorage(
+                        root: URL(fileURLWithPath: "/unused-fixture"), key: self.selectedAccount,
+                    )))
+                    self.fixtureClients[self.selectedAccount] = client
+                }
+            } else {
+                client = try self.clientFactory(self.selectedAccount)
+            }
             self.client = client
             self.appliedInterval = .fiveMinutes
             try await self.applyInterval(client: client, intent: intent)
@@ -493,6 +652,106 @@ extension AppSession {
             await self.perform(request, intent: intent)
         } catch {
             await self.failWorker(intent: intent)
+        }
+    }
+}
+
+extension AppSession {
+    var usesMobileFixture: Bool {
+        self.isFixtureLaunch && self.selectedAccount == FixtureAccounts.mobile
+    }
+
+    var supportsPoints: Bool {
+        self.liveState.account?.capabilities.points ?? (self.selectedAccount.provider == .mobileVikings)
+    }
+
+    var supportsInvoices: Bool {
+        self.liveState.account?.capabilities.invoices ?? (self.selectedAccount.provider == .mobileVikings)
+    }
+
+    var providerName: String {
+        self.liveState.account?.providerName ?? (self.selectedAccount.provider == .mobileVikings
+            ? "Mobile Vikings" : "Home fixture")
+    }
+
+    var selectedServiceKind: ServiceKind {
+        self.liveState.account?.selectedService?
+            .kind ?? (self.selectedAccount.provider == .mobileVikings ? .mobile : .home)
+    }
+
+    func reloadAccounts() {
+        guard !self.isFixtureLaunch, self.activity == .idle else { return }
+        let intent = self.generation
+        Task { _ = await self.reconcileSelection(intent: intent) }
+    }
+
+    private func catalogSnapshot(from directory: any AccountDirectoryClient) async throws -> CatalogSnapshot {
+        if let pending = self.catalogRead {
+            return try await pending.value
+        }
+        let pending = Task { try await directory.snapshot() }
+        self.catalogRead = pending
+        defer { self.catalogRead = nil }
+        return try await pending.value
+    }
+
+    private func reconcileSelection(intent: Int) async -> Bool {
+        guard self.isCurrent(intent) else { return true }
+        guard let directory = self.accountDirectory else { return false }
+        do {
+            let snapshot = try await self.catalogSnapshot(from: directory)
+            guard self.isCurrent(intent) else { return true }
+            self.accounts = snapshot.accounts
+            if snapshot.selected != self.selectedAccount {
+                self.selectAccount(snapshot.selected, persist: false)
+                return true
+            }
+        } catch {
+            await self.failWorker(intent: intent)
+            return true
+        }
+        return false
+    }
+
+    func selectAccount(_ key: AccountKey, persist: Bool = true) {
+        guard key != self.selectedAccount, self.accounts.contains(where: { $0.key == key }),
+              self.activity != .connecting, self.activity != .switching, self.activity != .stopped else { return }
+        let previousKey = self.selectedAccount
+        self.savedAccounts[previousKey] = self.liveState
+        self.savedFailures[previousKey] = self.bridgeFailure
+        let intent = self.begin(.switching)
+        self.pendingOptional.removeAll()
+        let previous = self.client
+        self.client = nil
+        self.selectedAccount = key
+        self.liveState = self.savedAccounts[key] ?? LiveSessionState()
+        self.liveState.setPaymentReview(nil)
+        self.bridgeFailure = self.savedFailures[key]
+        self.historyError = nil
+        self.invoiceError = nil
+        self.scheduleExpiry()
+        self.onPresentationChange?()
+        self.operation = Task {
+            await previous?.shutdown()
+            guard self.isCurrent(intent) else { return }
+            do {
+                if persist {
+                    _ = await self.catalogRead?.result
+                    guard self.isCurrent(intent) else { return }
+                    try await self.accountDirectory?.select(key)
+                }
+                guard self.isCurrent(intent) else { return }
+                if self.usesMobileFixture {
+                    self.finish()
+                } else {
+                    await self.restoreAndPerform(.refresh, intent: intent)
+                }
+            } catch {
+                guard self.isCurrent(intent) else { return }
+                self.selectedAccount = previousKey
+                self.liveState = self.savedAccounts[previousKey] ?? LiveSessionState()
+                await self.failWorker(intent: intent)
+            }
         }
     }
 }
