@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-Finite, unlimited, exhausted, stale, error, Not connected, two synthetic SIMs with separate bundles, and simulated Refresh.
+Mobile Vikings finite, unlimited, exhausted, stale, error, Not connected, two synthetic SIMs with separate bundles, and simulated Refresh. Separate provider/account fixtures exercise home services, isolated failure, and return to retained mobile data.
 
 ## How to get to it
 
@@ -19,11 +19,11 @@ Launch with `--fixture finite`, open the helmet, then footer **Settings**. Choos
 - Error shows unavailable amounts and a question mark.
 - Not connected shows a clear setup state without a fabricated allowance or unavailable-value stack. The fixture launch stays isolated.
 
-Default status title is empty. Amount mode shows `36 GB`, `Unlimited`, `0 GB`, `36 GB`, and `Unavailable` for the five fixtures. Not connected shows `Unavailable` in amount mode. Snapshot provenance remains explicit in tooltip, accessibility, and CLI. Fixture-only Settings also explains isolation.
+Default status title is empty. Amount mode shows `36 GB`, `Unlimited`, `0 GB`, `36 GB`, and `Unavailable` for the five fixtures. Not connected shows `Unavailable` in amount mode. Snapshot provenance remains explicit in tooltip, accessibility, and CLI. Fixture-only Settings displays synthetic provenance.
 
 Use `vikingbar.subscriptionPicker` and `vikingbar.bundlePicker` on the balance. Example SIM has Monthly data with 36/50 GB and Extra data with 4/5 GB. Travel SIM has Monthly data with 8/10 GB and Extra data with 1/2 GB. Each SIM switch selects its monthly bundle. Verify identity and allowance together. Settings and Back preserve the current selection.
 
-Refresh displays a synthetic busy interval then advances its update timestamp, preserving amounts and the selected fixture state. It never calls the account worker. Verify the disabled refresh and selectors during that interval.
+Refresh displays a synthetic busy interval and preserves amounts and the selected fixture state. Successful and stale fixtures advance their update timestamp; Error keeps unavailable freshness. It never calls the account worker. Verify the disabled refresh and selectors during that interval.
 
 ## Appearance and persistence
 

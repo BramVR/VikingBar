@@ -26,11 +26,11 @@ The gate first runs bundled `vikingbar proof history-api`. This forces real dail
 
 Classic capture returns these attached windows as one group. The history gate targets each member by exact PID and window ID, validates its receipt against that member's bounds, and requires each PNG to match the geometric union of exactly the two known content windows at a uniform scale. It rejects extra content windows and rechecks both identities, frames, and selected-day details after each capture. These are explicitly labeled group images, not individual crops. No area capture or retry substitutes for a failed receipt.
 
-Keep the generated `.build/proof/<run>/` directory private. It contains API receipts, typed private reports, native trees, initial and refreshed chart PNGs, exact process and executable identities, and cleanup receipts. Inspect both PNGs for visible bars, date labels, units, gap markers, estimate wording, and readable layout. Evidence must survive cleanup. Publish only redacted results and build identity.
+Keep the generated `.build/proof/<run>/` directory private. It contains API receipts, typed private reports, native trees, initial and refreshed chart PNGs, exact process and executable identities, and cleanup receipts. Inspect every initial and refreshed main-hover and window-group PNG for visible bars, date labels, units, gap markers, estimate wording, and readable layout. Evidence must survive cleanup. Publish only redacted results and build identity.
 
 The runner checks source-to-panel pointer traversal and selected-day details through `vikingbar.historyPlot`, whose bounds exclude chart axes. It compares the main balance and freshness text against the same report used for the detail panel. The close button dismisses the panel; accessibility activation opens it again.
 
-For source-only checks, run `make check SWIFTFORMAT=/tmp/vikingbar-tools-issue1/swiftformat`, `Scripts/test.sh --filter History`, and `python3 -m unittest discover -s Scripts/tests -p test_history_proof.py`. These tests inject synthetic HTTP and stores. They do not drive the native app, use Keychain, invoke 1Password, or contact the account API.
+For source-only checks, run `make check`, `Scripts/test.sh --filter History`, and `python3 -m unittest discover -s Scripts/tests -p test_history_proof.py`. These tests inject synthetic HTTP and stores. They do not drive the native app, use Keychain, invoke 1Password, or contact the account API.
 
 ## Gotchas
 

@@ -2,15 +2,17 @@
 
 ## Sub-features
 
-Selected SIM and bundle, remaining beside total allowance, thin remaining progress, usage, exact expiry, expandable details, extra charges, Refresh and freshness, My Viking, Bills, Points, and footer Settings. Plain actions use native menu selection colors while the pointer is inside their padded control frame. Disabled actions retain disabled text and no selection fill.
+Provider and retained account selection; selected mobile SIM/bundle or home service; Remaining/Used display with matching progress; total allowance, expiry, Refresh and freshness. Mobile services expose bundle details and extra charges. My Viking is Mobile Vikings-specific; Bills and Points follow provider capabilities. Plain actions use native menu selection colors while the pointer is inside their padded control frame. Disabled actions retain disabled text and no selection fill.
 
 ## How to get to it
 
-Launch the fixture app and click the helmet. The balance opens directly without tabs. Use **Back** from Settings or Points. Settings contains GB/GiB, the menu bar preference, fixture selection, and Quit.
+Launch the fixture app and click the helmet. The balance opens directly without tabs. Use **Back** from Settings or Points. Settings contains Remaining/Used, refresh interval, login status, GB/GiB, the menu bar preference, fixture selection, Account, and Quit. Normal live mobile cards also include history; explicit fixtures omit that section.
 
 ## Native proof
 
 Run `make smoke-app-fixture` with the exclusive Mac UI slot. Require a fresh bundle, visible helmet, correctly ordered unclipped controls, one Settings entry, and no fixture/unit picker in the primary balance. Inspect `card.png`, named state captures, Settings, bundle-details, Points, refresh, selection, and action-hover captures. Require `result.json` and four real Quit exits in `cleanup.json`.
+
+Start on the first Mobile Vikings fixture account with Example SIM / Monthly data, Remaining display, and GB units. The expected amounts below assume that state.
 
 1. Inspect normal, hover, and exit captures for Refresh, Open My Viking, Bills, Points, Settings, and Back in explicit light appearance. Require native paired selection colors, one selected row, and unchanged AX and popover frames.
 2. Require adjacent Bills-to-Points and Points-to-Settings transfers. Require the prior row to clear. Use the retained pointer receipts to confirm center and near-edge destinations inside each AX frame.
