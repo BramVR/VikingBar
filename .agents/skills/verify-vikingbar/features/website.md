@@ -1,22 +1,26 @@
 # Website
 
-## Sub-features
+## Behavior
 
-Public product page, interactive helmet and allowance animation, synthetic balance menu, setup and requirements, FAQ, source references, and development-build dialog. The website demo never connects to a Mobile Vikings account. Its settings affect only the page session; the sample menu starts with its GB label visible even though the native app defaults to icon-only.
+Public product page with a rotating helmet, optional background motion, synthetic balance/history/Bills/Points/account views, setup/FAQ, source references, and an unsigned-preview download dialog. Demo preferences affect only the page session. The sample menu starts with its GB label visible; the native app defaults to icon-only.
 
 ## Launch and doctor
 
-From `website/`, run `npm ci`, then `npm run build` and `npm test` in that order; the tests read the built `dist/client` files. Check that port 4173 is free, then start `npm run dev -- --host 127.0.0.1 --port 4173 --strictPort` in a task-owned terminal session. Record the listener PID, parent, start time, and exact command. Before opening the page, require that the recorded process still owns the listener and `curl -fsS http://127.0.0.1:4173/` returns the VikingBar document. Open one task-owned browser tab and require the **Your data. One glance.** heading. After any failed browser action, check process and HTTP health again; if the page is wedged despite a healthy server, reload to the known home state before further driving.
+From `website/`, run `npm ci`, `npm run build`, then `npm test`; tests inspect built output. Check port 4173 is free. Start one owned server with `npm run dev -- --host 127.0.0.1 --port 4173 --strictPort`. Record listener PID, parent, start time, and command. Require matching process identity, HTTP success, and the VikingBar document before opening one browser tab. Verify the **Your data. One glance.** hero. After a failed drive, recheck process and HTTP health; reload only if the page is wedged.
 
 ## Drive
 
-1. Inspect the hero visually. Require the 3D helmet or its static WebGL fallback. Toggle **Pause motion** and select **Refill**; the allowance strip must reflect the stage. The page also supports drag, arrow keys, and Home reset.
-2. Open **Preview**. The card must say **Demo**. Personal SIM Monthly data starts at 36/50 GB; Work SIM Monthly data is 8/20 GB. Work SIM Extra data is 1.5/3 GB with its own expiry and €1.20 charges. Expand Bundle details and check that the text belongs to Work SIM. Press Refresh and observe the temporary disabled state followed by **Sample refreshed just now**.
-3. In demo Settings, choose GiB and turn off **Show remaining GB in menu bar**. Return to the balance: Work Extra data reads 1.4/2.8 GiB, while the sample menu loses its adjacent amount. These controls do not change native app preferences.
-4. Open **Source**, select `DataCard.swift`, and check its description and repository link. Open **Get VikingBar** and check the development-build, approved public-client API access and GitHub Actions sign-in prerequisites, plus direct sign-in and the optional configured 1Password helper. Expand a FAQ answer. Inspect link destinations without starting an account or download flow.
+1. Inspect the rendered helmet or static WebGL fallback. Exercise arrows and Home reset. Use the footer **Pause motion** / **Enable motion** button. There is no Refill control. While paused, expand a FAQ and check background positions stay anchored.
+2. Scope actions to **Interactive sample VikingBar menu**; a separate billing showcase has duplicate navigation controls. The history companion starts open. Inspect missing, confirmed-zero, and partial-today days and the labeled estimate; close and reopen it.
+3. Personal SIM Monthly data starts at 36/50 GB. Work SIM Monthly data is 8/20 GB; Work Extra data is 1.5/3 GB with its own expiry and €1.20 charges. Expand Bundle details and verify Work-specific text. Refresh must briefly disable itself, then show **Sample refreshed just now**.
+4. In Settings, use the **Data units** combobox for GiB and uncheck **Show remaining GB in menu bar**. Work Extra reads 1.4/2.8 GiB; the sample menu loses its amount. Remaining/Used, refresh interval, and launch-at-login controls remain demo-only. Inspect Account and customer-wide Points, including expanded signed transaction states.
+5. Scope the second showcase to **Interactive sample billing menu**. Issued SAMPLE-2026-001 has €15 total, €10 due, €5 reduction, 5 points, and grouped scope. Its QR is explicitly illustrative and contains no payment instructions; Open PDF is disabled. Paid SAMPLE-2026-002 has €0 due and no bank transfer. Refresh must settle at **Updated just now**. Copy controls touch the clipboard; skip them unless that mutation is authorized.
+6. Open Source, select DataCard.swift, and inspect its description and link. Get VikingBar opens **Try the unsigned preview.** Verify macOS 14+, Apple Silicon, unsigned/not notarized status, download without a GitHub account, API approval/public-client prerequisite, direct sign-in and optional 1Password helper. Inspect release/setup destinations without downloading or entering an account flow.
 
-Keep task-local observations and any captured screenshots under `.build/proof/<run>/`; verify each named evidence file survives cleanup. Close only the task-owned tab, stop only the recorded Vite process/session, and confirm its PID and port are gone. Local preview proof does not establish that GitHub Pages has deployed the same commit.
+Read current DOM roles before acting. Native AX can describe an HTML button as a checkbox; browser automation must use the rendered DOM role. Failed selector resolution does not authorize repeating an uncertain action.
 
-## Proof status
+## Evidence and cleanup
 
-On 2026-09-15, the local page at `3a62b144e86b9b8c5b6747ba0ad3c9d63e2a13f4` passed build and all 12 website tests. A browser pass inspected the rendered helmet, Refill with motion paused, both Work SIM bundles, details, refresh, GiB and menu-label settings, source and download dialogs, and FAQ. The task-owned tab and Vite listener exited; the task-local observation receipt remained. No external account or GitHub link was opened.
+Keep named observations and any saved captures under a task-owned proof directory. Inspect actual screenshots for visual claims. Close only the owned tab and stop only the recorded server. Confirm its PID and port are gone and evidence remains. Local preview does not prove deployed GitHub Pages identity, native behavior, clipboard success, or real payment/PDF behavior.
+
+On 2026-09-23 at `d7b0e14`, build and 16 website tests passed. One browser pass covered the rendered helmet, motion toggle/Home, missing/zero history, separate SIM/bundle amounts, details, refresh, GiB/menu preference, Account, Points transactions, issued/paid Bills, disabled PDF, source/download dialogs, FAQ, and unchanged paused background geometry. Copy and external links were not activated. Named observations survived tab/server cleanup. Browser content export was unavailable; no exported DOM or saved screenshot was claimed.

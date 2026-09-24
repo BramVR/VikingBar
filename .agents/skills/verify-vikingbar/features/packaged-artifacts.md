@@ -6,7 +6,7 @@ Development app and standalone CLI archives, version/commit manifests, checksums
 
 ## Prerequisites
 
-Read [Download builds and stage a draft release](../../../../docs/RELEASING.md). Use a trusted, reviewed checkout for inspection and trust the artifact's source commit and build workflow before executing downloaded binaries. Checksums establish integrity against the supplied list, not authenticity. Use the project's macOS arm64 toolchain and authenticated GitHub access for private downloads. No carrier credentials or UI slot are needed.
+Read [Download builds and stage a draft release](../../../../docs/RELEASING.md). Use a trusted, reviewed checkout for inspection and trust the artifact's source commit and build workflow before executing downloaded binaries. Checksums establish integrity against the supplied list, not authenticity. Use the project's macOS arm64 Swift and Go toolchains; the QR helper build may download pinned Go dependencies. Private downloads require authenticated GitHub access. No carrier credentials or UI slot are needed.
 
 ## Driving it with terminal
 
@@ -16,7 +16,11 @@ For hosted artifacts, select a successful `VikingBar checks` PR or main run and 
 
 Before executing binaries, check the manifest commit/version against that exact trusted source. Run `shasum -a 256 -c SHA256SUMS` inside the artifact directory. From the trusted checkout, run `python3 Scripts/smoke-package.py /absolute/path/to/artifact-directory`. Require complete checksum coverage, clean delivered source, arm64 executables, minimum macOS 14 load commands, matching app metadata, executable permissions, and the manifest's resource layout. Require the bundled and standalone fixture CLI smoke to pass all states, units/timezone, and argument errors.
 
-Match the verifier to the artifact's exact trusted source commit. For a historical artifact, stage both `Scripts/smoke-package.py` and its sibling `Scripts/smoke-cli.py` from that commit in a fresh task-owned directory, inspect them, and run the staged package verifier against the downloaded artifact. Current builds require the executable `connect-account.py` resource and its matching `connectHelperSHA256`; older builds may predate that field. Keep the current verifier's checks intact. A newer verifier rejecting an older manifest does not establish an artifact defect.
+Match the verifier to the artifact's exact trusted source commit. For a historical artifact, stage both `Scripts/smoke-package.py` and its sibling `Scripts/smoke-cli.py` from that commit in a fresh task-owned directory, inspect them, and run the staged package verifier against the downloaded artifact. Current builds require the executable `connect-account.py` and matching `connectHelperSHA256`, payment QR helper hashes/provenance and notices in both archives, and `localAdHocSealed: true` with a valid bundle seal. Older builds may predate these fields. Keep the current verifier's checks intact. A newer verifier rejecting an older manifest does not establish an artifact defect.
+
+## Published previews
+
+For an existing published preview, follow the read-only inspection in [release documentation](../../../../docs/RELEASING.md). Verify the release/tag/source identity, notes, assets, checksums, and matching historical verifier before executing extracted fixture CLIs. Published previews are not private drafts; do not require `isDraft: true`. Download does not prove installation or Gatekeeper approval. Creating, publishing, replacing, or dispatching a release remains outside ordinary maintenance.
 
 ## Private draft coverage
 
@@ -26,4 +30,4 @@ Creating a tag or dispatching the draft workflow requires explicit release-proof
 
 ## Evidence and limits
 
-Keep run IDs, source SHA, manifest, checksum results, extracted CLI output, draft identity, and before/after asset receipts in private proof outside commits. Evidence survives temporary extraction cleanup. These are development builds without Developer ID signing or notarization. Compiler ad hoc signatures do not establish distribution trust. Package inspection does not prove native graphical behavior or runtime compatibility on every supported macOS version; use the UI feature recipes for native proof.
+Keep run IDs, source SHA, manifest, checksum results, extracted CLI output, draft identity, and before/after asset receipts in private proof outside commits. Evidence survives temporary extraction cleanup. These are development builds without Developer ID signing or notarization. The package has an explicit local ad-hoc bundle seal, which does not establish distribution trust. Package inspection does not prove native graphical behavior or runtime compatibility on every supported macOS version; use the UI feature recipes for native proof.

@@ -34,3 +34,9 @@ Confirm receipts contain no credentials, tokens, subscription identifiers, phone
 ## Gotchas
 
 Explicit fixture app and CLI launches remain synthetic. Default app startup restores a stored live session and can access Keychain and the provider. This auth/balance route proves endpoint execution and response validation, not allowance display correctness. MFA behavior remains unverified; a challenge fails the gate without disabling MFA or using browser cookies. Hosted CI must not run this credentialed recipe.
+
+## Separate Telenet feasibility gate
+
+[The Telenet proof contract](../../../../docs/telenet-proof.md) owns `make proof-live CHECK=telenet-auth-usage`. It uses a different approved item with only `username` and `password`, an in-memory cookie session, and two independently compared usage reads. Do not use the Mobile Vikings three-field reference. One targeted lookup inside the named tmux session is required; no retries or credential enumeration. This gate does not install a native provider.
+
+The recorded 2026-09-23 gate verified residential home usage; mobile was absent. Session reuse is proved, natural expiry/renewal and MFA are not. Keep those limitations distinct from the Mobile Vikings auth proof and from native account-selection fixtures. This maintenance pass reran Mobile Vikings auth only; it does not claim a new Telenet pass.

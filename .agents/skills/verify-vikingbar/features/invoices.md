@@ -1,9 +1,9 @@
-# Latest bill and PDF
+# Billing documents and PDF
 
 ## Sub-features
 
 - Account-level invoice listing, including grouped bills and selected-SIM membership.
-- Latest billing document with separate total, amount due, reduction, applied points, date, payment status, and credit-note linkage.
+- Selected billing document with separate total, amount due, reduction, applied points, date, payment status, and credit-note linkage.
 - Empty, unavailable, and bounded-result states that preserve the balance.
 - Explicit authenticated PDF download into a private local file.
 - Fresh exact-invoice bank-transfer review with a short-lived, locally generated EPC QR and per-field copy controls.
@@ -12,7 +12,7 @@
 
 ## How to get to it (user POV)
 
-Connect the live account, open the helmet, and choose **Bills**. Inspect billing documents and their account or grouped scope. Use **Load bills** to retry or refresh. Expand **Review bank transfer QR** for an eligible invoice; the app refreshes and revalidates before showing it. **Open PDF** requests and opens that document. The ordinary fixture keeps Load bills disabled. The separate `--payment-fixture` path supplies synthetic invoices, an isolated clipboard receipt, and a real bundled QR without account access.
+Connect the live account, open the helmet, and choose **Bills**. The refresh control is icon-only, labeled **Refresh bills**. Use the Billing document picker when several documents exist. Initial selection prefers an eligible payable document, otherwise the first document; do not assume it is the newest. Inspect billing documents and their account or grouped scope. Use **Refresh bills** to retry or refresh. Expand **Bank transfer QR** for an eligible invoice; the app refreshes and revalidates before showing it. **Open PDF** requests and opens that document. The ordinary fixture keeps Refresh bills disabled. The separate `--payment-fixture` path supplies synthetic invoices, an isolated clipboard receipt, and a real bundled QR without account access.
 
 ## Driving it with the native helper and CLI
 
@@ -20,7 +20,7 @@ Run `make check` with the configured formatter, then `make check-proof`. These u
 
 Run `make smoke-payment-fixture` for the synthetic native payment flow. Require the actual screenshot QR to decode to the fixture EPC payload, all copy controls to report exact in-memory values without using the system clipboard, collapse to remove the QR, reopen to generate it again, and light/dark captures. For real API/PDF correspondence, privately review the PDF, create the exact mode-0600 witness described in `docs/invoices.md`, and run `VIKINGBAR_PAYMENT_EVIDENCE=/private/path/reviewed-invoice.json make proof-live CHECK=payment-evidence`. The receipt must be redacted. Keep the witness, raw metadata, PDF, and captures private.
 
-Native coverage requires the Mac UI slot as well. Follow the [verification skill](../SKILL.md) to build, record, and inspect a task-owned live app. Run doctor before driving. Press `vikingbar.bills` and inspect `vikingbar.invoices.message`. Wait for automatic loading to settle and `vikingbar.invoices.load` to become enabled. Record the displayed fetch timestamp, press Load bills, then require a newer timestamp and completed response. Inspect `vikingbar.invoice.latest` when present. Compare every displayed billing value and its scope with the production presentation. Press `vikingbar.back`, then `vikingbar.points`, and confirm that customer points remain available after invoice loading. Press `vikingbar.back`, press Refresh, and require a newer usable balance and completed points refresh. If bill loading was interrupted, require its metadata request to resume. Verify that a cancelled PDF action does not open later. Delayed-request ordering remains a separate synthetic regression; fast live responses cannot prove that case.
+Native coverage requires the Mac UI slot as well. Follow the [verification skill](../SKILL.md) to build, record, and inspect a task-owned live app. Run doctor before driving. Press `vikingbar.bills` and inspect `vikingbar.invoices.message` when present; normal loaded success omits it. Wait for automatic loading to settle and `vikingbar.invoices.load` to become enabled. Record the underlying invoice `updatedAt`, press Refresh bills, then require newer metadata and a completed response. The displayed timestamp has minute precision and may stay unchanged during a quick refresh. Inspect `vikingbar.invoice.latest` when present. Compare every displayed billing value and its scope with the production presentation. Press `vikingbar.back`, then `vikingbar.points`, and confirm that customer points remain available after invoice loading. Press `vikingbar.back`, press Refresh, and require a newer usable balance and completed points refresh. If bill loading was interrupted, require its metadata request to resume. Verify that a cancelled PDF action does not open later. Delayed-request ordering remains a separate synthetic regression; fast live responses cannot prove that case.
 
 Only with explicit permission to open the personal PDF, press `vikingbar.invoice.pdf`. Verify the requested local PDF opens and that the file has private permissions. Otherwise record native PDF opening as unproved; the authorized CLI gate can still validate the download path without displaying its contents. Do not infer native button success from a CLI receipt.
 
