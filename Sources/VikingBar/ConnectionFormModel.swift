@@ -15,11 +15,11 @@ final class ConnectionFormModel {
         self.username = account?.username ?? ""
     }
 
-    func takeCredentials(isFixture: Bool) -> ConnectionCredentials? {
+    func takeCredentials(isFixture: Bool, provider: ProviderID = .mobileVikings) -> ConnectionCredentials? {
         defer { self.password = "" }
         do {
             let credentials = try ConnectionCredentials(
-                clientID: self.clientID, username: self.username, password: self.password,
+                provider: provider, clientID: self.clientID, username: self.username, password: self.password,
             )
             guard !isFixture else {
                 credentials.discard()
@@ -31,7 +31,7 @@ final class ConnectionFormModel {
         } catch {
             self.error = switch error as? ConnectionCredentials.Validation {
             case .tooLong: "Sign-in details are too long."
-            default: "Enter all three fields."
+            default: provider == .telenet ? "Enter your username and password." : "Enter all three fields."
             }
             return nil
         }

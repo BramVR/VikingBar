@@ -23,7 +23,7 @@ struct HistoryCard: View {
             .focused(self.$focused)
             .onMoveCommand { self.companion.moveSelection($0) }
             .onExitCommand { self.companion.dismiss() }
-            .accessibilityLabel("Daily SIM data and estimate")
+            .accessibilityLabel("\(self.content.title) and estimate")
             .accessibilityValue(self.content.presentation.totalText)
             .accessibilityHint("Open details. Use Left and Right Arrow to select days, and Escape to close.")
             .accessibilityIdentifier("vikingbar.historyDisclosure")
@@ -135,7 +135,7 @@ struct HistoryCard: View {
                     let frame = geometry[anchor]
                     HistoryPlotReader(
                         identifier: "vikingbar.historyMainPlot",
-                        label: "Last 30 days plot",
+                        label: self.content.chartLabel,
                         onMoved: { location in self.selectMain(at: location, width: frame.width) },
                         onExited: {},
                         onActivated: { location in

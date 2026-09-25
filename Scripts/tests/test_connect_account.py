@@ -30,6 +30,47 @@ class ConnectAccountTests(unittest.TestCase):
         self.receipt = {"schema_version": 1, "check": "connect", "passed": True, "connected": True,
                         "connection_sha256": "7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052"}
 
+    def test_telenet_reads_two_fields_once_and_passes_only_stdin(self):
+        selector = "telenet/00000000-0000-0000-0000-000000000042"
+        self.reference.write_text(json.dumps({"vault": "Codex Automation", "item_id": "telenet.be",
+                                              "fields": ["username", "password"]}))
+        calls = []
+        def execute(command, **kwargs):
+            calls.append((command, kwargs))
+            value = ({"fields": [{"label": key, "value": "synthetic-" + key}
+                                  for key in ("username", "password", "unrelated")]}
+                     if len(calls) == 1 else self.receipt)
+            return subprocess.CompletedProcess(command, 0, json.dumps(value).encode(), b"private-error")
+        with patch.object(CONNECT.shutil, "which", return_value="/synthetic/op"):
+            result = CONNECT.inside(self.cli, self.reference, self.environment, execute, account=selector)
+        self.assertEqual(result, self.receipt)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][0], ["/synthetic/op", "item", "get", "telenet.be", "--vault",
+                                     "Codex Automation", "--format", "json"])
+        self.assertEqual(calls[1][0], [str(self.cli), "connect", "--account", selector])
+        self.assertEqual(json.loads(calls[1][1]["input"]),
+                         {"username": "synthetic-username", "password": "synthetic-password"})
+        self.assertEqual(calls[1][1]["env"], {"PATH": "/synthetic"})
+
+    def test_provider_reference_mismatch_fails_before_reading_credentials(self):
+        selector = "telenet/00000000-0000-0000-0000-000000000042"
+        with self.assertRaisesRegex(CONNECT.ConnectFailure, "invalid-credential-reference"):
+            CONNECT.inside(self.cli, self.reference, self.environment,
+                           lambda *_args, **_kwargs: self.fail("credential read"), account=selector)
+        self.reference.write_text(json.dumps({"vault": "Codex Automation", "item_id": "synthetic",
+                                              "fields": ["username", "password"]}))
+        with self.assertRaisesRegex(CONNECT.ConnectFailure, "invalid-credential-reference"):
+            CONNECT.inside(self.cli, self.reference, self.environment,
+                           lambda *_args, **_kwargs: self.fail("credential read"))
+
+    def test_telenet_duplicate_password_fails_with_fixed_diagnostic(self):
+        selector = "telenet/00000000-0000-0000-0000-000000000042"
+        payload = json.dumps({"fields": [{"label": "username", "value": "synthetic-user"},
+                                         {"label": "password", "value": "synthetic-password"},
+                                         {"label": "password", "value": "synthetic-other"}]}).encode()
+        with self.assertRaisesRegex(CONNECT.ConnectFailure, "^invalid-credential-fields$"):
+            CONNECT.credentials_from(payload, selector)
+
     def test_account_selector_is_forwarded_without_credential_arguments(self):
         selector = "mobile-vikings/00000000-0000-0000-0000-000000000002"
         calls = []

@@ -4,8 +4,14 @@ import SwiftUI
 import VikingBarCore
 
 @MainActor
+enum HistoryCompanionIdentity: Equatable {
+    case mobile(HistoryContext)
+    case home(ServiceKey, ConnectionID, BillingPeriod)
+}
+
+@MainActor
 struct HistoryCompanionContent: Equatable {
-    let identity: HistoryContext
+    let identity: HistoryCompanionIdentity
     let subscriptionName: String
     let presentation: HistoryPresentation
     let isLoading: Bool
@@ -13,21 +19,52 @@ struct HistoryCompanionContent: Equatable {
     let unit: DataUnit
     let reportedUsedBytes: UInt64?
     let reportedUsedText: String
+    let title: String
+    let chartLabel: String
+    let observedTitle: String
+    let estimateTitle: String
+    let reportedTitle: String
+    let reportedValue: String
 
     init?(session: AppSession) {
-        guard let identity = session.liveState.historyContext else { return nil }
-        self.identity = identity
+        if let home = session.liveState.selectedHomeUsage {
+            self.identity = .home(home.key, home.connectionID, home.period)
+            self.subscriptionName = session.snapshot.subscriptionName
+            self.presentation = session.historyPresentation
+            self.isLoading = false
+            self.error = nil
+            self.unit = session.unit
+            self.reportedUsedBytes = nil
+            self.reportedUsedText = HomeUsageCardPresentation(usage: home, unit: session.unit).downloaded
+            self.title = "Daily home downloads"
+            self.chartLabel = "Daily home downloads plot"
+            self.observedTitle = "Reported daily downloads"
+            self.estimateTitle = "Estimated this period"
+            self.reportedTitle = "Provider period downloads"
+            self.reportedValue = self.reportedUsedText
+            return
+        }
+        guard session.selectedServiceKind == .mobile,
+              let context = session.liveState.historyContext else { return nil }
+        self.identity = .mobile(context)
         self.subscriptionName = session.liveState.subscriptions
-            .first(where: { $0.id == identity.subscriptionID })?.displayName ?? session.snapshot.subscriptionName
+            .first(where: { $0.id == context.subscriptionID })?.displayName ?? session.snapshot.subscriptionName
         self.presentation = session.historyPresentation
         self.isLoading = session.isHistoryLoading
         self.error = session.historyError
         self.unit = session.unit
         self.reportedUsedBytes = switch session.snapshot.allowance {
         case let .finite(_, usedBytes, _), let .unlimited(usedBytes): usedBytes
+        case .speedThreshold: nil
         case .unavailable: nil
         }
         self.reportedUsedText = session.menu.usedText
+        self.title = "Daily SIM data"
+        self.chartLabel = "Daily SIM data plot"
+        self.observedTitle = "Observed so far"
+        self.estimateTitle = "Estimated at renewal"
+        self.reportedTitle = "Selected bundle reported"
+        self.reportedValue = self.reportedUsedBytes.map(session.unit.format(bytes:)) ?? "Unavailable"
     }
 }
 

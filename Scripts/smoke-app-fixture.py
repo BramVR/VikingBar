@@ -432,9 +432,32 @@ def provider_account_switching():
     assert 'Example home 1' in json.dumps(data)
     assert 'vikingbar.points' not in json.dumps(data) and 'vikingbar.bills' not in json.dumps(data)
     assert 'vikingbar.bundlePicker' not in json.dumps(data)
+    boundary, _ = UI.popover_window(data, screens)
+    for suffix, expected in (
+            ('headline', '980 GB Data remaining'), ('quota-progress', 'Data remaining, 98% remaining'),
+            ('traffic-progress', 'Downloaded traffic, Peak 25%, off-peak 75%'),
+            ('period', 'Billing period 2026-09-01 to 2026-09-30'),
+            ('category', 'Policy CAP'), ('policy-counter', 'Policy counter 20 GB'),
+            ('allocation', 'Allowance 1000 GB'), ('downloaded', 'Downloaded 60 GB'),
+            ('peak', 'Peak 15 GB'), ('off-peak', 'Off-peak 45 GB'), ('speed', 'Speed state unknown')):
+        assert UI.visible_value(data, boundary, 'vikingbar.home.' + suffix, expected), 'Home field mismatch: ' + suffix
     capture_card('home-provider')
+    assert not element(data, 'vikingbar.home.fetched'), 'Usage details should start collapsed.'
+    press('vikingbar.home.details', 'home-details-expand')
+    data = wait_for(lambda: inspect('home-details-expanded.json'),
+                    lambda d: bool(element(d, 'vikingbar.home.fetched')))
+    boundary, _ = UI.popover_window(data, screens)
+    assert UI.contained(element(data, 'vikingbar.home.provider-updated'), boundary)
+    assert UI.contained(element(data, 'vikingbar.home.fetched'), boundary)
+    capture_card('home-provider-details')
+    press('vikingbar.home.details', 'home-details-collapse')
+    wait_for(lambda: inspect('home-details-collapsed.json'),
+             lambda d: not element(d, 'vikingbar.home.fetched'))
     choose_popup('vikingbar.subscriptionPicker', 'Example home 2', 'home-service')
-    wait_for(lambda: inspect('home-service.json'), lambda d: '960.00 GB' in json.dumps(d))
+    data = wait_for(lambda: inspect('home-service.json'), lambda d: '960.00 GB' in json.dumps(d))
+    boundary, _ = UI.popover_window(data, screens)
+    assert UI.visible_value(data, boundary, 'vikingbar.home.policy-counter', 'Policy counter 40 GB')
+    assert UI.visible_value(data, boundary, 'vikingbar.home.downloaded', 'Downloaded 90 GB')
     choose_popup('vikingbar.accountPicker', 'Demo · Unavailable home', 'home-failure')
     wait_for(lambda: inspect('home-failure.json'), lambda d: 'synthetic home provider is unavailable' in json.dumps(d))
     choose_popup('vikingbar.providerPicker', 'Mobile Vikings', 'mobile-provider-return')

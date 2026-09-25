@@ -2,9 +2,13 @@
 
 ## 0.1.1 (Unreleased)
 
+- Add Telenet daily download charts with the same hover and detail panel as Mobile Vikings, with partial-day and missing-data states, separate cycle totals, and labeled estimates.
+- Add Telenet residential home internet beside Mobile Vikings, with a visual allowance card, separate peak/off-peak traffic breakdown, billing periods, account-scoped cookie sessions, conservative polling, and native/CLI proof.
+- Report `session-busy` from CLI live reads when another process is updating the account, so verification can wait without interrupting the refresh.
+
 - Retain multiple Mobile Vikings accounts with native and CLI selection, isolated credentials and cached balances, explicit add/reconnect actions, and a provider adapter boundary verified with synthetic home services.
 
-- Add a read-only local Telenet feasibility gate with bounded IDX login, two-pass service usage checks, redacted receipts, and synthetic coverage; native provider support remains pending.
+- Add a read-only local Telenet feasibility gate with bounded IDX login, two-pass service usage checks, redacted receipts, and synthetic coverage.
 
 ## 0.1.0
 

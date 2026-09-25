@@ -37,7 +37,7 @@ struct AccountView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .accessibilityIdentifier("vikingbar.account.change")
-            Button("Add Mobile Vikings account…", action: self.addAccount)
+            Button("Add account…", action: self.addAccount)
                 .accessibilityIdentifier("vikingbar.account.add")
         }
         .frame(maxWidth: .infinity, alignment: .leading)

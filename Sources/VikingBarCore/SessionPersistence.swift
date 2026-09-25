@@ -22,14 +22,16 @@ public protocol BalanceCache: Sendable {
 
 public struct KeychainSessionStore: SessionStore {
     private let account: String
+    private let service: String
 
-    public init(account: String = "mobile-vikings") {
+    public init(account: String = "mobile-vikings", service: String = "be.bram.vikingbar.oauth") {
         self.account = account
+        self.service = service
     }
 
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "be.bram.vikingbar.oauth",
+         kSecAttrService as String: self.service,
          kSecAttrAccount as String: self.account]
     }
 

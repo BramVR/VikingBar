@@ -1,6 +1,7 @@
 # Feature map
 
-- [Provider accounts and services](provider-accounts.md). Verify retained account isolation, provider capabilities, typed home/mobile services, and synthetic switching. Production currently supports Mobile Vikings.
+- [Provider accounts and services](provider-accounts.md). Verify retained account isolation, provider capabilities, typed home/mobile services, and synthetic switching.
+- [Telenet home internet](telenet-home.md). Verify home policy and traffic counters, native connection, refresh, provider switching, and stored-session relaunch.
 - [Data card](data-card.md). Open the compact balance and inspect SIM/bundle selection, remaining progress, expiry, details, refresh, and footer Settings.
 - [Helmet and display setting](helmet-and-display-setting.md). Verify native fill, exceptional states, optional GB text, Settings, isolated persistence, and render scales.
 - [Fixture selection](fixture-selection.md). Use fixture-only Settings for five synthetic states and Not connected; drive separate SIMs/bundles and simulated refresh.

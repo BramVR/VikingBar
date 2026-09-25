@@ -122,6 +122,14 @@ def run_telenet(environment, execute):
 def run(check, environment, execute=subprocess.run):
     if check == "telenet-auth-usage":
         return run_telenet(environment, execute)
+    if check == "telenet-home-ui":
+        spec = importlib.util.spec_from_file_location("telenet_home_ui", Path(__file__).with_name("telenet-home-ui-proof.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        try:
+            return module.run(environment)
+        except module.UIFailure as error:
+            raise ProofFailure(str(error)) from None
     if check == "invoices":
         return run_invoices(environment, execute)
     if check == "payment-evidence":

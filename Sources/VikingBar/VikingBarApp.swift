@@ -90,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         let panel = NSOpenPanel()
         panel.title = "Choose the approved 1Password credential reference"
-        panel.message = "Select the credential reference JSON file for your Mobile Vikings account."
+        panel.message = "Select the credential reference JSON file for the account being connected."
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.begin { [weak self] result in

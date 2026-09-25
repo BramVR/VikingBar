@@ -12,7 +12,7 @@ read_when:
 
 The proof runs in the shared Swift core through `vikingbar proof auth-balance`. Explicit fixture app and CLI runs remain synthetic. This auth-balance proof persists no refresh token. The default native app uses the separate [live account session](live-account.md).
 
-For the separate proof-local Telenet gate, see [Telenet proof](telenet-proof.md). It uses a distinct two-field reference and does not add a native provider.
+For the separate proof-local Telenet gate, see [Telenet proof](telenet-proof.md). It uses a distinct two-field reference. The production provider has its own [native Telenet home gate](telenet-home.md#verify-the-integration), `make proof-live CHECK=telenet-home-ui`.
 
 ## Setup
 

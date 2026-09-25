@@ -8,7 +8,7 @@ read_when:
 
 # Telenet proof
 
-Issue [#40](https://github.com/BramVR/VikingBar/issues/40) adds a proof-local Python gate. It does not add Telenet to the Swift app or CLI. The gate uses one password lookup, an in-memory cookie session, service discovery, and two reads of every discovered service. It reports only fixed stages and coverage states. A local synthetic pass cannot complete the issue; the authorized real gate must pass.
+Issue [#40](https://github.com/BramVR/VikingBar/issues/40) adds a proof-local Python gate. The separate [Telenet home integration](telenet-home.md) implements the Swift app and CLI provider. The feasibility gate uses one password lookup, an in-memory cookie session, service discovery, and two reads of every discovered service. It reports only fixed stages and coverage states. A local synthetic pass cannot complete the issue; the authorized real gate must pass.
 
 ## Private setup
 

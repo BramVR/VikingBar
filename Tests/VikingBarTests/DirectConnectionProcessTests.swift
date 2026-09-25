@@ -4,6 +4,29 @@ import Testing
 @testable import VikingBarCore
 
 struct DirectConnectionProcessTests {
+    @Test func `telenet direct process receives account scoped two field input`() async throws {
+        let account = AccountKey(provider: .telenet)
+        let fixture = try NativeProcessFixture(script: """
+        import json, sys
+        assert sys.argv[1:] == ['connect', '--account', '\(account.id)'], 'unexpected arguments'
+        assert json.load(sys.stdin) == {'username': 'user', 'password': 'synthetic-password'}
+        print(json.dumps({'schema_version': 1, 'check': 'connect', 'passed': True, 'connected': True,
+                          'connection_sha256': '7ac1b8d7010bb6cd3a3e84e7f90136b880bbc899e428ece49333372911ab9052'}))
+        """)
+        defer { fixture.cleanup() }
+        let connector = AccountConnector(
+            cliURL: fixture.executable, helperURL: fixture.directory.appending(path: "absent"), account: account,
+        )
+        let credentials = try ConnectionCredentials(
+            provider: .telenet, clientID: "", username: "user", password: "synthetic-password",
+        )
+        let receipt = fixture.directory.appending(path: "telenet-receipt.json")
+        let connecting = Task { try await connector.connect(input: .credentials(credentials), resultURL: receipt) }
+        try await fixture.acknowledgeDirectConnection()
+        try await connecting.value
+        #expect(FileManager.default.fileExists(atPath: receipt.path))
+    }
+
     @Test func `direct process receives only stdin credentials and writes a private fixed receipt`() async throws {
         let fixture = try NativeProcessFixture(script: """
         import json, os, sys

@@ -56,6 +56,7 @@ final class AppSession {
     private(set) var accounts: [AccountEntry] = [AccountEntry(key: .legacy, label: "Mobile Vikings")]
     private(set) var selectedAccount: AccountKey = .legacy
     var addingAccount = false
+    var addingProvider: ProviderID = .mobileVikings
     @ObservationIgnored private var fixtureClients: [AccountKey: any SessionClient] = [:]
     @ObservationIgnored private var savedAccounts: [AccountKey: LiveSessionState] = [:]
     @ObservationIgnored private var savedFailures: [AccountKey: LiveBridgeFailure] = [:]
@@ -202,6 +203,7 @@ extension AppSession {
             allowance: expired ? .unavailable : previous.allowance,
             expiresAt: previous.expiresAt,
             freshness: freshness, errorMessage: self.bridgeError ?? previous.errorMessage,
+            providerName: previous.providerName,
         )
     }
 
@@ -223,6 +225,10 @@ extension AppSession {
     }
 
     func refresh() {
+        self.refresh(manual: true)
+    }
+
+    private func refresh(manual: Bool) {
         guard self.canRefresh else { return }
         let intent = self.begin(.refreshing)
         if self.usesMobileFixture {
@@ -238,8 +244,8 @@ extension AppSession {
             if await self.reconcileSelection(intent: intent) {
                 return
             }
-            if self.client == nil {
-                await self.restoreAndPerform(.refresh, intent: intent)
+            if self.client == nil || (!manual && self.selectedAccount.provider == .telenet) {
+                await self.restoreAndPerform(.refresh, intent: intent, manualRefresh: manual)
             } else {
                 await self.perform(.refresh, intent: intent)
             }
@@ -318,7 +324,7 @@ extension AppSession {
     func didWake() {
         guard !self.isFixtureLaunch, self.activity == .idle, self.isConnected,
               let deadline = self.liveState.nextRefreshAt, deadline <= self.now() else { return }
-        self.refresh()
+        self.refresh(manual: false)
     }
 
     private func configureIfIdle() {
@@ -424,7 +430,7 @@ extension AppSession {
             self.scheduledRefresh = Task { [weak self, sleepUntil] in
                 do { try await sleepUntil(deadline) } catch { return }
                 guard let self, self.isCurrent(intent) else { return }
-                self.refresh()
+                self.refresh(manual: false)
             }
         }
         self.pumpOptional()
@@ -458,8 +464,15 @@ extension AppSession {
         }
         self.scheduleExpiry()
         self.onPresentationChange?()
-        let context = PendingConnection(intent: intent, adding: adding, account: priorAccount,
-                                        state: priorState, previous: previous, failure: priorFailure)
+        let context = PendingConnection(
+            intent: intent,
+            adding: adding,
+            provider: adding ? self.addingProvider : priorAccount.provider,
+            account: priorAccount,
+            state: priorState,
+            previous: previous,
+            failure: priorFailure,
+        )
         self.pendingConnection = context
         self.operation = Task { await self.performConnection(input: input, resultURL: resultURL, context: context) }
         return attempt
@@ -468,6 +481,7 @@ extension AppSession {
     private struct PendingConnection {
         let intent: Int
         let adding: Bool
+        let provider: ProviderID
         let account: AccountKey
         let state: LiveSessionState
         let previous: (any SessionClient)?
@@ -479,7 +493,7 @@ extension AppSession {
         guard context.adding else { return context.account }
         guard let directory = self.accountDirectory else { throw LiveBridgeFailure.unavailable }
         _ = await self.catalogRead?.result
-        let reserved = try await directory.reserve(provider: .mobileVikings)
+        let reserved = try await directory.reserve(provider: context.provider)
         self.accounts = try await directory.snapshot().accounts
         return reserved.key
     }
@@ -607,31 +621,50 @@ extension AppSession {
 
 extension AppSession {
     var historyPresentation: HistoryPresentation {
-        HistoryPresentation(history: self.liveState.matchingHistory, unit: self.unit, now: self.now())
+        if let home = self.liveState.selectedHomeUsage {
+            let stale = if case .stale = self.snapshot.freshness {
+                true
+            } else {
+                false
+            }
+            return HistoryPresentation(
+                home: home, dailyFailure: self.liveState.homeFailure, stale: stale,
+                unit: self.unit, now: self.now(),
+            )
+        }
+        if self.selectedServiceKind == .home {
+            return HistoryPresentation(home: nil, unit: self.unit, now: self.now())
+        }
+        return HistoryPresentation(history: self.liveState.matchingHistory, unit: self.unit, now: self.now())
     }
 }
 
 extension AppSession {
-    private func restoreAndPerform(_ request: SessionRequest, intent: Int) async {
+    private func restorationClient() throws -> any SessionClient {
+        if let client = self.client {
+            return client
+        }
+        self.appliedInterval = .fiveMinutes
+        guard self.isFixtureLaunch else { return try self.clientFactory(self.selectedAccount) }
+        if let existing = self.fixtureClients[self.selectedAccount] {
+            return existing
+        }
+        let registry = FixtureAccounts.registry(at: self.referenceDate)
+        let registration = try registry.registration(self.selectedAccount.provider)
+        let client = try FixtureSessionClient(session: registration.makeSession(AccountStorage(
+            root: URL(fileURLWithPath: "/unused-fixture"), key: self.selectedAccount,
+        )))
+        self.fixtureClients[self.selectedAccount] = client
+        return client
+    }
+
+    private func restoreAndPerform(
+        _ request: SessionRequest, intent: Int, manualRefresh: Bool = false,
+    ) async {
         guard self.isCurrent(intent) else { return }
         do {
-            let client: any SessionClient
-            if self.isFixtureLaunch {
-                let registry = FixtureAccounts.registry(at: self.referenceDate)
-                let registration = try registry.registration(self.selectedAccount.provider)
-                if let existing = self.fixtureClients[self.selectedAccount] {
-                    client = existing
-                } else {
-                    client = try FixtureSessionClient(session: registration.makeSession(AccountStorage(
-                        root: URL(fileURLWithPath: "/unused-fixture"), key: self.selectedAccount,
-                    )))
-                    self.fixtureClients[self.selectedAccount] = client
-                }
-            } else {
-                client = try self.clientFactory(self.selectedAccount)
-            }
+            let client = try self.restorationClient()
             self.client = client
-            self.appliedInterval = .fiveMinutes
             try await self.applyInterval(client: client, intent: intent)
             guard self.isCurrent(intent) else { return }
             let restored = try await client.request(.restore)
@@ -639,7 +672,8 @@ extension AppSession {
             self.publish(restored)
             guard self.isConnected else { self.finish(); return }
             if case .refresh = request {
-                if restored.failure != nil, let deadline = restored.nextRefreshAt, deadline > self.now() {
+                let shouldWait = self.selectedAccount.provider == .telenet ? !manualRefresh : restored.failure != nil
+                if let deadline = restored.nextRefreshAt, deadline > self.now(), shouldWait {
                     self.finish()
                     return
                 }
@@ -671,7 +705,7 @@ extension AppSession {
 
     var providerName: String {
         self.liveState.account?.providerName ?? (self.selectedAccount.provider == .mobileVikings
-            ? "Mobile Vikings" : "Home fixture")
+            ? "Mobile Vikings" : self.selectedAccount.provider == .telenet ? "Telenet" : "Home fixture")
     }
 
     var selectedServiceKind: ServiceKind {

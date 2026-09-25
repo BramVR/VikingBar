@@ -2,13 +2,14 @@
 
 # VikingBar
 
-VikingBar is a native macOS menu bar app for Mobile Vikings. It shows your remaining mobile data without opening My Viking.
+VikingBar is a native macOS menu bar app for Mobile Vikings and Telenet home internet. It shows mobile allowances and home usage without opening the provider website. Telenet support is available in source builds; the published 0.1.0 preview supports Mobile Vikings.
 
 ## What it shows
 
 The helmet in the menu bar shows the selected data bundle's remaining allowance. The app includes:
 
 - Separate SIM and data bundle selection, with allowance, expiry, and extra charges in euros.
+- Telenet home service selection, billing periods, policy counters, and separate peak/off-peak traffic. See [Telenet setup and usage](docs/telenet-home.md).
 - An optional remaining-GB label beside the helmet, controlled in **Settings**.
 - Customer-wide Viking Points, with separate available, pending, and blocked balances and recent transactions.
 - Manual refresh and stale-data indicators that keep the last successful balance visible when a request fails.

@@ -4,7 +4,7 @@
 
 Provider and Account pickers retain separate account slots. Add account creates a new slot; reconnect replaces the selected slot's connection. Each account keeps its own credentials, cache, lease, last result, and errors. The app runs one active worker and rejects delayed replies from a previous account. Failed or cancelled Add attempts to restore the prior account; restoration failures remain explicit. Choosing a provider selects its first catalog account, not a remembered last account for that provider.
 
-Production currently exposes Mobile Vikings. Home internet is a synthetic adapter used to prove shared presentation and isolation. The separate Telenet feasibility proof does not register a native provider; Proximus is not implemented.
+Source builds expose Mobile Vikings and Telenet home internet. The synthetic home adapter proves shared presentation and isolation without credentials. See [Telenet home](telenet-home.md) for the separate live gate. Proximus is not implemented.
 
 ## Drive
 

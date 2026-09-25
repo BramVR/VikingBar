@@ -50,6 +50,10 @@ struct VikingBarCLI {
     }
 
     private static func proof(arguments: [String]) async {
+        if arguments.count >= 2, arguments[1] == "telenet-home-api" {
+            await self.telenetHomeProof(arguments: Array(arguments.dropFirst(2)))
+            return
+        }
         if arguments == ["proof", "history-api"] {
             await self.historyProof()
             return

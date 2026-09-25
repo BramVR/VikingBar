@@ -18,6 +18,7 @@ public struct ProviderID: RawRepresentable, Codable, Hashable, Sendable {
     }
 
     public static let mobileVikings = ProviderID(rawValue: "mobile-vikings")!
+    public static let telenet = ProviderID(rawValue: "telenet")!
     public static let fixtureHome = ProviderID(rawValue: "fixture-home")!
 }
 
