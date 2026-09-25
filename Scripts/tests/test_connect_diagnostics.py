@@ -126,7 +126,8 @@ struct SyntheticProvider: ProviderAccountSession {
 
 @main struct VikingBarCLI {
     static func main() async {
-        let arguments = CommandLine.arguments[1] == "bad-arguments" ? ["connect", "extra"] : ["connect"]
+        let arguments = CommandLine.arguments[1] == "bad-arguments" ? ["connect", "extra"]
+            : ["connect", "--account", "mobile-vikings/00000000-0000-0000-0000-000000000001"]
         await self.connect(arguments: arguments, makeSession: { _ in
             try SyntheticProvider(session: VikingSession.production())
         })

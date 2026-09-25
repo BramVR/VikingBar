@@ -144,6 +144,7 @@ struct PopoverView: View {
                     self.destination = .connection(.account)
                 }, addAccount: {
                     self.session.addingAccount = true
+                    self.session.addingProvider = .mobileVikings
                     self.destination = .connection(.account)
                 })
             case .points:
@@ -154,40 +155,6 @@ struct PopoverView: View {
                 EmptyView()
             }
         }
-    }
-
-    private var accountSelection: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Picker("Provider", selection: Binding(
-                get: { self.session.selectedAccount.provider },
-                set: { provider in
-                    if let account = self.session.accounts.first(where: { $0.key.provider == provider }) {
-                        self.session.selectAccount(account.key)
-                    }
-                },
-            )) {
-                Text("Mobile Vikings").tag(ProviderID.mobileVikings)
-                if self.session.isFixtureLaunch {
-                    Text("Home fixture").tag(ProviderID.fixtureHome)
-                }
-            }
-            .accessibilityIdentifier("vikingbar.providerPicker")
-            Picker("Account", selection: Binding(
-                get: { self.session.selectedAccount }, set: { self.session.selectAccount($0) },
-            )) {
-                ForEach(self.session.accounts.filter { $0.key.provider == self.session.selectedAccount.provider }) {
-                    Text($0.key == .legacy || self.session.isFixtureLaunch ? $0.label
-                        : "\($0.label) · \($0.key.slot.uuidString.prefix(8))").tag($0.key)
-                }
-            }
-            .accessibilityIdentifier("vikingbar.accountPicker")
-            if let error = self.session.connectionError {
-                Text(error).font(.caption).foregroundStyle(.red)
-                    .accessibilityIdentifier("vikingbar.account.addError")
-            }
-        }
-        .pickerStyle(.menu)
-        .disabled(self.session.activity == .connecting || self.session.activity == .switching)
     }
 
     private var settings: some View {
@@ -246,6 +213,15 @@ struct PopoverView: View {
             .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
             .accessibilityIdentifier("vikingbar.connect.direct")
             .buttonStyle(.menuAction)
+            if !self.session.hasAccount, !self.session.isFixtureLaunch {
+                Button("Add account…") {
+                    self.session.addingAccount = true
+                    self.session.addingProvider = .mobileVikings
+                    self.destination = .connection(.settings)
+                }
+                .accessibilityIdentifier("vikingbar.account.add")
+                .buttonStyle(.menuAction)
+            }
             Divider()
             Button("Quit VikingBar") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
@@ -253,5 +229,44 @@ struct PopoverView: View {
                 .buttonStyle(.menuAction)
         }
         .onAppear { self.session.checkLoginItem() }
+    }
+}
+
+private extension PopoverView {
+    var accountSelection: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Picker("Provider", selection: Binding(
+                get: { self.session.selectedAccount.provider },
+                set: { provider in
+                    if let account = self.session.accounts.first(where: { $0.key.provider == provider }) {
+                        self.session.selectAccount(account.key)
+                    }
+                },
+            )) {
+                Text("Mobile Vikings").tag(ProviderID.mobileVikings)
+                if self.session.accounts.contains(where: { $0.key.provider == .telenet }) {
+                    Text("Telenet").tag(ProviderID.telenet)
+                }
+                if self.session.isFixtureLaunch {
+                    Text("Home fixture").tag(ProviderID.fixtureHome)
+                }
+            }
+            .accessibilityIdentifier("vikingbar.providerPicker")
+            Picker("Account", selection: Binding(
+                get: { self.session.selectedAccount }, set: { self.session.selectAccount($0) },
+            )) {
+                ForEach(self.session.accounts.filter { $0.key.provider == self.session.selectedAccount.provider }) {
+                    Text($0.key == .legacy || self.session.isFixtureLaunch ? $0.label
+                        : "\($0.label) · \($0.key.slot.uuidString.prefix(8))").tag($0.key)
+                }
+            }
+            .accessibilityIdentifier("vikingbar.accountPicker")
+            if let error = self.session.connectionError {
+                Text(error).font(.caption).foregroundStyle(.red)
+                    .accessibilityIdentifier("vikingbar.account.addError")
+            }
+        }
+        .pickerStyle(.menu)
+        .disabled(self.session.activity == .connecting || self.session.activity == .switching)
     }
 }

@@ -112,7 +112,7 @@ struct HistoryDetailView: View {
     private func header(_ content: HistoryCompanionContent) -> some View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Daily SIM data").font(.headline.weight(.semibold))
+                Text(content.title).font(.headline.weight(.semibold))
                 Text(content.subscriptionName)
                     .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -148,13 +148,13 @@ struct HistoryDetailView: View {
     private func currentCycle(_ content: HistoryCompanionContent) -> some View {
         Text("Current cycle").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         self.detailRow(
-            title: "Observed so far",
+            title: content.observedTitle,
             value: content.presentation.totalObservedBytes.map(content.unit.format(bytes:)) ?? "Unavailable",
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(content.presentation.totalText)
         .accessibilityIdentifier("vikingbar.historyTotal")
-        self.detailRow(title: "Estimated at renewal", value: self.forecastAmount(content))
+        self.detailRow(title: content.estimateTitle, value: self.forecastAmount(content))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(content.presentation.forecastText)
             .accessibilityIdentifier("vikingbar.historyForecast")
@@ -167,11 +167,11 @@ struct HistoryDetailView: View {
             .font(.caption).foregroundStyle(.secondary)
             .accessibilityIdentifier("vikingbar.historyScope")
         self.detailRow(
-            title: "Selected bundle reported",
-            value: content.reportedUsedBytes.map(content.unit.format(bytes:)) ?? "Unavailable",
+            title: content.reportedTitle,
+            value: content.reportedValue,
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Selected bundle reported \(content.reportedUsedText)")
+        .accessibilityLabel("\(content.reportedTitle) \(content.reportedUsedText)")
         .accessibilityIdentifier("vikingbar.historyBundleReported")
     }
 
@@ -207,7 +207,7 @@ struct HistoryDetailView: View {
                     let frame = geometry[anchor]
                     HistoryPlotReader(
                         identifier: "vikingbar.historyPlot",
-                        label: "Daily SIM data plot",
+                        label: content.chartLabel,
                         onMoved: { location in self.select(at: location, width: frame.width, days: days) },
                         onExited: {},
                         onActivated: { location in self.select(at: location, width: frame.width, days: days) },
@@ -219,7 +219,7 @@ struct HistoryDetailView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(days.map { "\($0.label): \($0.valueText)" }.joined(separator: "; "))
-        .accessibilityHint("Daily SIM data chart")
+        .accessibilityHint("\(content.title) chart")
         .accessibilityIdentifier("vikingbar.historyChart")
     }
 

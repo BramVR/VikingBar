@@ -13,7 +13,7 @@ struct DataCard: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if self.session.needsConnection {
+            if self.showConnectionPrompt {
                 Text(self.session.connectionTitle).font(.headline)
                     .accessibilityIdentifier("vikingbar.connectionStatus")
                 Text(self.session.connectionMessage)
@@ -28,8 +28,30 @@ struct DataCard: View {
                 }
             } else {
                 self.selection
-                self.balance
-                if !self.session.isFixtureLaunch, let content = HistoryCompanionContent(session: self.session) {
+                if let home = self.session.homeUsagePresentation, let card = self.session.homeUsageCardPresentation {
+                    HomeUsageCard(
+                        usage: home, card: card, detailsExpanded: self.$detailsExpanded,
+                        warning: self.session.menu.warningText,
+                    )
+                    if self.session.needsConnection {
+                        Text(self.session.connectionMessage)
+                            .font(.caption).foregroundStyle(.orange)
+                            .accessibilityIdentifier("vikingbar.warning")
+                        self.directConnect
+                    }
+                } else if self.session.selectedAccount.provider == .telenet {
+                    Text("Home usage unavailable")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("vikingbar.home.unavailable")
+                    if let warning = self.session.menu.warningText {
+                        Label(warning, systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.orange)
+                            .accessibilityIdentifier("vikingbar.warning")
+                    }
+                } else {
+                    self.balance
+                }
+                if self.showHistory, let content = HistoryCompanionContent(session: self.session) {
                     HistoryCard(content: content, companion: self.historyCompanion)
                 }
                 if self.session.selectedServiceKind == .mobile {
@@ -47,7 +69,7 @@ struct DataCard: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .accessibilityIdentifier("vikingbar.freshness")
             }
-            if self.session.needsConnection {
+            if self.showConnectionPrompt {
                 Divider().padding(.vertical, 2)
                 if self.session.selectedAccount.provider == .mobileVikings {
                     self.myViking
@@ -59,6 +81,14 @@ struct DataCard: View {
         }
         .buttonStyle(.plain)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var showHistory: Bool {
+        !self.session.isFixtureLaunch || self.session.liveState.selectedHomeUsage?.dailyHistory != nil
+    }
+
+    private var showConnectionPrompt: Bool {
+        self.session.needsConnection && self.session.homeUsagePresentation == nil
     }
 
     private var selection: some View {

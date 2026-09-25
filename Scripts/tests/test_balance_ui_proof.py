@@ -40,6 +40,43 @@ class BalanceUIProofTests(unittest.TestCase):
         self.tree["windows"] = [{"kCGWindowNumber": 42,
                                  "kCGWindowBounds": {"X": 100, "Y": 24, "Width": 500, "Height": 700}}]
 
+    def test_failed_named_command_saves_private_json_without_changing_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proof = object.__new__(UI.NativeProof)
+            proof.human_deadline = None
+            proof.environment = {}
+            proof.directory = Path(directory)
+            response = b'{"passed":false,"error":"token-network"}'
+            result = subprocess.CompletedProcess(["/synthetic/vikingbar"], 1, response, b"PRIVATE_STDERR")
+            with patch.object(UI.subprocess, "run", return_value=result):
+                with self.assertRaisesRegex(UI.UIFailure, "^proof-command-failed$"):
+                    proof.run(["/synthetic/vikingbar"], "after-refresh-report.json")
+            receipt = Path(directory) / "after-refresh-report.failure.json"
+            self.assertEqual(json.loads(receipt.read_text()), {
+                "returnCode": 1, "response": {"passed": False, "error": "token-network"},
+            })
+            self.assertEqual(receipt.stat().st_mode & 0o077, 0)
+            invalid = subprocess.CompletedProcess(["/synthetic/vikingbar"], 2, b"PRIVATE_STDOUT", b"PRIVATE_STDERR")
+            with patch.object(UI.subprocess, "run", return_value=invalid):
+                with self.assertRaisesRegex(UI.UIFailure, "^proof-command-failed$"):
+                    proof.run(["/synthetic/vikingbar"], "invalid.json")
+            self.assertEqual(json.loads((Path(directory) / "invalid.failure.json").read_text()), {"returnCode": 2})
+
+    def test_account_worker_command_accepts_telenet_and_rejects_other_providers(self):
+        slot = "304c0ef6-c689-46fd-99dc-1166496f10a4"
+        for command in ("session", "connect"):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    UI.account_worker_command({"cli": "/bundle/vikingbar", "accountSelector": "telenet/" + slot},
+                                              command),
+                    "/bundle/vikingbar " + command + " --account telenet/" + slot,
+                )
+        for provider in ("fixture-home", "other", "telenet/../../other"):
+            with self.subTest(provider=provider):
+                with self.assertRaisesRegex(UI.UIFailure, "^runtime-worker-identity-mismatch$"):
+                    UI.account_worker_command({"cli": "/bundle/vikingbar",
+                                               "accountSelector": provider + "/" + slot}, "session")
+
     def direct_form(self):
         form = copy.deepcopy(self.tree)
         form["elements"].extend({"AXIdentifier": "vikingbar.connect." + identifier,

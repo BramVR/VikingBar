@@ -48,7 +48,7 @@ public struct MenuPresentation: Codable, Equatable, Sendable {
             self.sourceLabel = "FIXTURE · \(state.rawValue.capitalized) · Synthetic data"
             isFixture = true
         case .live:
-            self.sourceLabel = "Mobile Vikings · Live account"
+            self.sourceLabel = "\(snapshot.providerName ?? "Mobile Vikings") · Live account"
             isFixture = false
         case .notConnected:
             self.sourceLabel = "Not connected"
@@ -114,6 +114,17 @@ struct BalancePresentation {
             self.percentageRemaining = percentage
             self.percentageText = percentage.map { String(format: "%.0f%% remaining", $0) }
             self.statusBalance = percentage.map { String(format: "%.0f%%", $0) } ?? unit.format(bytes: remaining)
+        case let .speedThreshold(threshold, used, category):
+            self.balanceTitle = "Reported \(category) policy threshold"
+            self.remainingText = unit.format(bytes: threshold)
+            self.usedValueText = unit.format(bytes: used)
+            self.usedText = "Policy counter \(self.usedValueText)"
+            self.totalText = "Speed state unknown"
+            self.percentageUsed = threshold == 0 ? nil : Double(used) * 100 / Double(threshold)
+            self.usedPercentageText = self.percentageUsed.map { String(format: "%.0f%% of policy threshold", $0) }
+            self.percentageRemaining = nil
+            self.percentageText = nil
+            self.statusBalance = category
         case let .unlimited(used):
             self.balanceTitle = "Data remaining"
             self.remainingText = "Unlimited"

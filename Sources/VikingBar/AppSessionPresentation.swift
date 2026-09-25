@@ -23,6 +23,18 @@ extension AppSession {
     var balanceDetails: LiveBalancePresentation {
         LiveBalancePresentation(state: self.liveState)
     }
+
+    var homeUsagePresentation: HomeUsagePresentation? {
+        self.liveState.selectedHomeUsage.map {
+            HomeUsagePresentation(usage: $0, unit: self.unit, timeZone: self.timeZone)
+        }
+    }
+
+    var homeUsageCardPresentation: HomeUsageCardPresentation? {
+        self.liveState.selectedHomeUsage.map {
+            HomeUsageCardPresentation(usage: $0, mode: self.dataDisplayMode, unit: self.unit)
+        }
+    }
 }
 
 extension AppSession {

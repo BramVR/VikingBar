@@ -45,23 +45,36 @@ def child_environment(environment):
     return {key: environment[key] for key in ("PATH", "TMPDIR", "LANG", "LC_ALL") if key in environment}
 
 
-def reference_at(path):
+def credential_fields(account=None):
+    if account is None:
+        return ["client_id", "username", "password"]
+    match = re.fullmatch(r"(mobile-vikings|telenet)/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", account)
+    if match is None:
+        raise ConnectFailure("invalid-credential-reference")
+    return ["username", "password"] if match[1] == "telenet" else ["client_id", "username", "password"]
+
+
+def reference_at(path, account=None):
     try:
         value = json.loads(Path(path).read_text())
-        if (value["vault"] != "Codex Automation" or not isinstance(value["item_id"], str)
-                or not value["item_id"].isalnum()
-                or value["fields"] != ["client_id", "username", "password"]):
+        fields = credential_fields(account)
+        selector = value["item_id"]
+        valid_selector = (isinstance(selector, str) and
+                          (bool(re.fullmatch(r"[A-Za-z0-9._ -]{1,100}", selector))
+                           if fields == ["username", "password"] else selector.isalnum()))
+        if (set(value) != {"vault", "item_id", "fields"} or value["vault"] != "Codex Automation"
+                or not valid_selector or value["fields"] != fields):
             raise ValueError()
         return value
     except (OSError, ValueError, KeyError, TypeError):
         raise ConnectFailure("invalid-credential-reference") from None
 
 
-def credentials_from(data):
+def credentials_from(data, account=None):
     try:
         fields = json.loads(data)["fields"]
         credentials = {}
-        for label in ("client_id", "username", "password"):
+        for label in credential_fields(account):
             values = [field["value"] for field in fields if field.get("label") == label]
             if len(values) != 1 or not isinstance(values[0], str) or not values[0]:
                 raise ValueError()
@@ -94,7 +107,7 @@ def write_receipt(path, receipt):
 def inside(cli, reference, environment, execute=subprocess.run, account=None):
     if not environment.get("TMUX") or not environment.get("BRAM_OP_SERVICE_ACCOUNT_TOKEN"):
         raise ConnectFailure("credential-context-required")
-    selector = reference_at(reference)
+    selector = reference_at(reference, account)
     op = shutil.which("op", path=environment.get("PATH"))
     if not op or not Path(cli).is_file():
         raise ConnectFailure("dependency-required")
@@ -110,7 +123,7 @@ def inside(cli, reference, environment, execute=subprocess.run, account=None):
     del op_environment
     if item.returncode:
         raise ConnectFailure("credential-read-failed")
-    credentials = credentials_from(item.stdout)
+    credentials = credentials_from(item.stdout, account)
     del item
     payload = json.dumps(credentials).encode()
     del credentials
@@ -133,7 +146,7 @@ def inside(cli, reference, environment, execute=subprocess.run, account=None):
 
 def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sleep, clock=time.monotonic,
               ownership=None, account=None):
-    reference_at(reference)
+    reference_at(reference, account)
     tmux = shutil.which("tmux", path=environment.get("PATH"))
     if not tmux or not Path(cli).is_file():
         raise ConnectFailure("dependency-required")
@@ -216,7 +229,9 @@ def main(arguments=None, environment=None):
     parser.add_argument("--account")
     parser.add_argument("--inside-tmux", action="store_true")
     args = parser.parse_args(arguments)
-    if args.account and not re.fullmatch(r"mobile-vikings/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", args.account):
+    try:
+        credential_fields(args.account)
+    except ConnectFailure:
         parser.error("invalid account selector")
     environment = os.environ if environment is None else environment
     previous_handlers = {}

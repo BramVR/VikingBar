@@ -8,6 +8,7 @@ struct LiveReport: Encodable, Sendable {
     let snapshot: UsageSnapshot
     let menu: MenuPresentation
     let balanceDetails: LiveBalancePresentation
+    let home: HomeUsagePresentation?
     let historyPresentation: HistoryPresentation
     let invoiceDetails: InvoicePresentation
     let points: PointsPresentation
@@ -20,7 +21,21 @@ struct LiveReport: Encodable, Sendable {
         self.snapshot = state.snapshot
         self.menu = MenuPresentation(snapshot: state.snapshot)
         self.balanceDetails = LiveBalancePresentation(state: state)
-        self.historyPresentation = HistoryPresentation(history: state.matchingHistory, unit: .gigabytes, now: Date())
+        self.home = state.selectedHomeUsage.map { HomeUsagePresentation(usage: $0) }
+        if let home = state.selectedHomeUsage {
+            let stale = if case .stale = state.snapshot.freshness {
+                true
+            } else {
+                false
+            }
+            self.historyPresentation = HistoryPresentation(
+                home: home, dailyFailure: state.homeFailure, stale: stale, now: Date(),
+            )
+        } else if state.account?.selectedService?.kind == .home {
+            self.historyPresentation = HistoryPresentation(home: nil, now: Date())
+        } else {
+            self.historyPresentation = HistoryPresentation(history: state.matchingHistory, now: Date())
+        }
         self.invoiceDetails = InvoicePresentation(
             snapshot: state.invoices,
             selectedSubscriptionID: state.selectedSubscriptionID,
@@ -99,7 +114,7 @@ extension VikingBarCLI {
 
     Live commands:
       vikingbar accounts list
-      vikingbar accounts add [--provider mobile-vikings]
+      vikingbar accounts add [--provider mobile-vikings|telenet]
       vikingbar accounts select ACCOUNT
       vikingbar live [--account ACCOUNT] [--provider PROVIDER] [--cached | [--service ID] [--bundle INDEX] [--history]]
       vikingbar connect [--account ACCOUNT] [--provider PROVIDER]
@@ -136,34 +151,43 @@ extension VikingBarCLI {
     }
 
     static func readCredentials() throws -> ProofCredentials {
-        var input = Data()
-        while let chunk = try FileHandle.standardInput.read(upToCount: 4096), !chunk.isEmpty {
-            input.append(chunk)
-            guard input.count <= 65536 else { throw ProofFailure.invalidInput }
-        }
+        let input = try self.readConnectionInput()
         let credentials = try JSONDecoder().decode(ProofCredentials.self, from: input)
         try credentials.validate()
         return credentials
     }
 
+    private static func readConnectionInput() throws -> Data {
+        var input = Data()
+        while let chunk = try FileHandle.standardInput.read(upToCount: 4096), !chunk.isEmpty {
+            input.append(chunk)
+            guard input.count <= 65536 else { throw ProofFailure.invalidInput }
+        }
+        return input
+    }
+
     static func connect(
         arguments: [String],
-        makeSession: (AccountOptions) throws -> any ProviderAccountSession = { options in
+        makeSession: (AccountKey) throws -> any ProviderAccountSession = { key in
             let catalog = try AccountCatalog.production()
-            return try ProviderRegistry.production.open(options.resolve(in: catalog), catalog: catalog)
+            return try ProviderRegistry.production.open(key, catalog: catalog)
         },
     ) async {
         do {
             let options: AccountOptions
-            let credentials: ProofCredentials
+            let key: AccountKey
+            let credentials: ProviderCredentials
             do {
                 options = try AccountOptions(arguments: Array(arguments.dropFirst()))
                 guard options.remaining.isEmpty else { throw BootstrapFailure.credentialInput }
-                credentials = try self.readCredentials()
+                let input = try self.readConnectionInput()
+                key = try options.account ?? AccountCatalog.production()
+                    .selectedAtInvocation(provider: options.provider)
+                credentials = try ProviderCredentials.decode(input, for: key.provider)
             } catch { throw BootstrapFailure.credentialInput }
             let session: any ProviderAccountSession
-            do { session = try makeSession(options) } catch { throw BootstrapFailure.localFilesystem }
-            let connectionID = try await session.connect(credentials: .mobileVikings(credentials))
+            do { session = try makeSession(key) } catch { throw BootstrapFailure.localFilesystem }
+            let connectionID = try await session.connect(credentials: credentials)
             self.writeJSON(ConnectReceipt(connectionID: connectionID))
         } catch {
             self.writeJSON(CommandFailure(error: (error as? BootstrapFailure ?? .connectFailed).rawValue))
@@ -186,6 +210,9 @@ extension VikingBarCLI {
             if state.connectionID == nil || state.failure != nil || historyFailed {
                 exit(1)
             }
+        } catch LiveFailure.busy {
+            self.writeJSON(CommandFailure(error: "session-busy"))
+            exit(1)
         } catch {
             if let session {
                 await self.writeJSON(LiveReport(state: session.state(), error: "live-failed"))

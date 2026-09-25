@@ -244,7 +244,7 @@ def account_worker_command(launch, command):
     if selector is None:
         return launch["cli"] + " " + command
     if not isinstance(selector, str) or not re.fullmatch(
-            r"mobile-vikings/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", selector):
+            r"(?:mobile-vikings|telenet)/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", selector):
         raise UIFailure("runtime-worker-identity-mismatch")
     return launch["cli"] + " " + command + " --account " + selector
 
@@ -333,11 +333,19 @@ class NativeProof:
         if result.returncode:
             try:
                 failure = json.loads(result.stdout)
-                for code in ("session-busy", "history-evidence-insufficient", "history-api-failed"):
-                    if failure == {"passed": False, "error": code}:
-                        raise UIFailure(code)
             except ValueError:
-                pass
+                failure = None
+            if name:
+                receipt = {"returnCode": result.returncode}
+                if failure is not None:
+                    receipt["response"] = failure
+                try:
+                    private_write(self.directory / Path(name).with_suffix(".failure.json"), receipt)
+                except OSError:
+                    pass
+            for code in ("session-busy", "history-evidence-insufficient", "history-api-failed"):
+                if failure == {"passed": False, "error": code}:
+                    raise UIFailure(code)
             raise UIFailure("proof-command-failed")
         if name:
             try:
@@ -450,7 +458,7 @@ class NativeProof:
             return self.open_direct_popover()
         self.press("vikingbar.status")
         return wait_for(self.inspect, lambda value: any(
-            item.get("AXIdentifier") in ("vikingbar.remaining", "vikingbar.connect.direct")
+            item.get("AXIdentifier") in ("vikingbar.remaining", "vikingbar.home.headline", "vikingbar.connect.direct")
             for item in value.get("elements", [])))
 
     def open_direct_popover(self):

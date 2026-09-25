@@ -100,6 +100,8 @@ public struct LiveBalance: Codable, Equatable, Sendable {
 
 public struct LiveSessionState: Codable, Equatable, Sendable {
     public internal(set) var account: AccountContext?
+    public internal(set) var homeUsage: HomeUsage?
+    public internal(set) var homeFailure: LiveFailure?
     public internal(set) var connectionID: ConnectionID?
     public internal(set) var connectionSummary: AccountConnectionSummary?
     public internal(set) var subscriptions: [MobileSubscription] = []

@@ -69,7 +69,7 @@ extension AppSession {
 
     var connectionMessage: String {
         self.bridgeError ?? self.liveState.failure?.message ?? self.menu.warningText
-            ?? "Connect your Mobile Vikings account to load your data balance."
+            ?? "Connect your \(self.providerName) account to load usage."
     }
 
     var needsConnection: Bool {

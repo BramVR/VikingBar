@@ -249,7 +249,7 @@ struct AppAccountTests {
     }
 }
 
-private struct TestCatalogDirectory: AccountDirectoryClient {
+struct TestCatalogDirectory: AccountDirectoryClient {
     let catalog: AccountCatalog
     func snapshot() async throws -> CatalogSnapshot {
         try self.catalog.snapshot()

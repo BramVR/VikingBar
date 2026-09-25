@@ -22,6 +22,12 @@ public struct StatusPresentation: Equatable, Sendable {
         case let .finite(total, _, remaining):
             self.treatment = total == 0 ? .unavailable : .finite(fraction: min(1, Double(remaining) / Double(total)))
             amount = Self.compactGigabytes(remaining)
+        case let .speedThreshold(threshold, used, category):
+            self.treatment = threshold == 0 ? .unavailable : .finite(fraction: max(
+                0,
+                1 - Double(used) / Double(threshold),
+            ))
+            amount = category
         case .unlimited:
             self.treatment = .unlimited
             amount = "Unlimited"

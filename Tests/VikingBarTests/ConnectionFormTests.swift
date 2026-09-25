@@ -66,6 +66,17 @@ struct ConnectionFormTests {
         #expect(throws: LiveBridgeFailure.self) { try credentials.takePayload() }
     }
 
+    @Test func `telenet submission omits client ID and preserves password`() throws {
+        let model = ConnectionFormModel()
+        model.username = " telenet-user "
+        model.password = " private-password "
+        let credentials = try #require(model.takeCredentials(isFixture: false, provider: .telenet))
+        #expect(model.password.isEmpty)
+        let payload = try JSONSerialization.jsonObject(with: credentials.takePayload()) as? [String: String]
+        #expect(payload == ["username": "telenet-user", "password": " private-password "])
+        #expect(throws: LiveBridgeFailure.self) { try credentials.takePayload() }
+    }
+
     @Test func `invalid and oversized submissions clear the password with fixed messages`() {
         let model = ConnectionFormModel()
         model.clientID = " \n"

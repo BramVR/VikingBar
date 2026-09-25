@@ -96,6 +96,57 @@ public struct HistoryPresentation: Codable, Equatable, Sendable {
         }
     }
 
+    public init(
+        home: HomeUsage?, dailyFailure: LiveFailure? = nil, stale: Bool = false,
+        unit: DataUnit = .gigabytes, now: Date = Date(),
+    ) {
+        self.unit = unit.rawValue
+        self.scopeText = "Telenet home downloads in Europe/Brussels days. The policy counter and provider period "
+            + "download total have separate scopes. Today is partial; provider reports may lag."
+        let intervals = HistoryRequestPlan.rollingChartIntervals(now: now)
+        let isStale = stale || dailyFailure != nil || home.map {
+            now < $0.fetchedAt || now.timeIntervalSince($0.fetchedAt) >= 3600
+        } ?? false
+        self.days = Self.homeDays(home: home, unit: unit, now: now, isStale: isStale)
+        self.boundary = home.flatMap { usage in
+            Self.homeDayStart(usage.period.start).flatMap { Self.boundary($0, in: intervals) }
+        }
+        self.totalObservedBytes = home?.dailyHistory.flatMap { history in
+            let amounts = history.rows.compactMap { Self.homeBytes($0.totalGB) }
+            return amounts.count == history.rows.count ? Self.sum(amounts) : nil
+        }
+        self.totalText = self.totalObservedBytes
+            .map { "Reported daily downloads this period: \(unit.format(bytes: $0))" }
+            ?? "Daily download total unavailable."
+        self.forecast = if !isStale, dailyFailure == nil, let home {
+            Self.homeEstimate(home, now: now)
+        } else {
+            nil
+        }
+        if let forecast = self.forecast {
+            self.forecastText = "Estimated downloads this period: "
+                + String(format: "%.2f %@", locale: Locale(identifier: "en_US_POSIX"),
+                         forecast.estimatedCycleBytes / (unit == .gigabytes ? 1_000_000_000 : 1_073_741_824),
+                         unit.rawValue)
+                + ". Today excluded; provider reports may lag."
+        } else {
+            self.forecastText = "Estimate needs fresh, continuous reports and at least 3 complete days."
+        }
+        if home == nil {
+            self.statusText = "Home history not loaded."
+        } else if let dailyFailure {
+            self.statusText = "Daily downloads unavailable. \(dailyFailure.message)"
+        } else if home?.dailyHistory == nil {
+            self.statusText = "Daily downloads unavailable."
+        } else if isStale {
+            self.statusText = "Daily downloads are stale; provider reports may lag."
+        } else if self.days.contains(where: \.isMissing) {
+            self.statusText = "Missing days are gaps, not zero downloads."
+        } else {
+            self.statusText = "Daily home downloads. Today is partial; provider reports may lag."
+        }
+    }
+
     private static func chartObservation(
         for interval: HistoryInterval,
         in series: HistoryChartSeries?,
@@ -205,6 +256,89 @@ public struct HistoryPresentation: Codable, Equatable, Sendable {
         return HistoryForecast(
             estimatedCycleBytes: estimate, observedBytes: observed, observedSeconds: seconds,
             completeDays: elapsed.filter(\.isCompleteDay).count,
+        )
+    }
+}
+
+private extension HistoryPresentation {
+    static func homeDays(home: HomeUsage?, unit: DataUnit, now: Date, isStale: Bool) -> [HistoryDayPresentation] {
+        let intervals = HistoryRequestPlan.rollingChartIntervals(now: now)
+        let rows = home?.dailyHistory?.rows ?? []
+        let rowByDay = Dictionary(uniqueKeysWithValues: rows.map { ($0.day.rawValue, $0) })
+        let formatter = Self.dateFormatter(format: "yyyy-MM-dd")
+        let short = Self.dateFormatter(format: "d MMM")
+        let full = Self.dateFormatter(format: "d MMMM yyyy")
+        return intervals.map { interval in
+            let key = formatter.string(from: interval.dayStart)
+            let beforePeriod = home.map { key < $0.period.start.rawValue } ?? false
+            let afterPeriod = home.map { key > $0.period.end.rawValue } ?? false
+            let row = beforePeriod || afterPeriod ? nil : rowByDay[key]
+            let bytes = row.flatMap { Self.homeBytes($0.totalGB) }
+            let partial = interval.isToday || key == home?.dailyHistory?.fetchedDay.rawValue
+            let amount = bytes.map(unit.format(bytes:)) ?? "Unavailable"
+            let state = if beforePeriod || afterPeriod {
+                "Outside billing period"
+            } else if bytes == nil {
+                "No data (missing)"
+            } else if bytes == 0 {
+                "Reported zero downloads"
+            } else {
+                "Downloads reported"
+            }
+            let suffix = partial ? " · partial" : ""
+            return HistoryDayPresentation(
+                dayStart: interval.dayStart, bytes: bytes,
+                value: bytes.map { Double($0) / (unit == .gigabytes ? 1_000_000_000 : 1_073_741_824) },
+                isMissing: !beforePeriod && !afterPeriod && bytes == nil,
+                isStale: bytes != nil && isStale, isToday: interval.isToday, isPartial: partial,
+                label: short.string(from: interval.dayStart), fullDateText: full.string(from: interval.dayStart),
+                valueText: (beforePeriod || afterPeriod ? "Outside period" : amount)
+                    + (bytes != nil && isStale ? " · stale" : "") + suffix,
+                statusText: state + (bytes != nil && isStale ? " · stale" : "") + suffix,
+            )
+        }
+    }
+
+    static func homeDayStart(_ day: CalendarDay) -> Date? {
+        self.dateFormatter(format: "yyyy-MM-dd").date(from: day.rawValue)
+    }
+
+    static func homeBytes(_ amount: Decimal) -> UInt64? {
+        var value = amount * 1_000_000_000
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &value, 0, .plain)
+        guard !rounded.isNaN, rounded >= 0, rounded <= Decimal(UInt64.max) else { return nil }
+        return NSDecimalNumber(decimal: rounded).uint64Value
+    }
+
+    static func homeEstimate(_ home: HomeUsage, now: Date) -> HistoryForecast? {
+        guard let history = home.dailyHistory, let start = homeDayStart(home.period.start),
+              let finalDay = homeDayStart(home.period.end),
+              let end = HistoryPlan.calendar.date(byAdding: .day, value: 1, to: finalDay) else { return nil }
+        let today = HistoryPlan.calendar.startOfDay(for: now)
+        guard history.fetchedDay.rawValue == Self.dateFormatter(format: "yyyy-MM-dd").string(from: today),
+              start < today, today < end, now >= home.fetchedAt else { return nil }
+        var day = start
+        var observed: UInt64 = 0
+        var completeDays = 0
+        let byDay = Dictionary(uniqueKeysWithValues: history.rows.map { ($0.day.rawValue, $0) })
+        let formatter = Self.dateFormatter(format: "yyyy-MM-dd")
+        while day < today {
+            guard let row = byDay[formatter.string(from: day)], let bytes = Self.homeBytes(row.totalGB),
+                  let next = HistoryPlan.calendar.date(byAdding: .day, value: 1, to: day) else { return nil }
+            let added = observed.addingReportingOverflow(bytes)
+            guard !added.overflow else { return nil }
+            observed = added.partialValue
+            completeDays += 1
+            day = next
+        }
+        guard completeDays >= 3 else { return nil }
+        let seconds = today.timeIntervalSince(start)
+        let estimate = Double(observed) / seconds * end.timeIntervalSince(start)
+        guard estimate.isFinite, estimate >= 0 else { return nil }
+        return HistoryForecast(
+            estimatedCycleBytes: estimate, observedBytes: observed, observedSeconds: seconds,
+            completeDays: completeDays,
         )
     }
 }

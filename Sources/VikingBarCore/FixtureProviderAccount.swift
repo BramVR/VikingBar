@@ -101,7 +101,53 @@ public actor FixtureProviderAccount: ProviderAccountSession {
             allowance: .finite(totalBytes: total, usedBytes: used, remainingBytes: total - used),
             expiresAt: self.date.addingTimeInterval(14 * 86400), freshness: .current(lastUpdated: self.date),
         )
+        try self.publishHome(used: used)
         self.current.failure = nil
+    }
+
+    private func publishHome(used: UInt64) throws {
+        if self.kind == .home {
+            let counter = Decimal(used) / 1_000_000_000
+            let calendar = HistoryPlan.calendar
+            let start = calendar.dateInterval(of: .month, for: self.date)!.start
+            let end = calendar.date(
+                byAdding: .day,
+                value: -1,
+                to: calendar.date(byAdding: .month, value: 1, to: start)!,
+            )!
+            let formatter = DateFormatter()
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            formatter.dateFormat = "yyyy-MM-dd"
+            let period = try BillingPeriod(
+                start: CalendarDay(formatter.string(from: start)), end: CalendarDay(formatter.string(from: end)),
+            )
+            var rows: [HomeDailyUsage] = []
+            var day = start
+            while day <= calendar.startOfDay(for: self.date) {
+                let partial = calendar.isDate(day, inSameDayAs: self.date)
+                let total: Decimal = partial ? 0.5 : (rows.count.isMultiple(of: 5) ? 0 : 1)
+                try rows.append(HomeDailyUsage(
+                    day: CalendarDay(formatter.string(from: day)), totalGB: total,
+                    peakGB: total / 4, offPeakGB: total * 3 / 4,
+                ))
+                day = calendar.date(byAdding: .day, value: 1, to: day)!
+            }
+            self.current.homeUsage = try HomeUsage(
+                key: ServiceKey(account: self.key, kind: .home, providerID: self.selected),
+                connectionID: self.current.connectionID!,
+                period: period,
+                category: .cap, policyCounterGB: counter, reportedAllocationGB: 1000,
+                downloaded: HomeDownloadedTraffic(
+                    peakGB: counter * Decimal(string: "0.75")!,
+                    offPeakGB: self.selected == "shared-service" ? 45 : 60,
+                ),
+                dailyHistory: HomeDailyHistory(
+                    fetchedDay: CalendarDay(formatter.string(from: self.date)), rows: rows, period: period,
+                ),
+                providerUpdatedAt: self.date, fetchedAt: self.date,
+            )
+        }
     }
 
     private var kind: ServiceKind {

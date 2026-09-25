@@ -28,9 +28,13 @@ Use direct credential entry or optional 1Password to bootstrap authentication, a
 
 CodexBar already demonstrates the desired menu-bar workflow. Sharing the core gives the UI and CLI identical allowance semantics and makes most behavior testable without launching AppKit. A single telecom provider does not need CodexBar's multi-provider macro registry, browser-cookie imports, or AI-specific data models.
 
-## Telenet feasibility boundary
+## Telenet home provider
 
-Telenet research runs in a separate dependency-free Python proof gate with an explicit read-only HTTP policy. Its IDX password flow and cookie session are not part of the Mobile Vikings Swift core. The gate can establish login, discovered-service usage accuracy, and cookie reuse before a native provider design is committed. Missing home or mobile services, natural session expiry, renewal, and native presentation remain separate coverage questions. See [Telenet proof](telenet-proof.md).
+`TelenetHomeAccount` implements the existing provider account protocol independently of Mobile Vikings' OAuth session. The Swift client owns the bounded IDX login, explicit authentication/data-read allowlist, and isolated cookie jar. Account-scoped Keychain storage holds the session; the existing account lease serializes requests and persistence across app and CLI workers. No password is retained for background reauthentication.
+
+The home domain preserves billing civil dates, provider category, policy counter, reported allocation, peak/off-peak traffic, speed state, and provider update time. The usage endpoint's policy counter is never substituted for downloaded traffic from the separate daily-usage endpoint. Shared home presentation drives the CLI report and native card. Billing dates do not enter the mobile expiry field. Unknown speed stays unknown.
+
+Telenet enforces hourly background polling, a persisted manual-request floor, and bounded failure backoff. `Retry-After` remains a lower bound across processes and relaunches. Successful account data survives another account's failure. Natural expiry, renewal, and MFA remain separate evidence questions. The Python [feasibility gate](telenet-proof.md) remains independent of production; [native home proof](telenet-home.md#verify-the-integration) compares the actual app with an independent API decoder.
 
 ## Verification and delivery
 
@@ -88,7 +92,7 @@ The two loyalty GETs are explicit allowlist cases. Transaction pagination constr
 
 The legacy slot retains `be.bram.vikingbar.oauth/mobile-vikings`, `session.lock`, and `balance-v1.json` exactly. No credential or cache bytes migrate. New accounts use a unique Keychain account and `accounts/<provider>/<uuid>/` cache and lease namespace. Reservation precedes authentication, making failed or interrupted additions discoverable and retryable. Selection changes only after successful native addition; a CLI user explicitly selects the connected slot.
 
-`ProviderRegistry` opens one account-bound adapter. Production registers Mobile Vikings only. Its adapter owns credential input, operation validation, and conversion from `VikingSession` into normalized account/service context. Existing mobile balance, points, invoice scope, and history payloads remain provider details. Synthetic registrations exercise a home service without inventing a SIM or mobile bundle. Unsupported capabilities are hidden and rejected by the provider.
+`ProviderRegistry` opens one account-bound adapter. Production registers Mobile Vikings and Telenet. Registration metadata selects the credential form and decoder. The Mobile Vikings adapter owns operation validation and conversion from `VikingSession` into normalized account/service context. Existing mobile balance, points, invoice scope, and history payloads remain provider details. Telenet exposes home usage without inventing a SIM or mobile bundle. Unsupported capabilities are hidden and rejected by the provider.
 
 The app maintains one active worker and account-keyed last results. Switching immediately projects the target account's own result or an empty state, drains the old worker, and starts `vikingbar session --account ACCOUNT`. Generation checks reject late replies; protocol version 2 also requires the bound account identity. Capability merges check both account and connection identity. The app reloads the shared selection on activation and before refresh. CLI workers snapshot the existing selected key at invocation without writes; an absent catalog means the reserved legacy key. Catalog initialization waits for the first valid data command. Explicit account selectors avoid startup catalog reads. Malformed input and control-only streams never initialize storage or read credentials. Public live reports and redacted connect receipts retain version 1 for existing proof consumers.
 

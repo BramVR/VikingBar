@@ -31,6 +31,7 @@ struct ConnectionForm: View {
     @State private var fields = ConnectionFormModel()
     @State private var attempt = ConnectionFormAttempt()
     @FocusState private var clientIDFocused: Bool
+    @FocusState private var usernameFocused: Bool
     let resultURL: URL?
     let reference: (Bool) -> Void
     let dismiss: () -> Void
@@ -81,17 +82,33 @@ struct ConnectionForm: View {
         .textFieldStyle(.roundedBorder)
         .frame(maxWidth: .infinity, maxHeight: 560, alignment: .topLeading)
         .onAppear {
-            self.clientIDFocused = true
+            if self.provider == .mobileVikings {
+                self.clientIDFocused = true
+            } else {
+                self.usernameFocused = true
+            }
             self.finishIfNeeded()
         }
         .onDisappear { self.fields.clear() }
         .onChange(of: self.session.activity) { _, _ in
             self.finishIfNeeded()
         }
+        .onChange(of: self.session.addingProvider) { _, _ in
+            self.fields.clear()
+        }
     }
 
     private var isConnecting: Bool {
         self.attempt.isConnecting(in: self.session)
+    }
+
+    private var provider: ProviderID {
+        self.session.addingAccount ? self.session.addingProvider : self.session.selectedAccount.provider
+    }
+
+    private var credentialFields: [CredentialField] {
+        let provider = self.provider == .fixtureHome ? ProviderID.mobileVikings : self.provider
+        return (try? ProviderRegistry.production.registration(provider).credentialFields) ?? []
     }
 
     private var content: some View {
@@ -100,24 +117,39 @@ struct ConnectionForm: View {
             if self.isConnecting {
                 ProgressView("Connecting…")
             } else {
-                Text(
-                    "Use your Mobile Vikings username and password, plus the public client ID approved for API access.",
-                )
-                .font(.callout)
-                Text("First request API access from api@mobilevikings.be. Include your name, Mobile Vikings, " +
-                    "VikingBar, and the purpose: viewing your own balance. Wait for approval.")
-                    .font(.caption)
-                Text("Use a compatible public client with no client secret.")
-                    .font(.caption)
-                Link("API access instructions", destination: URL(string: "https://docs.uwa.mobilevikings.be/")!)
-                    .buttonStyle(.menuAction)
-                TextField("Public client ID", text: self.$fields.clientID)
-                    .accessibilityIdentifier("vikingbar.connect.client-id")
-                    .focused(self.$clientIDFocused)
-                TextField("Username", text: self.$fields.username)
-                    .accessibilityIdentifier("vikingbar.connect.username")
-                SecureField("Password", text: self.$fields.password)
-                    .accessibilityIdentifier("vikingbar.connect.password")
+                if self.session.addingAccount {
+                    Picker("Provider", selection: self.$session.addingProvider) {
+                        Text("Mobile Vikings").tag(ProviderID.mobileVikings)
+                        Text("Telenet").tag(ProviderID.telenet)
+                    }
+                    .accessibilityIdentifier("vikingbar.connect.provider")
+                }
+                if self.credentialFields.contains(.clientID) {
+                    Text("Use your Mobile Vikings username, password, and approved public client ID.")
+                        .font(.callout)
+                    Text("First request API access from api@mobilevikings.be. Include your name, Mobile Vikings, " +
+                        "VikingBar, and the purpose: viewing your own balance. Wait for approval.")
+                        .font(.caption)
+                    Text("Use a compatible public client with no client secret.")
+                        .font(.caption)
+                    Link("API access instructions", destination: URL(string: "https://docs.uwa.mobilevikings.be/")!)
+                        .buttonStyle(.menuAction)
+                    TextField("Public client ID", text: self.$fields.clientID)
+                        .accessibilityIdentifier("vikingbar.connect.client-id")
+                        .focused(self.$clientIDFocused)
+                } else if self.provider == .telenet {
+                    Text("Use your Telenet account username and password.")
+                        .font(.callout)
+                }
+                if self.credentialFields.contains(.username) {
+                    TextField("Username", text: self.$fields.username)
+                        .accessibilityIdentifier("vikingbar.connect.username")
+                        .focused(self.$usernameFocused)
+                }
+                if self.credentialFields.contains(.password) {
+                    SecureField("Password", text: self.$fields.password)
+                        .accessibilityIdentifier("vikingbar.connect.password")
+                }
                 Text("VikingBar uses your password once to sign in. The saved connection is kept in Keychain.")
                     .font(.caption).foregroundStyle(.secondary)
                 if let error = self.fields.error ?? self.session.connectionError ?? self.session.bridgeError {
@@ -131,7 +163,9 @@ struct ConnectionForm: View {
     }
 
     private func submit() {
-        guard let credentials = self.fields.takeCredentials(isFixture: self.session.isFixtureLaunch) else { return }
+        guard let credentials = self.fields.takeCredentials(
+            isFixture: self.session.isFixtureLaunch, provider: self.provider,
+        ) else { return }
         let attempt = self.session.connect(input: .credentials(credentials), resultURL: self.resultURL)
         self.attempt.recordSubmission(attempt)
         self.finishIfNeeded()

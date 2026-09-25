@@ -3,6 +3,7 @@ import Foundation
 public enum Allowance: Codable, Equatable, Sendable {
     case finite(totalBytes: UInt64, usedBytes: UInt64, remainingBytes: UInt64)
     case unlimited(usedBytes: UInt64)
+    case speedThreshold(thresholdBytes: UInt64, usedBytes: UInt64, category: String)
     case unavailable
 }
 
@@ -19,6 +20,7 @@ public enum SnapshotSource: Codable, Equatable, Sendable {
 }
 
 public struct UsageSnapshot: Codable, Equatable, Sendable {
+    public let providerName: String?
     public let source: SnapshotSource
     public let subscriptionName: String
     public let allowance: Allowance
@@ -33,7 +35,9 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
         expiresAt: Date?,
         freshness: Freshness,
         errorMessage: String? = nil,
+        providerName: String? = nil,
     ) {
+        self.providerName = providerName
         self.source = source
         self.subscriptionName = subscriptionName
         self.allowance = allowance

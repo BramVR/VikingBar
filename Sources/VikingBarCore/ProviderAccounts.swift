@@ -42,7 +42,24 @@ public enum AccountOperation: Sendable {
 
 public enum ProviderCredentials: Sendable {
     case mobileVikings(ProofCredentials)
+    case telenet(TelenetCredentials)
     case fixture
+}
+
+public enum CredentialField: String, Codable, Sendable { case clientID, username, password }
+
+public extension ProviderCredentials {
+    static func decode(_ data: Data, for provider: ProviderID) throws -> Self {
+        if provider == .telenet {
+            return try .telenet(TelenetCredentials.decode(data))
+        }
+        guard provider == .mobileVikings,
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              Set(object.keys) == ["client_id", "username", "password"] else { throw ProofFailure.invalidInput }
+        let credentials = try JSONDecoder().decode(ProofCredentials.self, from: data)
+        try credentials.validate()
+        return .mobileVikings(credentials)
+    }
 }
 
 public protocol ProviderAccountSession: Sendable {
@@ -56,6 +73,7 @@ public protocol ProviderAccountSession: Sendable {
 public struct ProviderRegistration: Sendable {
     public let id: ProviderID
     public let displayName: String
+    public let credentialFields: [CredentialField]
     public let makeSession: @Sendable (AccountStorage) throws -> any ProviderAccountSession
     public init(
         id: ProviderID, displayName: String,
@@ -63,6 +81,7 @@ public struct ProviderRegistration: Sendable {
     ) {
         self.id = id
         self.displayName = displayName
+        self.credentialFields = id == .telenet ? [.username, .password] : [.clientID, .username, .password]
         self.makeSession = makeSession
     }
 }
@@ -76,6 +95,10 @@ public struct ProviderRegistry: Sendable {
     public static let production = Self(providers: [ProviderRegistration(
         id: .mobileVikings, displayName: "Mobile Vikings",
         makeSession: { try MobileVikingsAccount(key: $0.key, session: VikingSession.production(storage: $0)) },
+    ), ProviderRegistration(
+        id: .telenet,
+        displayName: "Telenet",
+        makeSession: { try TelenetHomeAccount.production(storage: $0) },
     )])
     public func registration(_ id: ProviderID) throws -> ProviderRegistration {
         guard let registration = self.providers.first(where: { $0.id == id }) else {

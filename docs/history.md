@@ -7,6 +7,8 @@ read_when:
 
 # Daily SIM usage and cycle estimates
 
+Telenet uses the same chart and detail-panel controls with its own daily evidence and billing-period rules. See [Telenet daily usage](telenet-home.md#read-daily-usage). The request and cache rules below describe Mobile Vikings.
+
 The selected SIM's Data card includes a compact daily usage summary and chart. Hover over a bar to show its date, amount, and status in the main usage section. Click the bar or activate the summary with the keyboard or an accessibility tool to open a separate detail panel beside the main popover. The panel keeps the selected day and stays open until closed, dismissed with Escape, or its parent or account context changes.
 
 The usage section places today's usage and the observed cycle total above an inline chart. The adjacent panel groups the selected day, current-cycle totals and estimate, and data scope into distinct sections. The existing balance layout, selectors, and menu actions remain unchanged.
