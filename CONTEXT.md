@@ -12,7 +12,7 @@ Mobile Vikings support confirmed a public OAuth application with no client secre
 - Token endpoint: `POST /oauth2/token/`, form-encoded password or refresh grant.
 - Public client ID and login fields are held in the configured 1Password item. The client ID is not a secret; keep account-specific setup out of source defaults.
 - Initial connection accepts direct native credential entry or retrieves the approved username/password through optional 1Password. Discard the password after the exchange; do not repeatedly read it during background refresh.
-- Refresh tokens persist in macOS Keychain under a rotation lease. The token exchange and Keychain write cannot be atomic; an interrupted rotation requires reconnect. The auth/balance probe persists no tokens.
+- Refresh tokens persist in macOS Keychain; a file lease serializes rotation across the app and CLI. The token exchange and Keychain write cannot be atomic; an interrupted rotation requires reconnect. The auth/balance probe persists no tokens.
 - The observed access-token lifetime was 599 seconds. Always honor `expires_in`.
 - MFA behavior remains unverified. Never disable MFA to make the integration work.
 
@@ -34,7 +34,7 @@ Later stored-session gates verified these reads:
 - `/loyalty-points/balance` and `/loyalty-points/transactions`: available/pending/blocked points and transaction states. See [live proof](docs/live-proof.md#viking-points-proof).
 - `/invoices` and invoice PDFs: payment state, amount due, and grouped bills. See [invoices](docs/invoices.md).
 
-## Data documented, not yet verified
+## Data documented, not requested
 
 - `/subscriptions/{id}/usage`: detailed records. Prefer summaries when sufficient; details can contain phone numbers. Not in the request allowlist.
 - Invoice detail endpoints. Not in the request allowlist.

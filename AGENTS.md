@@ -6,7 +6,7 @@
 - `Sources/VikingBarCore`: shared API/auth, snapshots, bundle mapping, and injectable host services.
 - `Sources/VikingBarCLI`: CLI diagnostics and fixture/live proof using the shared core.
 - `Tests/VikingBarTests`: Swift Testing coverage for usage parsing, account state, icon patterns; mirror new logic with focused tests.
-- `Scripts`: local checks, fixture proof, packaging, pinned CI tools, draft-release helpers, `proof-live.py`, and `test-proof-runner.py`. See `docs/development.md`, `docs/RELEASING.md`, and `docs/live-proof.md`. Bundles are ad-hoc sealed; no Developer ID signing exists.
+- `Scripts`: local checks, fixture proof, packaging, pinned CI tools, draft-release helpers, `proof-live.py`, and `test-proof-runner.py`. See `docs/development.md`, `docs/RELEASING.md`, and `docs/live-proof.md`. Distribution archives and installed apps are ad-hoc sealed; `make package-app` bundles are unsealed. No Developer ID signing exists.
 - `docs`: architecture, development, release, and proof guides. Generated archives stay under `.build/`; avoid editing them.
 
 ## Build, Test, Run
