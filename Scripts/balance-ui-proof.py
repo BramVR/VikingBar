@@ -218,15 +218,28 @@ def compare_other_bundles(tree, report, screens, *, expanded):
     return set()
 
 
-def compare_bundles(tree, report, boundary):
+def state_bundles(report):
     try:
-        bundles = report["state"]["balance"]["bundles"]
-        expected = [(index, bundle["type"]) for index, bundle in enumerate(bundles) if bundle["type"] != "data"]
+        bundles = [(bundle["type"], bundle["total"]) for bundle in report["state"]["balance"]["bundles"]]
+        if any(kind not in BUNDLE_KINDS or type(total) not in (int, float) for kind, total in bundles):
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise UIFailure("live-report-invalid") from None
+    return bundles
+
+
+def displayed_bundles(report):
+    return [(index, kind) for index, (kind, total) in enumerate(state_bundles(report))
+            if kind != "data" and total != 0]
+
+
+def compare_bundles(tree, report, boundary):
+    expected = displayed_bundles(report)
+    try:
         rows = report["nonDataBundles"]
         listed = [(row["index"], row["kind"]) for row in rows]
         texts = [{field: row[key] for field, key in BUNDLE_FIELDS.items()} for row in rows]
-        if (any(kind not in BUNDLE_KINDS for _, kind in expected)
-                or any(not isinstance(text, str) for row in texts for text in row.values())):
+        if any(not isinstance(text, str) for row in texts for text in row.values()):
             raise ValueError()
     except (KeyError, TypeError, ValueError, AttributeError):
         raise UIFailure("live-report-invalid") from None
@@ -972,13 +985,16 @@ class NativeProof:
                 or connection_identity(rebuilt) != (connection_id, connection_sha256)):
             raise UIFailure("rebuild-reconnected")
         self.quit()
-        returned = {kind for kind, count in api["bundle_types"].items() if count > 0}
-        if any(self.bundle_kinds.get(label) != returned for label in ("connected", "refreshed", "resumed", "rebuilt")):
+        returned = [kind for kind, _ in state_bundles(api_report)]
+        displayed = {"data"} | {kind for _, kind in displayed_bundles(api_report)}
+        if (api["bundle_types"] != {kind: returned.count(kind) for kind in BUNDLE_KINDS}
+                or any(self.bundle_kinds.get(label) != displayed
+                       for label in ("connected", "refreshed", "resumed", "rebuilt"))):
             raise UIFailure("bundle-kind-coverage-mismatch")
         receipt = {"schema_version": 1, "check": "direct-connect-ui" if self.direct is not None else "balance-ui",
                    "passed": True, "native_connect": True,
                    "api_matches": True, "native_refresh": True, "keychain_resume": True,
-                   "keychain_rebuild": True, "visible_menu_matches": True, "bundle_kinds": sorted(returned)}
+                   "keychain_rebuild": True, "visible_menu_matches": True, "bundle_kinds": sorted(displayed)}
         private_write(self.directory / "result.json", receipt)
         return receipt
 

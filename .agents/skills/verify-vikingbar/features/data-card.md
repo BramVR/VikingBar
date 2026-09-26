@@ -31,7 +31,7 @@ Require finite positive AX and CoreGraphics popover bounds fully inside one fini
 
 ### Other bundles
 
-Rows sit in `vikingbar.otherBundles`, a disclosure directly under the data hero and collapsed by default. It appears only when the SIM has non-data bundles. Its label shows the distinct kind labels in row order as `vikingbar.otherBundles.summary`, such as `SMS, Calls, Credit`.
+Rows sit in `vikingbar.otherBundles`, a disclosure directly under the data hero and collapsed by default. It appears only when the SIM has non-data bundles with a nonzero provider total; zero-sized ones get no row. Its label shows the distinct kind labels in row order as `vikingbar.otherBundles.summary`, such as `SMS, Calls, Credit`.
 
 The smoke selects Mixed after the amount-mode loop and requires the summary with no `vikingbar.bundle.*` while collapsed. It presses `vikingbar.otherBundles` to expand. Each non-data bundle is a `vikingbar.bundle.<index>` container, using the provider-array index. Its fields are `.title`, `.remaining`, `.used`, `.total`, `.detail`, `.validity`, and `.description` (only when non-empty); `.progress` appears for finite rows with a nonzero total. Require each string inside its own row and the popover. Rows ignore GB/GiB and Remaining/Used. The helmet, hero, and data picker stay data-only. Travel SIM shows only `vikingbar.bundle.0` with summary `Credit`. Back on Example SIM, a second press collapses the rows. Finite shows no `vikingbar.otherBundles`. Inspect `mixed-card.png`, the expanded Example SIM card.
 

@@ -350,7 +350,7 @@ class DirectReadinessTests(unittest.TestCase):
 
 class DirectSequenceTests(unittest.TestCase):
     def test_fresh_receipt_and_every_report_keep_one_connection_identity(self):
-        for changed_stage in (None, "connected", "api", "refreshed", "resumed", "rebuilt", "kinds"):
+        for changed_stage in (None, "connected", "api", "refreshed", "resumed", "rebuilt", "kinds", "counts"):
             with self.subTest(changed_stage=changed_stage), tempfile.TemporaryDirectory() as directory:
                 proof = object.__new__(UI.NativeProof)
                 proof.direct = {"active": True}
@@ -376,12 +376,15 @@ class DirectSequenceTests(unittest.TestCase):
                         "current": {"lastUpdated": f"2026-09-09T00:00:0{order[stage]}Z"}}}
                     return {"schemaVersion": 1, "snapshot": snapshot, "nonDataBundles": [], "state": {
                             "snapshot": snapshot, "connectionID": {"rawValue": identifier},
-                            "balance": {"bundles": [{"type": "data"}]},
+                            "balance": {"bundles": [{"type": "data", "total": 5}, {"type": "sms", "total": 100},
+                                                    {"type": "voice", "total": 0}]},
                             "selectedSubscriptionID": "sim", "selectedBundleIndex": 0}}
 
                 api = {"schema_version": 1, "check": "balance-api", "passed": True,
-                       "api_matches": True, "token_refreshed": True, "bundle_count": 2,
-                       "bundle_types": {"data": 1, "sms": 1, "voice": 0, "value": 0}}
+                       "api_matches": True, "token_refreshed": True, "bundle_count": 3,
+                       "bundle_types": {"data": 1, "sms": 1, "voice": 1, "value": 0}}
+                if changed_stage == "counts":
+                    api["bundle_types"] = {"data": 1, "sms": 2, "voice": 0, "value": 0}
 
                 def matched(stage, *_args):
                     kinds = {"data"} if changed_stage == "kinds" and stage == "resumed" else {"data", "sms"}

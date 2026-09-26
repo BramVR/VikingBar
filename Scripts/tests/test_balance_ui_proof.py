@@ -27,7 +27,7 @@ class BalanceUIProofTests(unittest.TestCase):
                        "nonDataBundles": [],
                        "state": {"snapshot": snapshot,
                                  "connectionID": {"rawValue": "00000000-0000-0000-0000-000000000001"},
-                                 "balance": {"bundles": [{"type": "data"}]},
+                                 "balance": {"bundles": [{"type": "data", "total": 50000000000}]},
                                  "selectedSubscriptionID": "synthetic", "selectedBundleIndex": 0}}
         self.tree = {"elements": [{"AXIdentifier": "vikingbar.status", "AXDescription": "VikingBar, Synthetic SIM, Last updated today",
                                    "frame": [[100, 0], [50, 24]]},
@@ -553,12 +553,13 @@ class BalanceUIProofTests(unittest.TestCase):
     def add_bundle_rows(self):
         validity = "Expires 1 Oct 2026, 00:00 UTC"
         rows = [{"index": 1, "kind": "voice", "title": "Call bundle 2", "description": "", "remainingText": "0 min",
-                 "usedText": "0 min used", "totalText": "0 min total", "detailText": "Calls · default",
-                 "validityText": validity, "state": "exhausted", "percentageRemaining": None},
-                {"index": 2, "kind": "sms", "title": "SMS bundle 3", "description": "Texts", "remainingText": "0 SMS",
-                 "usedText": "0 SMS used", "totalText": "0 SMS total", "detailText": "SMS · default",
-                 "validityText": validity, "state": "exhausted", "percentageRemaining": None}]
-        self.report["state"]["balance"]["bundles"] += [{"type": "voice"}, {"type": "sms"}]
+                 "usedText": "10 min used", "totalText": "10 min total", "detailText": "Calls · default",
+                 "validityText": validity, "state": "exhausted", "percentageRemaining": 0},
+                {"index": 2, "kind": "sms", "title": "SMS bundle 3", "description": "Texts",
+                 "remainingText": "Unlimited", "usedText": "12 SMS used", "totalText": "Unlimited allowance",
+                 "detailText": "SMS · default",
+                 "validityText": validity, "state": "unlimited", "percentageRemaining": None}]
+        self.report["state"]["balance"]["bundles"] += [{"type": "voice", "total": 600}, {"type": "sms", "total": -1}]
         self.report["nonDataBundles"] = rows
         self.tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.otherBundles", "frame": [[120, 270], [300, 330]]})
         self.tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.otherBundles.summary", "AXValue": "Calls, SMS",
@@ -581,6 +582,21 @@ class BalanceUIProofTests(unittest.TestCase):
         self.add_bundle_rows()
         self.assertEqual(UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=True),
                          {"voice", "sms"})
+
+    def test_zero_sized_bundles_are_not_expected_and_a_rendered_row_for_one_fails(self):
+        self.add_bundle_rows()
+        self.report["state"]["balance"]["bundles"].append({"type": "value", "total": 0})
+        self.assertEqual(UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=True),
+                         {"voice", "sms"})
+        hidden = dict(self.report["nonDataBundles"][0], index=3, kind="value", title="Credit bundle 4")
+        self.report["nonDataBundles"].append(hidden)
+        self.tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.bundle.3", "frame": [[120, 500], [300, 90]]})
+        for line, (field, key) in enumerate(UI.BUNDLE_FIELDS.items()):
+            if hidden[key]:
+                self.tree["elements"].insert(-1, {"AXIdentifier": f"vikingbar.bundle.3.{field}", "AXValue": hidden[key],
+                                                  "frame": [[125, 502 + line * 12], [200, 10]]})
+        with self.assertRaisesRegex(UI.UIFailure, "^native-bundles-mismatch$"):
+            UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=True)
 
     def test_compare_menu_checks_data_without_other_bundle_rows(self):
         self.add_bundle_rows()
@@ -694,7 +710,17 @@ class BalanceUIProofTests(unittest.TestCase):
         def non_text_field(report):
             report["nonDataBundles"][1]["title"] = None
 
-        for change in (remove_rows, remove_field, unknown_kind, untyped_bundles, non_text_field):
+        def missing_total(report):
+            del report["state"]["balance"]["bundles"][1]["total"]
+
+        def text_total(report):
+            report["state"]["balance"]["bundles"][1]["total"] = "600"
+
+        def boolean_total(report):
+            report["state"]["balance"]["bundles"][2]["total"] = True
+
+        for change in (remove_rows, remove_field, unknown_kind, untyped_bundles, non_text_field, missing_total,
+                       text_total, boolean_total):
             self.setUp()
             self.add_bundle_rows()
             change(self.report)
