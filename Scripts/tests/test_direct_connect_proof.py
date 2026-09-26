@@ -379,7 +379,8 @@ class DirectSequenceTests(unittest.TestCase):
                             "selectedSubscriptionID": "sim", "selectedBundleIndex": 0}}
 
                 api = {"schema_version": 1, "check": "balance-api", "passed": True,
-                       "api_matches": True, "token_refreshed": True, "bundle_count": 1}
+                       "api_matches": True, "token_refreshed": True, "bundle_count": 1,
+                       "bundle_types": {"data": 1, "sms": 0, "voice": 0, "value": 0}}
                 def run(command, name=None, timeout=120):
                     if "package-artifacts.py" in " ".join(command):
                         proof.cli.write_bytes(b"release")

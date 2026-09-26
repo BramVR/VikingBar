@@ -8,6 +8,7 @@ struct LiveReport: Encodable, Sendable {
     let snapshot: UsageSnapshot
     let menu: MenuPresentation
     let balanceDetails: LiveBalancePresentation
+    let nonDataBundles: [BundleRowPresentation]
     let home: HomeUsagePresentation?
     let historyPresentation: HistoryPresentation
     let invoiceDetails: InvoicePresentation
@@ -21,6 +22,7 @@ struct LiveReport: Encodable, Sendable {
         self.snapshot = state.snapshot
         self.menu = MenuPresentation(snapshot: state.snapshot)
         self.balanceDetails = LiveBalancePresentation(state: state)
+        self.nonDataBundles = BundleRowPresentation.rows(for: state.balance?.bundles ?? [], at: Date())
         self.home = state.selectedHomeUsage.map { HomeUsagePresentation(usage: $0) }
         if let home = state.selectedHomeUsage {
             let stale = if case .stale = state.snapshot.freshness {
@@ -132,6 +134,7 @@ extension VikingBarCLI {
     Bare connect reconnects the selected account. Failed connect never changes selection.
     --subscription remains an alias for --service. fixture-accounts uses only synthetic providers.
     Bundle indices are zero-based positions in the reported provider bundle array.
+    --bundle accepts data bundles only. nonDataBundles lists the SIM's SMS, call, and credit bundles.
     connect reads credential JSON from stdin. Use the approved connection helper.
     proof auth-balance reads credential JSON from stdin and never persists tokens.
     proof balance-api refreshes the stored session and reports redacted comparisons.

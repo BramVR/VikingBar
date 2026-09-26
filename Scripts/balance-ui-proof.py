@@ -185,13 +185,21 @@ def compare_menu(tree, report, screens):
         raise UIFailure("fixture-is-not-live-proof")
 
 
+BUNDLE_KINDS = ("data", "sms", "voice", "value")
+
+
 def validate_api_receipt(value):
-    if (not isinstance(value, dict)
-            or set(value) != {"schema_version", "check", "passed", "api_matches", "token_refreshed", "bundle_count"}
+    keys = {"schema_version", "check", "passed", "api_matches", "token_refreshed", "bundle_count", "bundle_types"}
+    if (not isinstance(value, dict) or set(value) != keys
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
             or value["check"] != "balance-api"
             or any(value[key] is not True for key in ("passed", "api_matches", "token_refreshed"))
             or type(value["bundle_count"]) is not int or value["bundle_count"] < 1):
+        raise UIFailure("api-proof-receipt-invalid")
+    types = value["bundle_types"]
+    if (not isinstance(types, dict) or set(types) != set(BUNDLE_KINDS)
+            or any(type(count) is not int or count < 0 for count in types.values())
+            or sum(types.values()) != value["bundle_count"] or types["data"] < 1):
         raise UIFailure("api-proof-receipt-invalid")
     return value
 

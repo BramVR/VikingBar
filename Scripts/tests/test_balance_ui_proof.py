@@ -563,13 +563,24 @@ class BalanceUIProofTests(unittest.TestCase):
             UI.compare_menu(self.tree, self.report, self.screens)
 
     def test_api_receipt_rejects_missing_skipped_and_private_fields(self):
+        types = {"data": 1, "sms": 1, "voice": 1, "value": 0}
         receipt = {"schema_version": 1, "check": "balance-api", "passed": True, "api_matches": True,
-                   "token_refreshed": True, "bundle_count": 1}
+                   "token_refreshed": True, "bundle_count": 3, "bundle_types": types}
         self.assertEqual(UI.validate_api_receipt(receipt), receipt)
         for delta in ({"api_matches": False}, {"token_refreshed": False}, {"raw": "private"},
-                      {"bundle_count": 0}, {"bundle_count": True}):
+                      {"bundle_count": 0}, {"bundle_count": True}, {"bundle_count": 4},
+                      {"bundle_types": None}, {"bundle_types": dict(types, mms=0)},
+                      {"bundle_types": {"data": 1, "sms": 1, "voice": 1}},
+                      {"bundle_types": dict(types, value=True, voice=0)},
+                      {"bundle_types": dict(types, value=-1, voice=2)},
+                      {"bundle_types": dict(types, value=1.0, voice=0)},
+                      {"bundle_types": dict(types, data=0, value=1)}):
             with self.assertRaises(UI.UIFailure):
                 UI.validate_api_receipt(dict(receipt, **delta))
+        missing = dict(receipt)
+        del missing["bundle_types"]
+        with self.assertRaises(UI.UIFailure):
+            UI.validate_api_receipt(missing)
 
     def test_private_evidence_permissions(self):
         with tempfile.TemporaryDirectory() as directory:

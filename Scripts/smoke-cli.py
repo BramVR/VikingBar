@@ -14,7 +14,7 @@ def run(executable, *arguments):
 
 def verify(executable):
     expected = {"finite": "36.00 GB", "unlimited": "Unlimited", "exhausted": "0.00 GB",
-                "stale": "36.00 GB", "error": "Unavailable"}
+                "stale": "36.00 GB", "error": "Unavailable", "mixed": "36.00 GB"}
     for fixture, remaining in expected.items():
         result = run(executable, fixture, "--time-zone", "UTC")
         assert result.returncode == 0, result.stderr
@@ -26,6 +26,18 @@ def verify(executable):
         assert "Synthetic data" in menu["sourceLabel"]
         assert ("Stale" in menu["freshnessText"]) == (fixture == "stale")
         assert bool(menu.get("warningText")) == (fixture in ("stale", "error"))
+        rows = report["nonDataBundles"]
+        if fixture != "mixed":
+            assert rows == [], rows
+            continue
+        assert [(row["index"], row["kind"], row["state"]) for row in rows] == [
+            (0, "sms", "finite"), (1, "voice", "finite"), (2, "value", "finite"),
+            (3, "sms", "unlimited"), (4, "voice", "expired")], rows
+        assert [row["title"] for row in rows] == [
+            "Monthly SMS", "Call bundle 2", "Prepaid credit", "Unlimited SMS", "Roaming calls"], rows
+        assert [row["remainingText"] for row in rows] == [
+            "60 SMS", "19 min 30 s", "€12.50", "Unlimited", "Unavailable"], rows
+        assert rows[4]["validityText"].startswith("Expired "), rows
     result = run(executable, "finite", "--unit", "GiB", "--time-zone", "Europe/Brussels")
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
