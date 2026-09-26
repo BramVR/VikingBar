@@ -273,7 +273,7 @@ extension OracleBundle {
         } else {
             ["Expires \(dates.string(from: end))", texts[3]]
         }
-        let percentage: Double? = if case let .finite(total, _, remaining) = amounts, total != 0 {
+        let percentage: Double? = if case let .finite(total, _, remaining) = amounts {
             min(100, NSDecimalNumber(decimal: remaining / total * 100).doubleValue)
         } else {
             nil

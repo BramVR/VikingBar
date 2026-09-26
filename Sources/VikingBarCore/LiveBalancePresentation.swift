@@ -125,8 +125,7 @@ private struct AmountTexts {
             self.used = "\(format(used)) used"
             self.total = "\(format(total)) total"
             self.state = magnitude(remaining) == 0 ? .exhausted : .finite
-            self.percentageRemaining = magnitude(total) == 0
-                ? nil : min(100, magnitude(remaining) * 100 / magnitude(total))
+            self.percentageRemaining = min(100, magnitude(remaining) * 100 / magnitude(total))
         case let .unlimited(used):
             self.remaining = "Unlimited"
             self.used = "\(format(used)) used"
