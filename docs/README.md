@@ -1,12 +1,10 @@
 ---
-summary: "Documentation index and implementation status."
+summary: "Documentation index."
 read_when:
   - Starting work in VikingBar
 ---
 
 # Documentation
-
-- [Daily SIM usage](history.md): bounded summaries, missing days, cycle estimates, and proof requirements.
 
 - [Product vision](../VISION.md): priorities and first release scope.
 - [Project context](../CONTEXT.md): API findings, auth constraints, and domain vocabulary.
@@ -17,9 +15,10 @@ read_when:
 - [Development commands](development.md): checks, CLI fixtures, packaging, and native UI proof.
 - [CI checks and artifacts](ci.md): toolchain, artifact contents, and merge enforcement status.
 - [Draft releases](RELEASING.md): artifact downloads, version tags, and private draft verification.
-- [Local API proof](live-proof.md): targeted credential setup, request limits, and auth/balance gates.
+- [Local API proof](live-proof.md): targeted credential setup, request limits, and auth, balance, direct sign-in, invoice, payment-evidence, and points gates.
 - [Telenet proof](telenet-proof.md): read-only feasibility gate, private setup, and coverage limits.
 - [Telenet home internet](telenet-home.md): native and CLI connection, policy counters, traffic, polling, and live proof.
 - [Live account setup](live-account.md): connection, SIM and bundle selection, refresh, and recovery.
+- [Daily SIM usage](history.md): bounded summaries, missing days, cycle estimates, and proof requirements.
 - [Local installation](local-install.md): installation, updates, preferences, launch at login, logout, uninstall, and installed proof.
 - [Invoices](invoices.md): account and grouped bill scope, separate payment fields, explicit PDF downloads, and required proof.

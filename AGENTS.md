@@ -1,13 +1,13 @@
 # Repository Guidelines
 
 ## Project Structure & Modules
-- SwiftPM builds the app, shared core, CLI, and tests. Live API integration and release automation remain separate tickets.
+- SwiftPM builds the app, shared core, CLI, and tests.
 - `Sources/VikingBar`: Swift 6 menu bar app (usage/allowance display, icon renderer, settings). Keep changes small and reuse existing helpers.
 - `Sources/VikingBarCore`: shared API/auth, snapshots, bundle mapping, and injectable host services.
 - `Sources/VikingBarCLI`: CLI diagnostics and fixture/live proof using the shared core.
-- `Tests/VikingBarTests`: XCTest coverage for usage parsing, account state, icon patterns; mirror new logic with focused tests.
-- `Scripts`: local checks, fixture proof, packaging, pinned CI tools, draft-release helpers, `proof-live.py`, and `test-proof-runner.py`. See `docs/development.md`, `docs/RELEASING.md`, and `docs/live-proof.md`. No signing setup exists.
-- `docs`: architecture, release notes, and process. Build/release instructions arrive with their implementation. Root-level zips/appcast are generated artifacts—avoid editing except during releases.
+- `Tests/VikingBarTests`: Swift Testing coverage for usage parsing, account state, icon patterns; mirror new logic with focused tests.
+- `Scripts`: local checks, fixture proof, packaging, pinned CI tools, draft-release helpers, `proof-live.py`, and `test-proof-runner.py`. See `docs/development.md`, `docs/RELEASING.md`, and `docs/live-proof.md`. Bundles are ad-hoc sealed; no Developer ID signing exists.
+- `docs`: architecture, development, release, and proof guides. Generated archives stay under `.build/`; avoid editing them.
 
 ## Build, Test, Run
 - Use `swift build` (debug) or `swift build -c release`; `swift test` for the full suite.
@@ -20,10 +20,9 @@
 - Favor small, typed structs/enums; maintain existing `MARK` organization. Use descriptive symbols; match current commit tone.
 
 ## Testing Guidelines
-- Add/extend XCTest cases under `Tests/VikingBarTests/*Tests.swift` (`FeatureNameTests` with `test_caseDescription` methods).
-- Swift Testing: prefer backticked sentence names; no camelCase.
-- Once the package exists, always run `swift test` before handoff; add focused `swift test --filter ...` runs for parser/provider fixes when possible. Docs-only changes require documentation checks, not nonexistent build commands.
-- After any code change, run `make check` and fix all reported format/lint issues before handoff. Ticket #1/#3 must establish this gate before dependent code work.
+- Add/extend Swift Testing cases under `Tests/VikingBarTests/*Tests.swift` with backticked sentence names; no camelCase.
+- Always run `swift test` before handoff; add focused `swift test --filter ...` runs for parser/provider fixes when possible. Docs-only changes require documentation checks, not nonexistent build commands.
+- After any code change, run `make check` and fix all reported format/lint issues before handoff.
 - Prefer CLI/focused tests over app-bundle live tests when behavior can be verified without relaunching VikingBar.
 - Never run tests/checks or ad-hoc validation that can display macOS Keychain prompts. Live provider probes, `vikingbar` against real accounts, and real SecItem reads require explicit authorization or the configured, authorized live proof workflow; otherwise use parser tests, stubs, and test stores.
 - Persistence tests must inject isolated defaults, snapshot URLs, a synthetic home, and a contained recording FileManager. Ordinary settings tests must not discover or migrate real user state.

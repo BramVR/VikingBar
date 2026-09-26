@@ -67,7 +67,10 @@ Close only the website tab created for the run and stop only its recorded Vite p
 - `make proof-live CHECK=auth-balance` requires the authorized [auth/balance proof](features/auth-balance-proof.md) recipe. The same feature links the separate Telenet feasibility contract and its distinct credential reference.
 - `make proof-live CHECK=invoices` requires the authorized [invoice proof](features/invoices.md) recipe. It accesses the stored account and downloads a PDF only when an invoice exists; it never opens a PDF viewer.
 - `make proof-live CHECK=points` requires the authorized [Viking Points](features/points.md) recipe, stored session, and private native evidence.
-- `make smoke-app-fixture` runs `Scripts/smoke-app-fixture.py` end to end.
+- `make proof-live CHECK=payment-evidence` requires a privately reviewed invoice witness; follow [invoice proof](features/invoices.md).
+- `make proof-live CHECK=direct-connect-ui` requires the approved private direct sign-in configuration; follow [direct sign-in proof](../../../docs/live-proof.md#direct-sign-in-proof).
+- `make proof-live CHECK=telenet-home-ui` requires a real Telenet home service and the [Telenet home](features/telenet-home.md) recipe.
+- `make smoke-app-fixture` runs `Scripts/smoke-app-fixture.py` end to end. `make smoke-payment-fixture` runs the opt-in synthetic payment QR fixture.
 - `.build/inspect-ui <pid>` reads native AX; append `press <selector>` for a targeted action or `choose <picker-identifier> <exact-menu-title>` for picker selection in one invocation. Action errors are terminal; never retry successful or uncertain dispatch.
 - `make package-app` builds the bundle for interactive checks.
 - `INSTALL_TARGET=ABSOLUTE_APP_PATH .agents/skills/verify-vikingbar/installed-proof.py smoke` requires an unused approved target and proves native preferences and production login registration with restoration.

@@ -90,8 +90,7 @@ Open **Settings → Account** to see connection status and username. **Reconnect
 
 New connections store the username alongside the refresh session in Keychain. VikingBar never saves the password. Older sessions keep working: their public client ID remains available to the change-account form, while the summary explains when the username is unavailable. Changing the connection records the username on the next successful sign-in. The account summary always belongs to the saved connection, not the selected SIM.
 
-
-Use the **Provider** and **Account** pickers above the balance to select a retained account. Only Mobile Vikings is available in production. Settings → Account → **Add Mobile Vikings account…** reserves a separate slot when sign-in is submitted. Successful sign-in selects the new account. Failure or cancellation retains the prior selection and credentials; the reserved slot remains in the picker for a later reconnect. **Reconnect account…** replaces only the selected slot's connection, keeping the others available.
+Use the **Provider** and **Account** pickers above the balance to select a retained account. Production registers Mobile Vikings and [Telenet](telenet-home.md). Settings → Account → **Add account…** chooses a provider and reserves a separate slot when sign-in is submitted. Successful sign-in selects the new account. Failure or cancellation retains the prior selection and credentials; the reserved slot remains in the picker for a later reconnect. **Reconnect account…** replaces only the selected slot's connection, keeping the others available.
 
 The app and CLI share one persisted default. Inspect and change it with:
 

@@ -1,5 +1,5 @@
 ---
-summary: "Run local authentication and subscription-balance proof with one targeted 1Password read."
+summary: "Local Mobile Vikings API and native proof gates, credential setup, and request limits."
 read_when:
   - Changing authentication or API requests
   - Adding an endpoint-specific live proof check
@@ -73,7 +73,7 @@ Keep receipts in a private directory outside version control, such as `proof-pri
 
 ## Extend a check
 
-Add a named check and its explicit request policy in the Swift core. Add synthetic success, malformed-response, and forbidden-request tests before running it live. Extend the Python receipt validation if the new check needs different non-secret assertions. Reuse the authorized stored session when the feature supports it; use the approved bootstrap only when connection is required. Never turn arbitrary URLs or HTTP methods into user-configurable proof inputs. History, points, and bills need their own endpoint assertions and real proof.
+Add a named check and its explicit request policy in the Swift core. Add synthetic success, malformed-response, and forbidden-request tests before running it live. Extend the Python receipt validation if the new check needs different non-secret assertions. Reuse the authorized stored session when the feature supports it; use the approved bootstrap only when connection is required. Never turn arbitrary URLs or HTTP methods into user-configurable proof inputs. History, points, and bills each have a named check; new endpoints follow the same pattern.
 
 ## Native balance proof
 
@@ -109,7 +109,7 @@ The auth-balance gate and its receipt schema remain unchanged. It proves the cre
 
 ## Recorded coverage
 
-Invoice coverage is separate from the recorded balance runs below. Its live gate remains pending.
+Invoice coverage is separate from the recorded balance runs below. See the [invoice feature map](../.agents/skills/verify-vikingbar/features/invoices.md) for its recorded pass.
 
 The core `balance-ui` gate passed on the source committed as `6955b39`. The coordinator retained the private receipts. The run proved native connection, raw API comparison with forced token rotation, a newer update after native Refresh, and the same connection after relaunch. A release rebuild changed the CLI executable hash and still refreshed with the stored token. The successful sequence used one credential read. The coordinator verified that all task-owned apps, workers, helper processes, and tmux processes had exited.
 
@@ -173,4 +173,4 @@ Before writing credentials to that stdin, the app publishes a private connection
 
 The helper suppresses form text in accessibility output. Before each direct live stage, the runner writes a private readiness receipt and allows up to ten minutes, capped by the coordinator slot expiry, for a human to approve a Keychain prompt. It suppresses screenshots from launch until a valid live card replaces the credential form. Helper commands, API calls, process checks, Refresh, Quit, and rebuild all share the active readiness deadline. All child errors remain fixed diagnostics. Credentials remain briefly in process memory; clearing references does not guarantee erasure of immutable runtime strings. No password belongs in arguments, environment, settings, files, logs, clipboard, or proof receipts.
 
-The gate requires a real API comparison, native refresh, stored-session relaunch, release rebuild and another stored-session relaunch. It preserves the balance proof's identity and cleanup checks. The optional method still requires a separate `make proof-live CHECK=balance-ui` result under its existing authorization policy. Missing or skipped proof keeps issue 26 incomplete and blocks website availability claims.
+The gate requires a real API comparison, native refresh, stored-session relaunch, release rebuild and another stored-session relaunch. It preserves the balance proof's identity and cleanup checks. The optional method still requires a separate `make proof-live CHECK=balance-ui` result under its existing authorization policy. Missing or skipped proof fails the gate and blocks website availability claims.

@@ -26,7 +26,7 @@ Use direct credential entry or optional 1Password to bootstrap authentication, a
 
 ## Why
 
-CodexBar already demonstrates the desired menu-bar workflow. Sharing the core gives the UI and CLI identical allowance semantics and makes most behavior testable without launching AppKit. A single telecom provider does not need CodexBar's multi-provider macro registry, browser-cookie imports, or AI-specific data models.
+CodexBar already demonstrates the desired menu-bar workflow. Sharing the core gives the UI and CLI identical allowance semantics and makes most behavior testable without launching AppKit. Two providers do not need CodexBar's multi-provider macro registry; a small `ProviderRegistry` suffices. VikingBar also skips browser-cookie imports and AI-specific data models.
 
 ## Telenet home provider
 
