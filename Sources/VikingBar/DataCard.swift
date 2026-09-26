@@ -4,6 +4,7 @@ import VikingBarCore
 struct DataCard: View {
     @Bindable var session: AppSession
     @Binding var detailsExpanded: Bool
+    @Binding var otherBundlesExpanded: Bool
     let historyCompanion: HistoryCompanionController
     var presentConnection: () -> Void = {}
 
@@ -50,6 +51,10 @@ struct DataCard: View {
                     }
                 } else {
                     self.balance
+                    let rows = self.session.nonDataBundles
+                    if !rows.isEmpty {
+                        OtherBundles(rows: rows, isExpanded: self.$otherBundlesExpanded)
+                    }
                 }
                 if self.showHistory, let content = HistoryCompanionContent(session: self.session) {
                     HistoryCard(content: content, companion: self.historyCompanion)
@@ -210,5 +215,85 @@ struct DataCard: View {
             .disabled(self.session.activity == .connecting || self.session.activity == .stopped)
             .accessibilityIdentifier("vikingbar.connect.direct")
             .buttonStyle(.menuAction)
+    }
+}
+
+private struct OtherBundles: View {
+    let rows: [BundleRowPresentation]
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Divider()
+            DisclosureGroup(isExpanded: self.$isExpanded) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(self.rows, id: \.index) { BundleRow(row: $0) }
+                }
+                .padding(.top, 3)
+            } label: {
+                HStack {
+                    Text("Other bundles")
+                    Spacer()
+                    Text(self.summary).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("vikingbar.otherBundles.summary")
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("vikingbar.otherBundles")
+        }
+    }
+
+    private var summary: String {
+        var kinds: [BundleKind] = []
+        for row in self.rows where !kinds.contains(row.kind) {
+            kinds.append(row.kind)
+        }
+        return kinds.map(\.label).joined(separator: ", ")
+    }
+}
+
+private struct BundleRow: View {
+    let row: BundleRowPresentation
+
+    var body: some View {
+        let id = "vikingbar.bundle.\(self.row.index)"
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(self.row.title).font(.subheadline.weight(.medium))
+                    .accessibilityIdentifier("\(id).title")
+                Spacer(minLength: 8)
+                Text(self.row.remainingText).font(.subheadline.weight(.semibold))
+                    .accessibilityIdentifier("\(id).remaining")
+            }
+            HStack {
+                Text(self.row.usedText).accessibilityIdentifier("\(id).used")
+                Spacer()
+                Text(self.row.totalText).accessibilityIdentifier("\(id).total")
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            if let percentage = self.row.percentageRemaining {
+                ProgressView(value: percentage, total: 100)
+                    .controlSize(.mini)
+                    .tint(percentage == 0 ? .orange : .cyan)
+                    .accessibilityLabel(self.row.title)
+                    .accessibilityIdentifier("\(id).progress")
+            }
+            HStack(alignment: .firstTextBaseline) {
+                Text(self.row.detailText).accessibilityIdentifier("\(id).detail")
+                Spacer(minLength: 6)
+                Label {
+                    Text(self.row.validityText).accessibilityIdentifier("\(id).validity")
+                } icon: {
+                    Image(systemName: "calendar")
+                }
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            if !self.row.description.isEmpty {
+                Text(self.row.description).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("\(id).description")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(id)
     }
 }

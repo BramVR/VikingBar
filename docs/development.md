@@ -31,7 +31,7 @@ swift run vikingbar --fixture finite
 swift run vikingbar --fixture unlimited --unit GiB --time-zone Europe/Brussels
 ```
 
-The fixture names are `finite`, `unlimited`, `exhausted`, `stale`, and `error`. JSON contains both the snapshot and the menu model. GB means 1,000,000,000 bytes; GiB means 1,073,741,824 bytes. Dates default to the current user's timezone. The CLI rejects a missing fixture selection. The app without `--fixture` restores a live account session and shows account setup when disconnected. That path can access Keychain.
+The fixture names are `finite`, `unlimited`, `exhausted`, `stale`, `error`, and `mixed`. `mixed` has the `finite` data allowance and adds synthetic SMS, call, and credit bundles to `nonDataBundles`, including unlimited and expired rows. The other fixtures report no such bundles. JSON contains both the snapshot and the menu model. GB means 1,000,000,000 bytes; GiB means 1,073,741,824 bytes. Dates default to the current user's timezone. The CLI rejects a missing fixture selection. The app without `--fixture` restores a live account session and shows account setup when disconnected. That path can access Keychain.
 
 Build an unsigned development bundle:
 
@@ -84,7 +84,7 @@ For synthetic appearance proof, add `--fixture-appearance light`, `dark`, `high-
 
 Normal launches inherit macOS appearance and native popover material. The fixture smoke uses explicit light, dark, high-contrast light, and high-contrast dark appearances. Its overrides change no system preferences.
 
-The default **Example SIM** monthly bundle has 36 GB of 50 GB remaining. Its **Extra data** bundle has 4 GB of 5 GB. **Travel SIM** has 8 GB of 10 GB monthly and 1 GB of 2 GB extra. Switching SIMs selects its monthly bundle. Fixture Refresh preserves the selected scenario and amounts, shows a busy state, and advances the synthetic update timestamp. These controls never start the account worker.
+The default **Example SIM** monthly bundle has 36 GB of 50 GB remaining. Its **Extra data** bundle has 4 GB of 5 GB. **Travel SIM** has 8 GB of 10 GB monthly and 1 GB of 2 GB extra. Switching SIMs selects its monthly bundle. In **Mixed**, the expanded **Other bundles** section also lists Example SIM's 60 of 100 SMS, 19 min 30 s of 40 min of calls, €12.50 of €15.00 credit, unlimited SMS, and expired roaming calls. Travel SIM lists €5.00 of travel credit. Fixture Refresh preserves the selected scenario and amounts, shows a busy state, and advances the synthetic update timestamp. These controls never start the account worker.
 
 Issue 22's redesigned fixture gate passed on 2026-09-14 with fresh runtime captures and four native Quit exits. The [data-card evidence](../.agents/skills/verify-vikingbar/features/data-card.md#proof-status) records the tested build, appearance checks, and keyboard-selection boundary.
 

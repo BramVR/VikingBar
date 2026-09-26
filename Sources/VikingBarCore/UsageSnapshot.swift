@@ -57,11 +57,11 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
 }
 
 public enum FixtureState: String, Codable, CaseIterable, Sendable {
-    case finite, unlimited, exhausted, stale, error
+    case finite, unlimited, exhausted, stale, error, mixed
 
     public func snapshot(referenceDate: Date) -> UsageSnapshot {
         let allowance: Allowance = switch self {
-        case .finite, .stale:
+        case .finite, .stale, .mixed:
             .finite(totalBytes: 50_000_000_000, usedBytes: 14_000_000_000, remainingBytes: 36_000_000_000)
         case .unlimited:
             .unlimited(usedBytes: 14_000_000_000)
@@ -73,7 +73,7 @@ public enum FixtureState: String, Codable, CaseIterable, Sendable {
         let freshness: Freshness = switch self {
         case .stale: .stale(lastUpdated: referenceDate.addingTimeInterval(-86400))
         case .error: .unavailable
-        case .finite, .unlimited, .exhausted: .current(lastUpdated: referenceDate)
+        case .finite, .unlimited, .exhausted, .mixed: .current(lastUpdated: referenceDate)
         }
         return UsageSnapshot(
             source: .fixture(self),
@@ -83,5 +83,41 @@ public enum FixtureState: String, Codable, CaseIterable, Sendable {
             freshness: freshness,
             errorMessage: self == .error ? "Could not load the example balance." : nil,
         )
+    }
+
+    public func nonDataBundles(subscriptionID: String, referenceDate: Date) -> [BalanceBundle] {
+        guard self == .mixed else { return [] }
+        let day: TimeInterval = 86400
+        let start = referenceDate.addingTimeInterval(-16 * day)
+        let end = referenceDate.addingTimeInterval(14 * day)
+        if subscriptionID == "travel" {
+            return [BalanceBundle(
+                title: "Travel credit", description: "Synthetic travel credit", category: "default", type: .value,
+                total: 5, used: 0, remaining: 5, validFrom: start, validUntil: end,
+            )]
+        }
+        return [
+            BalanceBundle(
+                title: "Monthly SMS", description: "Synthetic monthly SMS", category: "default", type: .sms,
+                total: 100, used: 40, remaining: 60, validFrom: start, validUntil: end,
+            ),
+            BalanceBundle(
+                title: "", description: "", category: "default", type: .voice,
+                total: 2400, used: 1230, remaining: 1170, validFrom: start, validUntil: end,
+            ),
+            BalanceBundle(
+                title: "Prepaid credit", description: "Synthetic prepaid credit", category: "default", type: .value,
+                total: 15, used: Decimal(250) / 100, remaining: Decimal(1250) / 100, validFrom: start, validUntil: end,
+            ),
+            BalanceBundle(
+                title: "Unlimited SMS", description: "Synthetic unlimited SMS", category: "super_on_net", type: .sms,
+                total: -1, used: 12, remaining: -1, validFrom: start, validUntil: end,
+            ),
+            BalanceBundle(
+                title: "Roaming calls", description: "Synthetic roaming minutes", category: "default", type: .voice,
+                total: 600, used: 0, remaining: 600, validFrom: referenceDate.addingTimeInterval(-31 * day),
+                validUntil: referenceDate.addingTimeInterval(-day),
+            ),
+        ]
     }
 }

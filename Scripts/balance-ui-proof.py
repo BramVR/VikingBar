@@ -185,13 +185,98 @@ def compare_menu(tree, report, screens):
         raise UIFailure("fixture-is-not-live-proof")
 
 
+BUNDLE_KINDS = ("data", "sms", "voice", "value")
+BUNDLE_FIELDS = {"title": "title", "remaining": "remainingText", "used": "usedText", "total": "totalText",
+                 "detail": "detailText", "validity": "validityText", "description": "description"}
+OTHER_BUNDLE_LABELS = {"sms": "SMS", "voice": "Calls", "value": "Credit"}
+
+
+def other_bundles_summary(report):
+    try:
+        labels = [OTHER_BUNDLE_LABELS[row["kind"]] for row in report["nonDataBundles"]]
+    except (KeyError, TypeError):
+        raise UIFailure("live-report-invalid") from None
+    return ", ".join(dict.fromkeys(labels))
+
+
+def compare_other_bundles(tree, report, screens, *, expanded):
+    boundary, _ = popover_window(tree, screens)
+    summary = other_bundles_summary(report)
+    elements = tree.get("elements", [])
+    disclosures = [item for item in elements if item.get("AXIdentifier") == "vikingbar.otherBundles"]
+    if not summary:
+        if disclosures:
+            raise UIFailure("native-bundles-mismatch")
+        return compare_bundles(tree, report, boundary)
+    if (len(disclosures) != 1 or not contained(disclosures[0], boundary)
+            or not UI.visible_value(tree, boundary, "vikingbar.otherBundles.summary", summary)):
+        raise UIFailure("native-bundles-mismatch")
+    if expanded:
+        return compare_bundles(tree, report, boundary)
+    if any(str(item.get("AXIdentifier", "")).startswith("vikingbar.bundle.") for item in elements):
+        raise UIFailure("native-bundles-mismatch")
+    return set()
+
+
+def state_bundles(report):
+    try:
+        bundles = [(bundle["type"], bundle["total"]) for bundle in report["state"]["balance"]["bundles"]]
+        if any(kind not in BUNDLE_KINDS or type(total) not in (int, float) for kind, total in bundles):
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise UIFailure("live-report-invalid") from None
+    return bundles
+
+
+def displayed_bundles(report):
+    return [(index, kind) for index, (kind, total) in enumerate(state_bundles(report))
+            if kind != "data" and total != 0]
+
+
+def compare_bundles(tree, report, boundary):
+    expected = displayed_bundles(report)
+    try:
+        rows = report["nonDataBundles"]
+        listed = [(row["index"], row["kind"]) for row in rows]
+        texts = [{field: row[key] for field, key in BUNDLE_FIELDS.items()} for row in rows]
+        if any(not isinstance(text, str) for row in texts for text in row.values()):
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise UIFailure("live-report-invalid") from None
+    if listed != expected:
+        raise UIFailure("native-bundles-mismatch")
+    elements = tree.get("elements", [])
+    rendered = sorted(item["AXIdentifier"] for item in elements
+                      if re.fullmatch(r"vikingbar\.bundle\.\d+", str(item.get("AXIdentifier", ""))))
+    if rendered != sorted(f"vikingbar.bundle.{index}" for index, _ in expected):
+        raise UIFailure("native-bundles-mismatch")
+    for (index, _), row in zip(expected, texts):
+        prefix = f"vikingbar.bundle.{index}"
+        containers = [item for item in elements if item.get("AXIdentifier") == prefix and contained(item, boundary)]
+        if len(containers) != 1:
+            raise UIFailure("native-bundles-mismatch")
+        for field, text in row.items():
+            identifier = f"{prefix}.{field}"
+            if field == "description" and not text:
+                if any(item.get("AXIdentifier") == identifier for item in elements):
+                    raise UIFailure("native-bundles-mismatch")
+            elif not UI.visible_value(tree, containers[0], identifier, text):
+                raise UIFailure("native-bundles-mismatch")
+    return {kind for _, kind in expected}
+
+
 def validate_api_receipt(value):
-    if (not isinstance(value, dict)
-            or set(value) != {"schema_version", "check", "passed", "api_matches", "token_refreshed", "bundle_count"}
+    keys = {"schema_version", "check", "passed", "api_matches", "token_refreshed", "bundle_count", "bundle_types"}
+    if (not isinstance(value, dict) or set(value) != keys
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
             or value["check"] != "balance-api"
             or any(value[key] is not True for key in ("passed", "api_matches", "token_refreshed"))
             or type(value["bundle_count"]) is not int or value["bundle_count"] < 1):
+        raise UIFailure("api-proof-receipt-invalid")
+    types = value["bundle_types"]
+    if (not isinstance(types, dict) or set(types) != set(BUNDLE_KINDS)
+            or any(type(count) is not int or count < 0 for count in types.values())
+            or sum(types.values()) != value["bundle_count"] or types["data"] < 1):
         raise UIFailure("api-proof-receipt-invalid")
     return value
 
@@ -252,6 +337,7 @@ def account_worker_command(launch, command):
 class NativeProof:
     direct = None
     human_deadline = None
+    bundle_kinds = {}
     capture_suppressed = False
     launch_in_progress = False
     termination_requested = False
@@ -533,13 +619,23 @@ class NativeProof:
                         self.press("vikingbar.bundleDetails")
                     return None
                 compare_menu(tree, report, self.screens)
+                compare_other_bundles(tree, report, self.screens, expanded=False)
                 return report, tree
             except UIFailure as error:
                 if str(error) == "human-readiness-timeout":
                     raise
                 return None
         report, tree = wait_for(observe, lambda value: value is not None,
-                               seconds=self.human_remaining() if self.human_deadline is not None else 90)
+                                seconds=self.human_remaining() if self.human_deadline is not None else 90)
+        kinds = {"data"}
+        if other_bundles_summary(report):
+            self.press("vikingbar.otherBundles")
+            kinds |= self.settle(label + "-other-bundles.json",
+                                 lambda tree: compare_other_bundles(tree, report, self.screens, expanded=True))
+            self.press("vikingbar.otherBundles")
+            self.settle(label + "-other-bundles-collapsed.json",
+                        lambda tree: compare_other_bundles(tree, report, self.screens, expanded=False))
+        self.bundle_kinds = {**self.bundle_kinds, label: kinds}
         self.verify_worker(label)
         if self.direct is not None and any(item.get("AXIdentifier") == "vikingbar.connect.password"
                                            for item in tree.get("elements", [])):
@@ -549,6 +645,17 @@ class NativeProof:
         self.peek(["see", "--window-id", str(window["kCGWindowNumber"]), "--no-elements", "--no-remote",
                    "--path", str(self.directory / (label + "-card.png"))], label + "-image.json")
         return report
+
+    def settle(self, name, check):
+        def observe():
+            try:
+                return check(self.inspect(name))
+            except UIFailure as error:
+                if str(error) == "human-readiness-timeout":
+                    raise
+                return None
+        return wait_for(observe, lambda value: value is not None,
+                        seconds=self.human_remaining() if self.human_deadline is not None else 90)
 
     def capture_worker(self, process, launch, seconds=0):
         deadline = time.monotonic() + seconds
@@ -878,10 +985,16 @@ class NativeProof:
                 or connection_identity(rebuilt) != (connection_id, connection_sha256)):
             raise UIFailure("rebuild-reconnected")
         self.quit()
+        returned = [kind for kind, _ in state_bundles(api_report)]
+        displayed = {"data"} | {kind for _, kind in displayed_bundles(api_report)}
+        if (api["bundle_types"] != {kind: returned.count(kind) for kind in BUNDLE_KINDS}
+                or any(self.bundle_kinds.get(label) != displayed
+                       for label in ("connected", "refreshed", "resumed", "rebuilt"))):
+            raise UIFailure("bundle-kind-coverage-mismatch")
         receipt = {"schema_version": 1, "check": "direct-connect-ui" if self.direct is not None else "balance-ui",
                    "passed": True, "native_connect": True,
                    "api_matches": True, "native_refresh": True, "keychain_resume": True,
-                   "keychain_rebuild": True, "visible_menu_matches": True}
+                   "keychain_rebuild": True, "visible_menu_matches": True, "bundle_kinds": sorted(displayed)}
         private_write(self.directory / "result.json", receipt)
         return receipt
 

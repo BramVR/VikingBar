@@ -8,8 +8,9 @@ public struct LaunchOptions: Equatable, Sendable {
 
     public static let usage = """
     Usage: vikingbar --fixture STATE [--unit GB|GiB] [--time-zone IANA]
-    States: finite, unlimited, exhausted, stale, error
+    States: finite, unlimited, exhausted, stale, error, mixed
     Prints synthetic snapshot and shared menu presentation as JSON. No account access.
+    mixed adds synthetic SMS, call, and credit bundles as nonDataBundles.
     """
 
     public init(arguments: [String], defaultTimeZone: TimeZone = .current) throws {
@@ -76,6 +77,7 @@ public struct FixtureReport: Codable, Equatable, Sendable {
     public let snapshot: UsageSnapshot
     public let menu: MenuPresentation
     public let points: PointsPresentation
+    public let nonDataBundles: [BundleRowPresentation]
 
     public init(options: LaunchOptions, referenceDate: Date) throws {
         guard let fixture = options.fixture else { throw ArgumentError.fixtureRequired }
@@ -85,6 +87,10 @@ public struct FixtureReport: Codable, Equatable, Sendable {
         self.points = PointsPresentation(
             points: fixture.points(referenceDate: referenceDate),
             timeZone: options.timeZone,
+        )
+        self.nonDataBundles = BundleRowPresentation.rows(
+            for: fixture.nonDataBundles(subscriptionID: "example", referenceDate: referenceDate),
+            at: referenceDate, timeZone: options.timeZone,
         )
     }
 }

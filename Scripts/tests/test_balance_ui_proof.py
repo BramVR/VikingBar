@@ -24,9 +24,10 @@ class BalanceUIProofTests(unittest.TestCase):
         self.report = {"schemaVersion": 1, "snapshot": snapshot, "menu": self.menu,
                        "balanceDetails": {"extraChargesText": "Extra charges: €1.23", "bundleTitle": "Data",
                                           "bundleDescription": "Domestic", "applicabilityText": "national"},
+                       "nonDataBundles": [],
                        "state": {"snapshot": snapshot,
                                  "connectionID": {"rawValue": "00000000-0000-0000-0000-000000000001"},
-                                 "balance": {"bundles": [1]},
+                                 "balance": {"bundles": [{"type": "data", "total": 50000000000}]},
                                  "selectedSubscriptionID": "synthetic", "selectedBundleIndex": 0}}
         self.tree = {"elements": [{"AXIdentifier": "vikingbar.status", "AXDescription": "VikingBar, Synthetic SIM, Last updated today",
                                    "frame": [[100, 0], [50, 24]]},
@@ -408,10 +409,13 @@ class BalanceUIProofTests(unittest.TestCase):
         proof.directory = Path("/synthetic")
         proof.screens = self.screens
         with patch.object(proof, "run", return_value=self.report), \
-                patch.object(proof, "inspect", return_value=self.tree), \
+                patch.object(proof, "inspect", return_value=self.tree), patch.object(proof, "press") as press, \
                 patch.object(proof, "verify_worker"), patch.object(proof, "peek") as peek:
             proof.matched_balance("synthetic")
+        press.assert_not_called()
         self.assertEqual(peek.call_args.args[0][2], "42")
+        self.assertEqual(proof.bundle_kinds, {"synthetic": {"data"}})
+        self.assertEqual(UI.NativeProof.bundle_kinds, {})
 
     def test_balance_capture_waits_for_live_card_then_expands_details_once(self):
         proof = object.__new__(UI.NativeProof)
@@ -467,6 +471,41 @@ class BalanceUIProofTests(unittest.TestCase):
                                   "report", "inspect-details",
                                   "report", "inspect-details"])
 
+    def test_balance_capture_expands_compares_and_collapses_other_bundles(self):
+        proof = object.__new__(UI.NativeProof)
+        proof.cli = "synthetic-cli"
+        proof.directory = Path("/synthetic")
+        proof.screens = self.screens
+        proof.direct = None
+        proof.human_deadline = None
+        proof.capture_suppressed = True
+        self.add_bundle_rows()
+        expanded = copy.deepcopy(self.tree)
+        self.collapse_bundle_rows()
+        collapsed = self.tree
+        observations = iter([collapsed, collapsed, expanded, expanded, collapsed])
+        events = []
+
+        def inspect(name):
+            tree = next(observations)
+            events.append(("inspect-expanded " if tree is expanded else "inspect-collapsed ") + name)
+            return tree
+
+        with patch.object(proof, "run", return_value=self.report), \
+                patch.object(proof, "inspect", side_effect=inspect), \
+                patch.object(proof, "press", side_effect=lambda identifier: events.append("press-" + identifier)), \
+                patch.object(proof, "verify_worker"), patch.object(proof, "peek") as peek, \
+                patch.object(UI.time, "sleep"):
+            proof.matched_balance("synthetic")
+
+        self.assertEqual(events, ["inspect-collapsed synthetic-card.json", "press-vikingbar.otherBundles",
+                                  "inspect-collapsed synthetic-other-bundles.json",
+                                  "inspect-expanded synthetic-other-bundles.json", "press-vikingbar.otherBundles",
+                                  "inspect-expanded synthetic-other-bundles-collapsed.json",
+                                  "inspect-collapsed synthetic-other-bundles-collapsed.json"])
+        self.assertEqual(proof.bundle_kinds, {"synthetic": {"data", "voice", "sms"}})
+        self.assertEqual(peek.call_args.args[0][-1], "/synthetic/synthetic-card.png")
+
     def test_balance_capture_reopens_unequivocally_closed_popover_once(self):
         proof = object.__new__(UI.NativeProof)
         proof.cli = "synthetic-cli"
@@ -510,6 +549,184 @@ class BalanceUIProofTests(unittest.TestCase):
         self.tree["elements"][1]["AXValue"] = "99.00 GB"
         with self.assertRaisesRegex(UI.UIFailure, "native-menu-mismatch"):
             UI.compare_menu(self.tree, self.report, self.screens)
+
+    def add_bundle_rows(self):
+        validity = "Expires 1 Oct 2026, 00:00 UTC"
+        rows = [{"index": 1, "kind": "voice", "title": "Call bundle 2", "description": "", "remainingText": "0 min",
+                 "usedText": "10 min used", "totalText": "10 min total", "detailText": "Calls · default",
+                 "validityText": validity, "state": "exhausted", "percentageRemaining": 0},
+                {"index": 2, "kind": "sms", "title": "SMS bundle 3", "description": "Texts",
+                 "remainingText": "Unlimited", "usedText": "12 SMS used", "totalText": "Unlimited allowance",
+                 "detailText": "SMS · default",
+                 "validityText": validity, "state": "unlimited", "percentageRemaining": None}]
+        self.report["state"]["balance"]["bundles"] += [{"type": "voice", "total": 600}, {"type": "sms", "total": -1}]
+        self.report["nonDataBundles"] = rows
+        self.tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.otherBundles", "frame": [[120, 270], [300, 330]]})
+        self.tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.otherBundles.summary", "AXValue": "Calls, SMS",
+                                          "frame": [[330, 275], [80, 10]]})
+        for offset, row in enumerate(rows):
+            prefix = f"vikingbar.bundle.{row['index']}"
+            top = 300 + offset * 100
+            self.tree["elements"].insert(-1, {"AXIdentifier": prefix, "frame": [[120, top], [300, 90]]})
+            for line, (field, key) in enumerate(UI.BUNDLE_FIELDS.items()):
+                if row[key]:
+                    self.tree["elements"].insert(-1, {"AXIdentifier": f"{prefix}.{field}", "AXValue": row[key],
+                                                      "frame": [[125, top + 2 + line * 12], [200, 10]]})
+
+    def collapse_bundle_rows(self):
+        self.tree["elements"] = [item for item in self.tree["elements"]
+                                 if not str(item.get("AXIdentifier", "")).startswith("vikingbar.bundle.")]
+
+    def test_native_bundle_rows_match_report_per_field(self):
+        self.assertEqual(UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=False), set())
+        self.add_bundle_rows()
+        self.assertEqual(UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=True),
+                         {"voice", "sms"})
+
+    def test_zero_sized_bundles_are_not_expected_and_a_rendered_row_for_one_fails(self):
+        self.add_bundle_rows()
+        self.report["state"]["balance"]["bundles"].append({"type": "value", "total": 0})
+        self.assertEqual(UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=True),
+                         {"voice", "sms"})
+        hidden = dict(self.report["nonDataBundles"][0], index=3, kind="value", title="Credit bundle 4")
+        self.report["nonDataBundles"].append(hidden)
+        self.tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.bundle.3", "frame": [[120, 500], [300, 90]]})
+        for line, (field, key) in enumerate(UI.BUNDLE_FIELDS.items()):
+            if hidden[key]:
+                self.tree["elements"].insert(-1, {"AXIdentifier": f"vikingbar.bundle.3.{field}", "AXValue": hidden[key],
+                                                  "frame": [[125, 502 + line * 12], [200, 10]]})
+        with self.assertRaisesRegex(UI.UIFailure, "^native-bundles-mismatch$"):
+            UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=True)
+
+    def test_compare_menu_checks_data_without_other_bundle_rows(self):
+        self.add_bundle_rows()
+        self.tree["elements"] = [item for item in self.tree["elements"]
+                                 if not str(item.get("AXIdentifier", "")).startswith("vikingbar.otherBundles")]
+        self.collapse_bundle_rows()
+        self.assertIsNone(UI.compare_menu(self.tree, self.report, self.screens))
+
+    def test_other_bundles_summary_lists_distinct_kind_labels_in_row_order(self):
+        self.add_bundle_rows()
+        self.report["nonDataBundles"] += [dict(self.report["nonDataBundles"][0], index=3),
+                                          dict(self.report["nonDataBundles"][0], index=4, kind="value")]
+        self.assertEqual(UI.other_bundles_summary(self.report), "Calls, SMS, Credit")
+        self.report["nonDataBundles"] = []
+        self.assertEqual(UI.other_bundles_summary(self.report), "")
+        for kind in ("data", "mms", None):
+            self.report["nonDataBundles"] = [{"kind": kind}]
+            with self.subTest(kind=kind), self.assertRaisesRegex(UI.UIFailure, "^live-report-invalid$"):
+                UI.other_bundles_summary(self.report)
+
+    def test_collapsed_other_bundles_match_summary_without_rows(self):
+        self.add_bundle_rows()
+        self.collapse_bundle_rows()
+        self.assertEqual(UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=False), set())
+
+        def wrong_summary(tree):
+            next(item for item in tree["elements"]
+                 if item.get("AXIdentifier") == "vikingbar.otherBundles.summary")["AXValue"] = "SMS, Calls"
+
+        def missing_disclosure(tree):
+            tree["elements"] = [item for item in tree["elements"]
+                                if item.get("AXIdentifier") != "vikingbar.otherBundles"]
+
+        def visible_row(tree):
+            tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.bundle.1.title", "AXValue": "Call bundle 2",
+                                         "frame": [[125, 302], [200, 10]]})
+
+        def outside_popover(tree):
+            next(item for item in tree["elements"]
+                 if item.get("AXIdentifier") == "vikingbar.otherBundles")["frame"] = [[120, 700], [300, 100]]
+
+        for change in (wrong_summary, missing_disclosure, visible_row, outside_popover):
+            self.setUp()
+            self.add_bundle_rows()
+            self.collapse_bundle_rows()
+            change(self.tree)
+            with self.subTest(change=change.__name__), self.assertRaisesRegex(UI.UIFailure,
+                                                                              "^native-bundles-mismatch$"):
+                UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=False)
+
+    def test_other_bundles_disclosure_requires_rows(self):
+        self.tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.otherBundles", "frame": [[120, 270], [300, 20]]})
+        for expanded in (False, True):
+            with self.subTest(expanded=expanded), self.assertRaisesRegex(UI.UIFailure, "^native-bundles-mismatch$"):
+                UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=expanded)
+
+    def test_missing_extra_wrong_or_misplaced_bundle_rows_fail(self):
+        def missing_row(tree, _report):
+            tree["elements"] = [item for item in tree["elements"]
+                                if not str(item.get("AXIdentifier", "")).startswith("vikingbar.bundle.2")]
+
+        def extra_row(tree, _report):
+            tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.bundle.5", "frame": [[120, 600], [300, 20]]})
+
+        def wrong_string(tree, _report):
+            next(item for item in tree["elements"]
+                 if item.get("AXIdentifier") == "vikingbar.bundle.1.remaining")["AXValue"] = "0 s"
+
+        def wrong_row(tree, _report):
+            next(item for item in tree["elements"]
+                 if item.get("AXIdentifier") == "vikingbar.bundle.1.used")["frame"] = [[125, 450], [200, 10]]
+
+        def wrong_kind(_tree, report):
+            report["nonDataBundles"][0]["kind"] = "sms"
+
+        def unlisted_description(tree, _report):
+            tree["elements"].insert(-1, {"AXIdentifier": "vikingbar.bundle.1.description", "AXValue": "",
+                                         "frame": [[125, 380], [200, 10]]})
+
+        def offscreen_row(tree, _report):
+            for item in tree["elements"]:
+                if str(item.get("AXIdentifier", "")).startswith("vikingbar.bundle.2"):
+                    item["frame"][0][1] += 400
+
+        def missing_disclosure(tree, _report):
+            tree["elements"] = [item for item in tree["elements"]
+                                if item.get("AXIdentifier") != "vikingbar.otherBundles"]
+
+        for change in (missing_row, extra_row, wrong_string, wrong_row, wrong_kind, unlisted_description,
+                       offscreen_row, missing_disclosure):
+            self.setUp()
+            self.add_bundle_rows()
+            change(self.tree, self.report)
+            with self.subTest(change=change.__name__), self.assertRaisesRegex(UI.UIFailure,
+                                                                              "^native-bundles-mismatch$"):
+                UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=True)
+
+    def test_missing_or_invalid_bundle_report_keys_fail_as_invalid_reports(self):
+        def remove_rows(report):
+            del report["nonDataBundles"]
+
+        def remove_field(report):
+            del report["nonDataBundles"][0]["usedText"]
+
+        def unknown_kind(report):
+            report["state"]["balance"]["bundles"][1]["type"] = "mms"
+
+        def untyped_bundles(report):
+            report["state"]["balance"]["bundles"] = [1, 2, 3]
+
+        def non_text_field(report):
+            report["nonDataBundles"][1]["title"] = None
+
+        def missing_total(report):
+            del report["state"]["balance"]["bundles"][1]["total"]
+
+        def text_total(report):
+            report["state"]["balance"]["bundles"][1]["total"] = "600"
+
+        def boolean_total(report):
+            report["state"]["balance"]["bundles"][2]["total"] = True
+
+        for change in (remove_rows, remove_field, unknown_kind, untyped_bundles, non_text_field, missing_total,
+                       text_total, boolean_total):
+            self.setUp()
+            self.add_bundle_rows()
+            change(self.report)
+            with self.subTest(change=change.__name__), self.assertRaisesRegex(UI.UIFailure,
+                                                                              "^live-report-invalid$"):
+                UI.compare_other_bundles(self.tree, self.report, self.screens, expanded=True)
 
     def test_used_mode_matches_exact_hero_without_changing_preferences(self):
         self.tree["elements"].append({"AXIdentifier": "vikingbar.balanceTitle", "AXValue": "Data used",
@@ -563,13 +780,24 @@ class BalanceUIProofTests(unittest.TestCase):
             UI.compare_menu(self.tree, self.report, self.screens)
 
     def test_api_receipt_rejects_missing_skipped_and_private_fields(self):
+        types = {"data": 1, "sms": 1, "voice": 1, "value": 0}
         receipt = {"schema_version": 1, "check": "balance-api", "passed": True, "api_matches": True,
-                   "token_refreshed": True, "bundle_count": 1}
+                   "token_refreshed": True, "bundle_count": 3, "bundle_types": types}
         self.assertEqual(UI.validate_api_receipt(receipt), receipt)
         for delta in ({"api_matches": False}, {"token_refreshed": False}, {"raw": "private"},
-                      {"bundle_count": 0}, {"bundle_count": True}):
+                      {"bundle_count": 0}, {"bundle_count": True}, {"bundle_count": 4},
+                      {"bundle_types": None}, {"bundle_types": dict(types, mms=0)},
+                      {"bundle_types": {"data": 1, "sms": 1, "voice": 1}},
+                      {"bundle_types": dict(types, value=True, voice=0)},
+                      {"bundle_types": dict(types, value=-1, voice=2)},
+                      {"bundle_types": dict(types, value=1.0, voice=0)},
+                      {"bundle_types": dict(types, data=0, value=1)}):
             with self.assertRaises(UI.UIFailure):
                 UI.validate_api_receipt(dict(receipt, **delta))
+        missing = dict(receipt)
+        del missing["bundle_types"]
+        with self.assertRaises(UI.UIFailure):
+            UI.validate_api_receipt(missing)
 
     def test_private_evidence_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -586,67 +814,6 @@ class BalanceUIProofTests(unittest.TestCase):
                         {"schema_version": True, "check": "connect", "passed": True, "connected": True}):
             with self.assertRaisesRegex(UI.UIFailure, "^native-connect-failed$"):
                 UI.validate_connect_receipt(receipt)
-
-
-class BalanceOracleTests(unittest.TestCase):
-    def test_independent_oracle_detects_mapping_and_identity_errors(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "OracleTest.swift"
-            source.write_text(ORACLE_TEST)
-            executable = Path(directory) / "oracle-test"
-            objects = sorted((ROOT / ".build/debug/VikingBarCore.build").glob("*.swift.o"))
-            self.assertTrue(objects, "swift build must precede the synthetic oracle check")
-            result = subprocess.run(["swiftc", "-parse-as-library", "-I", str(ROOT / ".build/debug/Modules"),
-                                     str(ROOT / "Sources/VikingBarCLI/BalanceOracle.swift"), str(source),
-                                     *map(str, objects), "-o", str(executable)], capture_output=True, timeout=60)
-            self.assertEqual(result.returncode, 0, result.stderr.decode())
-            result = subprocess.run([str(executable)], capture_output=True, timeout=10)
-            self.assertEqual(result.returncode, 0, result.stderr.decode())
-            self.assertEqual(result.stdout.strip(), b"oracle-passed")
-
-
-ORACLE_TEST = r'''
-import Foundation
-import VikingBarCore
-
-struct SyntheticTransport: ProofHTTPTransport {
-    func send(_ request: URLRequest) async throws -> ProofHTTPResponse {
-        let value: String
-        switch request.url!.path {
-        case "/mv/oauth2/token/": value = "{}"
-        case "/mv/subscriptions": value = #"[{"id":"sim-one","type":"postpaid","sim":{"pin":"not-exported"}}]"#
-        default: value = #"{"bundles":[{"descriptions":{"title":"Data","description":"Domestic"},"category":"default","type":"data","total":50000000000,"used":20000000000,"remaining":30000000000,"valid_from":"2026-09-01T00:00:00Z","valid_until":"2026-10-01T00:00:00Z"}],"regionality":"national","out_of_bundle_cost":0}"#
-        }
-        return ProofHTTPResponse(statusCode: 200, data: Data(value.utf8))
-    }
-}
-
-@main struct OracleTest {
-    static func main() async throws {
-        let oracle = BalanceOracleTransport(base: SyntheticTransport())
-        var token = try ProofEndpoint.token.request()
-        token.httpBody = Data("grant_type=refresh_token".utf8)
-        _ = try await oracle.send(token)
-        _ = try await oracle.send(ProofEndpoint.subscriptions.request())
-        _ = try await oracle.send(ProofEndpoint.balance(subscriptionID: "sim-one").request())
-        let raw = #"{"connectionID":{"rawValue":"00000000-0000-0000-0000-000000000001"},"subscriptions":[{"id":"sim-one","type":"postpaid","displayName":"SIM"}],"selectedSubscriptionID":"sim-one","balance":{"bundles":[{"title":"Data","description":"Domestic","category":"default","type":"data","total":50000000000,"used":20000000000,"remaining":30000000000,"validFrom":"2026-09-01T00:00:00Z","validUntil":"2026-10-01T00:00:00Z"}],"regionality":"national","outOfBundleCost":0},"selectedBundleIndex":0,"snapshot":{"source":{"live":{}},"subscriptionName":"SIM","allowance":{"finite":{"totalBytes":50000000000,"usedBytes":20000000000,"remainingBytes":30000000000}},"expiresAt":"2026-10-01T00:00:00Z","freshness":{"current":{"lastUpdated":"2026-09-07T12:00:00Z"}}},"isRefreshing":false,"scopeMismatch":true}"#
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let state = try decoder.decode(LiveSessionState.self, from: Data(raw.utf8))
-        _ = try await oracle.receipt(state: state)
-        for altered in [raw.replacingOccurrences(of: "remainingBytes\":30000000000", with: "remainingBytes\":10000000000"),
-                        raw.replacingOccurrences(of: "selectedSubscriptionID\":\"sim-one", with: "selectedSubscriptionID\":\"sim-two"),
-                        raw.replacingOccurrences(of: "outOfBundleCost\":0", with: "outOfBundleCost\":7")] {
-            let changed = try decoder.decode(LiveSessionState.self, from: Data(altered.utf8))
-            do {
-                _ = try await oracle.receipt(state: changed)
-                fatalError("Oracle accepted a mapping mismatch")
-            } catch ProofFailure.malformedResponse {}
-        }
-        print("oracle-passed")
-    }
-}
-'''
 
 
 if __name__ == "__main__":

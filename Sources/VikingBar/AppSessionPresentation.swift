@@ -24,6 +24,19 @@ extension AppSession {
         LiveBalancePresentation(state: self.liveState)
     }
 
+    var nonDataBundles: [BundleRowPresentation] {
+        guard self.selectedServiceKind == .mobile else { return [] }
+        if self.usesMobileFixture {
+            let bundles = self.fixture?.nonDataBundles(
+                subscriptionID: self.selectedSubscriptionID, referenceDate: self.referenceDate,
+            ) ?? []
+            return BundleRowPresentation.rows(for: bundles, at: self.referenceDate, timeZone: self.timeZone)
+        }
+        return BundleRowPresentation.rows(
+            for: self.liveState.balance?.bundles ?? [], at: self.now(), timeZone: self.timeZone,
+        )
+    }
+
     var homeUsagePresentation: HomeUsagePresentation? {
         self.liveState.selectedHomeUsage.map {
             HomeUsagePresentation(usage: $0, unit: self.unit, timeZone: self.timeZone)

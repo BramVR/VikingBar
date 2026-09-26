@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-Provider and retained account selection; selected mobile SIM/bundle or home service; Remaining/Used display with matching progress; total allowance, expiry, Refresh and freshness. Mobile services expose bundle details and extra charges. My Viking is Mobile Vikings-specific; Bills and Points follow provider capabilities. Plain actions use native menu selection colors while the pointer is inside their padded control frame. Disabled actions retain disabled text and no selection fill.
+Provider and retained account selection; selected mobile SIM/bundle or home service; Remaining/Used display with matching progress; total allowance, expiry, Refresh and freshness. Mobile services expose bundle details, extra charges, and a collapsed **Other bundles** disclosure for SMS, calls, and credit. My Viking is Mobile Vikings-specific; Bills and Points follow provider capabilities. Plain actions use native menu selection colors while the pointer is inside their padded control frame. Disabled actions retain disabled text and no selection fill.
 
 ## How to get to it
 
@@ -28,6 +28,12 @@ Start on the first Mobile Vikings fixture account with Example SIM / Monthly dat
 12. Open Settings and press `vikingbar.quit`. Require the original process exit 0.
 
 Require finite positive AX and CoreGraphics popover bounds fully inside one finite positive active display. Matching an offscreen window is not proof. Capture each settled popover through its exact window ID. The smoke matches window and AXPopover bounds to avoid capturing a closing popup menu. Inspect explicit light, dark, high-contrast light, and high-contrast dark appearances. The final high-contrast dark launch also enables reduced transparency. App-only fixture flags change no system preferences.
+
+### Other bundles
+
+Rows sit in `vikingbar.otherBundles`, a disclosure directly under the data hero and collapsed by default. It appears only when the SIM has non-data bundles with a nonzero provider total; zero-sized ones get no row. Its label shows the distinct kind labels in row order as `vikingbar.otherBundles.summary`, such as `SMS, Calls, Credit`.
+
+The smoke selects Mixed after the amount-mode loop and requires the summary with no `vikingbar.bundle.*` while collapsed. It presses `vikingbar.otherBundles` to expand. Each non-data bundle is a `vikingbar.bundle.<index>` container, using the provider-array index. Its fields are `.title`, `.remaining`, `.used`, `.total`, `.detail`, `.validity`, and `.description` (only when non-empty); `.progress` appears for finite rows with a nonzero total. Require each string inside its own row and the popover. Rows ignore GB/GiB and Remaining/Used. The helmet, hero, and data picker stay data-only. Travel SIM shows only `vikingbar.bundle.0` with summary `Credit`. Back on Example SIM, a second press collapses the rows. Finite shows no `vikingbar.otherBundles`. Inspect `mixed-card.png`, the expanded Example SIM card.
 
 ## Proof status
 

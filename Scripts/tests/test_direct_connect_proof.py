@@ -350,7 +350,7 @@ class DirectReadinessTests(unittest.TestCase):
 
 class DirectSequenceTests(unittest.TestCase):
     def test_fresh_receipt_and_every_report_keep_one_connection_identity(self):
-        for changed_stage in (None, "connected", "api", "refreshed", "resumed", "rebuilt"):
+        for changed_stage in (None, "connected", "api", "refreshed", "resumed", "rebuilt", "kinds", "counts"):
             with self.subTest(changed_stage=changed_stage), tempfile.TemporaryDirectory() as directory:
                 proof = object.__new__(UI.NativeProof)
                 proof.direct = {"active": True}
@@ -374,12 +374,22 @@ class DirectSequenceTests(unittest.TestCase):
                     order = {"connected": 1, "api": 2, "refreshed": 3, "resumed": 4, "rebuilt": 5}
                     snapshot = {"source": {"live": {}}, "freshness": {
                         "current": {"lastUpdated": f"2026-09-09T00:00:0{order[stage]}Z"}}}
-                    return {"schemaVersion": 1, "snapshot": snapshot, "state": {"snapshot": snapshot,
-                            "connectionID": {"rawValue": identifier}, "balance": {"bundles": [1]},
+                    return {"schemaVersion": 1, "snapshot": snapshot, "nonDataBundles": [], "state": {
+                            "snapshot": snapshot, "connectionID": {"rawValue": identifier},
+                            "balance": {"bundles": [{"type": "data", "total": 5}, {"type": "sms", "total": 100},
+                                                    {"type": "voice", "total": 0}]},
                             "selectedSubscriptionID": "sim", "selectedBundleIndex": 0}}
 
                 api = {"schema_version": 1, "check": "balance-api", "passed": True,
-                       "api_matches": True, "token_refreshed": True, "bundle_count": 1}
+                       "api_matches": True, "token_refreshed": True, "bundle_count": 3,
+                       "bundle_types": {"data": 1, "sms": 1, "voice": 1, "value": 0}}
+                if changed_stage == "counts":
+                    api["bundle_types"] = {"data": 1, "sms": 2, "voice": 0, "value": 0}
+
+                def matched(stage, *_args):
+                    kinds = {"data"} if changed_stage == "kinds" and stage == "resumed" else {"data", "sms"}
+                    proof.bundle_kinds = {**proof.bundle_kinds, stage: kinds}
+                    return report(stage)
                 def run(command, name=None, timeout=120):
                     if "package-artifacts.py" in " ".join(command):
                         proof.cli.write_bytes(b"release")
@@ -399,12 +409,13 @@ class DirectSequenceTests(unittest.TestCase):
                         patch.object(proof, "prepare_direct"), patch.object(proof, "launch"), \
                         patch.object(proof, "connect_direct", side_effect=connect), \
                         patch.object(proof, "connect_with_one_password", side_effect=AssertionError("optional path")), \
-                        patch.object(proof, "matched_balance", side_effect=lambda stage, *_args: report(stage)), \
+                        patch.object(proof, "matched_balance", side_effect=matched), \
                         patch.object(proof, "begin_human_window") as window, patch.object(proof, "press"), \
                         patch.object(proof, "quit") as quit_app, patch.object(UI.time, "sleep"):
                     if changed_stage is None:
                         result = proof.perform()
                         self.assertTrue(result["passed"])
+                        self.assertEqual(result["bundle_kinds"], ["data", "sms"])
                         self.assertEqual(quit_app.call_count, 3)
                         self.assertEqual([call.args[0] for call in window.call_args_list],
                                          ["api", "after-api", "refresh", "release-build"])

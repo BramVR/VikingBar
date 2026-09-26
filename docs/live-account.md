@@ -29,6 +29,8 @@ Opening the app without `--fixture` restores the stored session and refreshes it
 
 After connection, choose a SIM and data bundle in the card. Different bundles keep their own amounts, applicability, and expiry. Blank or whitespace-only titles display as `Data bundle N`, where N is the bundle's one-based position in the provider array. The picker and card use the same title, and raw provider values remain unchanged. The helmet represents the selected bundle. Extra charges show the selected SIM's out-of-bundle cost in euros; a missing amount stays unavailable. **Refresh** requests an update. **Open My Viking** opens the provider's account website.
 
+Below the data allowance, expand **Other bundles** to see the selected SIM's SMS, call, and prepaid-credit bundles. The collapsed heading names the kinds it holds. Each row shows its remaining, used, and total amounts, its kind and category, and its validity. SMS bundles count messages. Call bundles show the provider's seconds as minutes and seconds. Credit bundles show euros. The API documents no unit for credit bundles, so VikingBar infers euros from the API's other money fields. A total of `-1` shows as unlimited. A bundle with a total of 0 has no allowance and is hidden. An expired or not yet valid bundle shows its date and no amounts. Blank titles display as `SMS bundle N`, `Call bundle N`, or `Credit bundle N`, with the same provider position as data bundles. These bundles never drive the helmet, the menu bar label, or the bundle picker, and VikingBar never adds different bundles together. The card's **Last updated** line covers every bundle, because one balance response supplies them all.
+
 The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
 
 Expand **Daily SIM data and estimate** to inspect daily usage for the selected bundle period. History loads after balance and has separate failures. The estimate covers SIM traffic, which can differ from the selected bundle's balance. See [daily usage and estimate rules](history.md).
@@ -56,7 +58,7 @@ Use the CLI embedded in the development bundle:
 
 The first command refreshes the stored session and prints the live state, snapshot, and shared menu presentation. The second reads the saved state. Both commands require explicit live access and may read the app's Keychain item. JSON contains private account display values and amounts. Keep that output local.
 
-Use `--subscription ID` or `--bundle INDEX` to select a subscription or one of its provider-ordered bundles. Bundle indices are zero-based positions in the provider bundle array. `--cached` cannot be combined with either selection option. A different subscription starts with its own balance or an unavailable state. It never borrows another SIM's allowance.
+Use `--subscription ID` or `--bundle INDEX` to select a subscription or one of its provider-ordered bundles. Bundle indices are zero-based positions in the provider bundle array. `--bundle` accepts data bundles only. `nonDataBundles` lists the SIM's SMS, call, and credit bundles in provider order, with the same text as the card. `--cached` cannot be combined with either selection option. A different subscription starts with its own balance or an unavailable state. It never borrows another SIM's allowance.
 
 An explicit fixture command remains isolated from account access:
 

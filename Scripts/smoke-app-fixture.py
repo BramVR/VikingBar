@@ -27,6 +27,7 @@ STATES = {
     'Unlimited': ('Unlimited', ['Unlimited allowance', 'Last updated']),
     'Exhausted': ('0 GB', ['Data exhausted', '0.00 GB', '0% remaining', 'Last updated']),
     'Stale': ('36 GB', ['36.00 GB', 'Showing an older balance', 'Stale', 'Last updated']),
+    'Mixed': ('36 GB', ['36.00 GB', '14.00 GB used', 'Other bundles', 'SMS, Calls, Credit', 'Last updated']),
     'Error': ('Unavailable', ['Unavailable', 'Could not load the example balance', 'No successful update']),
     'Not connected': ('Unavailable', ['No account connected', 'Not connected']),
 }
@@ -215,7 +216,7 @@ def check_status(state, amount, name):
                     and source in element(d, 'vikingbar.status').get('AXDescription', ''))
     assert data['activationPolicy'] == 1, 'App must use accessory policy without a Dock icon.'
     status = element(data, 'vikingbar.status')
-    balance = '0.00 GB' if state == 'Exhausted' else '36.00 GB' if state in ('Finite', 'Stale') else title
+    balance = '0.00 GB' if state == 'Exhausted' else '36.00 GB' if state in ('Finite', 'Stale', 'Mixed') else title
     for key in ('AXDescription', 'AXHelp'):
         label = status.get(key, '')
         assert source in label and balance in label, f'{key} lacks allowance or provenance: {label}'
@@ -247,7 +248,7 @@ def select_state(state, amount, name):
     back_to_balance(name)
     expected = STATES[state][1]
     data = wait_for(lambda: inspect(f'{name}-card.json'),
-                    lambda d: all(label in json.dumps(d) for label in expected)
+                    lambda d: all(label in json.dumps(d, ensure_ascii=False) for label in expected)
                     and ('Not connected' in json.dumps(element(d, 'vikingbar.source'))
                          if state == 'Not connected' else
                          f'FIXTURE · {state} · Synthetic data' in json.dumps(element(d, 'vikingbar.source'), ensure_ascii=False)))
@@ -508,6 +509,99 @@ def selection_and_refresh():
     coverage.append({'scenario': 'SIM and bundle selection, Settings return, refresh, details, Points'})
 
 
+MIXED_ROWS = [
+    {'title': 'Monthly SMS', 'remaining': '60 SMS', 'used': '40 SMS used', 'total': '100 SMS total',
+     'detail': 'SMS · default', 'validity': 'Expires ', 'description': 'Synthetic monthly SMS', 'progress': True},
+    {'title': 'Call bundle 2', 'remaining': '19 min 30 s', 'used': '20 min 30 s used', 'total': '40 min total',
+     'detail': 'Calls · default', 'validity': 'Expires ', 'description': None, 'progress': True},
+    {'title': 'Prepaid credit', 'remaining': '€12.50', 'used': '€2.50 used', 'total': '€15.00 total',
+     'detail': 'Credit · default', 'validity': 'Expires ', 'description': 'Synthetic prepaid credit', 'progress': True},
+    {'title': 'Unlimited SMS', 'remaining': 'Unlimited', 'used': '12 SMS used', 'total': 'Unlimited allowance',
+     'detail': 'SMS · super_on_net', 'validity': 'Expires ', 'description': 'Synthetic unlimited SMS',
+     'progress': False},
+    {'title': 'Roaming calls', 'remaining': 'Unavailable', 'used': 'Usage unavailable',
+     'total': 'Allowance unavailable', 'detail': 'Calls · default', 'validity': 'Expired ',
+     'description': 'Synthetic roaming minutes', 'progress': False},
+]
+TRAVEL_ROWS = [
+    {'title': 'Travel credit', 'remaining': '€5.00', 'used': '€0.00 used', 'total': '€5.00 total',
+     'detail': 'Credit · default', 'validity': 'Expires ', 'description': 'Synthetic travel credit', 'progress': True},
+]
+
+
+def bundle_containers(data):
+    return sorted(e['AXIdentifier'] for e in data['elements']
+                  if e.get('AXIdentifier', '').startswith('vikingbar.bundle.')
+                  and e['AXIdentifier'].count('.') == 2)
+
+
+def bundle_elements(data):
+    return [e for e in data['elements'] if e.get('AXIdentifier', '').startswith('vikingbar.bundle.')]
+
+
+def other_bundles_shown(data, summary):
+    boundary, _ = UI.popover_window(data, screens)
+    return (UI.contained(element(data, 'vikingbar.otherBundles'), boundary)
+            and UI.visible_value(data, boundary, 'vikingbar.otherBundles.summary', summary))
+
+
+def assert_bundle_rows(data, rows):
+    assert bundle_containers(data) == [f'vikingbar.bundle.{i}' for i in range(len(rows))], bundle_containers(data)
+    boundary, _ = UI.popover_window(data, screens)
+    for index, row in enumerate(rows):
+        prefix = f'vikingbar.bundle.{index}'
+        container = element(data, prefix)
+        assert UI.contained(container, boundary), f'{prefix} is clipped.'
+        for field in ('title', 'remaining', 'used', 'total', 'detail', 'validity', 'description'):
+            target = element(data, f'{prefix}.{field}')
+            if row[field] is None:
+                assert not target, f'{prefix}.{field} should be absent.'
+                continue
+            assert UI.contained(target, container), f'{prefix}.{field} is outside its row.'
+            values = [target.get(key) for key in ('AXTitle', 'AXValue', 'AXDescription')]
+            matches = (any(isinstance(v, str) and v.startswith(row[field]) for v in values)
+                       if field == 'validity' else row[field] in values)
+            assert matches, f'{prefix}.{field} shows {values}, expected {row[field]}.'
+        progress = element(data, f'{prefix}.progress')
+        assert bool(progress) == row['progress'], f'{prefix}.progress presence is wrong.'
+        if progress:
+            assert UI.contained(progress, container), f'{prefix}.progress is outside its row.'
+
+
+def non_data_bundles():
+    select_state('Mixed', True, 'mixed-bundles')
+    data = inspect('mixed-bundles-collapsed.json')
+    assert other_bundles_shown(data, 'SMS, Calls, Credit'), 'Other bundles summary is wrong.'
+    assert not bundle_elements(data), 'Other bundles must start collapsed.'
+    press('vikingbar.otherBundles', 'mixed-bundles-expand')
+    data = wait_for(lambda: inspect('mixed-bundles-rows.json'), lambda d: len(bundle_containers(d)) == 5)
+    assert_bundle_rows(data, MIXED_ROWS)
+    assert element(data, 'vikingbar.status').get('AXTitle') == '36 GB', 'Helmet must show only data.'
+    assert '36.00 GB' in json.dumps(element(data, 'vikingbar.remaining')), 'Data hero must stay data-only.'
+    capture_card('mixed-bundles-rows')
+    shutil.copyfile(PROOF / 'mixed-bundles-rows.png', PROOF / 'mixed-card.png')
+    choose_popup('vikingbar.subscriptionPicker', 'Travel SIM', 'mixed-travel')
+    data = wait_for(lambda: inspect('mixed-travel.json'), lambda d:
+                    '8.00 GB' in json.dumps(element(d, 'vikingbar.remaining')) and len(bundle_containers(d)) == 1)
+    assert other_bundles_shown(data, 'Credit'), 'Travel SIM summary is wrong.'
+    assert_bundle_rows(data, TRAVEL_ROWS)
+    assert 'Monthly SMS' not in json.dumps(data, ensure_ascii=False), 'Example SIM rows leaked into Travel SIM.'
+    assert element(data, 'vikingbar.status').get('AXTitle') == '8 GB', 'Helmet must follow the Travel SIM data.'
+    capture_card('mixed-travel')
+    choose_popup('vikingbar.subscriptionPicker', 'Example SIM', 'mixed-example')
+    wait_for(lambda: inspect('mixed-example.json'), lambda d:
+             '36.00 GB' in json.dumps(element(d, 'vikingbar.remaining')) and len(bundle_containers(d)) == 5)
+    press('vikingbar.otherBundles', 'mixed-bundles-collapse')
+    wait_for(lambda: inspect('mixed-bundles-collapsed-again.json'), lambda d:
+             not bundle_elements(d) and other_bundles_shown(d, 'SMS, Calls, Credit'))
+    select_state('Finite', True, 'bundles-return-finite')
+    data = inspect('bundles-return-finite-rows.json')
+    assert not element(data, 'vikingbar.otherBundles') and not bundle_elements(data), \
+        'Finite must show no other bundles.'
+    coverage.append({'scenario': 'non-data bundles', 'rows': len(MIXED_ROWS), 'travelRows': len(TRAVEL_ROWS),
+                     'capture': 'mixed-card.png'})
+
+
 def launch(name, appearance=None, reduce_transparency=False):
     global process, app_log
     assert process is None or process.poll() is not None, 'Previous task-owned app is still running.'
@@ -577,6 +671,7 @@ try:
     for state in STATES:
         select_state(state, True, f'amount-{state.lower().replace(" ", "-")}')
     select_state('Finite', True, 'amount-return-finite')
+    non_data_bundles()
     for current, target, expected in [('GB', 'GiB', ['33.53 GiB', '13.04 GiB used', 'GiB uses binary units']),
                                       ('GiB', 'GB', ['36.00 GB', '14.00 GB used', 'GB uses decimal units'])]:
         open_settings(f'units-{target}')
@@ -630,7 +725,8 @@ finally:
 
 assert len(launches) == 4 and all(p.get('quitVerified') for p in launches)
 (PROOF / 'result.json').write_text(json.dumps({
-    'passed': True, 'features': ['data card', 'five fixture states', 'Not connected', 'Settings toggle',
+    'passed': True, 'features': ['data card', 'six fixture states', 'Not connected', 'Settings toggle',
+                               'non-data bundles (SMS, calls, credit; unlimited, expired; per SIM)',
                                'GB/GiB units', 'Quit', 'isolated persistence', 'status captures',
                                'connected account summary and change cancellation', 'direct form validation and cancellation', 'optional 1Password fixture rejection',
                                'SIM and bundle selection', 'refresh', 'details', 'Points navigation',

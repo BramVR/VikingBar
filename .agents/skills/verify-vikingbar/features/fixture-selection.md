@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-Mobile Vikings finite, unlimited, exhausted, stale, error, Not connected, two synthetic SIMs with separate bundles, and simulated Refresh. Separate provider/account fixtures exercise home services, isolated failure, and return to retained mobile data.
+Mobile Vikings finite, unlimited, exhausted, stale, error, mixed (SMS, call, and credit bundles beside data), Not connected, two synthetic SIMs with separate bundles, and simulated Refresh. Separate provider/account fixtures exercise home services, isolated failure, and return to retained mobile data.
 
 ## How to get to it
 
@@ -10,16 +10,17 @@ Launch with `--fixture finite`, open the helmet, then footer **Settings**. Choos
 
 ## Native proof
 
-`make smoke-app-fixture` covers five fixtures and Not connected in icon-only and amount modes. It preserves status crops and settled balance captures for each selection. Read the [data card recipe](data-card.md) for navigation, selectors, and cleanup.
+`make smoke-app-fixture` covers six fixtures and Not connected in icon-only and amount modes. It preserves status crops and settled balance captures for each selection. Read the [data card recipe](data-card.md) for navigation, selectors, and cleanup.
 
 - Finite shows 36 GB remaining of 50 GB, 14 GB used, and 72% remaining.
 - Unlimited shows usage without a finite percentage and an infinity mark.
 - Exhausted shows zero remaining and an empty inset.
 - Stale retains its known amount and fill, with the old update date and warning.
 - Error shows unavailable amounts and a question mark.
+- Mixed shows the Finite data card plus a collapsed **Other bundles** summary `SMS, Calls, Credit`. Expanded, Example SIM shows Monthly SMS `60 SMS`, Call bundle 2 `19 min 30 s`, Prepaid credit `€12.50`, Unlimited SMS `Unlimited`, and expired Roaming calls `Unavailable`. Travel SIM shows only Travel credit `€5.00` under summary `Credit`. Other states show no disclosure. See [data card](data-card.md#other-bundles) for selectors.
 - Not connected shows a clear setup state without a fabricated allowance or unavailable-value stack. The fixture launch stays isolated.
 
-Default status title is empty. Amount mode shows `36 GB`, `Unlimited`, `0 GB`, `36 GB`, and `Unavailable` for the five fixtures. Not connected shows `Unavailable` in amount mode. Snapshot provenance remains explicit in tooltip, accessibility, and CLI. Fixture-only Settings displays synthetic provenance.
+Default status title is empty. Amount mode shows `36 GB`, `Unlimited`, `0 GB`, `36 GB`, `Unavailable`, and `36 GB` for the six fixtures. Not connected shows `Unavailable` in amount mode. Snapshot provenance remains explicit in tooltip, accessibility, and CLI. Fixture-only Settings displays synthetic provenance.
 
 Use `vikingbar.subscriptionPicker` and `vikingbar.bundlePicker` on the balance. Example SIM has Monthly data with 36/50 GB and Extra data with 4/5 GB. Travel SIM has Monthly data with 8/10 GB and Extra data with 1/2 GB. Each SIM switch selects its monthly bundle. Verify identity and allowance together. Settings and Back preserve the current selection.
 
