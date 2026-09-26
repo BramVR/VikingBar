@@ -94,4 +94,4 @@ Set `VIKINGBAR_TELENET_CREDENTIAL_REFERENCE` to the private two-field reference 
 
 The gate builds a fresh bundle, connects through the native 1Password action, independently checks usage responses, compares native card and status text, refreshes, switches to Mobile Vikings and back, and relaunches with the stored session. It requires an existing usable Mobile Vikings account and a real Telenet home service. It restores the prior selected account and stops only its recorded processes. Private screenshots, process identities, comparisons, and cleanup receipts stay under `.build/proof/`.
 
-A missing account service, native automation failure, skipped comparison, or fixture-only pass leaves issue #42 incomplete. The standalone [feasibility gate](telenet-proof.md) proves a different boundary and does not replace native proof.
+A missing account service, native automation failure, skipped comparison, or fixture-only pass fails the gate. The standalone [feasibility gate](telenet-proof.md) proves a different boundary and does not replace native proof.

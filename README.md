@@ -6,7 +6,7 @@ VikingBar is a native macOS menu bar app for Mobile Vikings and Telenet home int
 
 ## What it shows
 
-The helmet in the menu bar shows the selected data bundle's remaining allowance. The app includes:
+The helmet in the menu bar shows the selected data bundle or home service allowance. The app includes:
 
 - Separate SIM and data bundle selection, with allowance, expiry, and extra charges in euros.
 - Telenet home service selection, billing periods, policy counters, and separate peak/off-peak traffic. See [Telenet setup and usage](docs/telenet-home.md).
@@ -24,7 +24,7 @@ The daily chart shows 30 days of SIM usage. Hover over a bar for its amount and 
 
 ## Requirements and availability
 
-VikingBar currently targets Apple Silicon Macs with macOS 14 or later. Building from source requires Swift 6.2 or later and Python 3.
+VikingBar currently targets Apple Silicon Macs with macOS 14 or later. Building from source requires Swift 6.2 or later, Python 3, and Go 1.24 or later for the bundled payment QR helper.
 
 Download the [0.1.0 unsigned preview](https://github.com/BramVR/VikingBar/releases/tag/v0.1.0) without a GitHub account. Follow the [installation and first-launch approval instructions](docs/RELEASING.md#install-the-unsigned-preview). The app has no Developer ID signature or Apple notarization. Automatic updates are not configured. [Development builds](docs/RELEASING.md#download-a-development-build) remain available from GitHub Actions.
 

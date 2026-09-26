@@ -2,7 +2,7 @@
 
 ## Current state
 
-The Swift package contains a fixture menu app, shared allowance models, and a JSON CLI. The local auth/balance proof runner exercises the shared HTTP client; live app integration remains pending. The HTML exploration predates the confirmed public-client setup; this document records the newer findings.
+The Swift package contains the native menu app, a shared core, and a JSON CLI. Mobile Vikings and Telenet home internet run as live providers; fixtures remain synthetic. The HTML exploration predates the confirmed public-client setup; this document records the newer findings.
 
 ## Authentication
 
@@ -12,7 +12,7 @@ Mobile Vikings support confirmed a public OAuth application with no client secre
 - Token endpoint: `POST /oauth2/token/`, form-encoded password or refresh grant.
 - Public client ID and login fields are held in the configured 1Password item. The client ID is not a secret; keep account-specific setup out of source defaults.
 - Initial connection accepts direct native credential entry or retrieves the approved username/password through optional 1Password. Discard the password after the exchange; do not repeatedly read it during background refresh.
-- Planned refresh-token persistence: macOS Keychain, with rotation handled atomically. The probe did not persist its tokens.
+- Refresh tokens persist in macOS Keychain; a file lease serializes rotation across the app and CLI. The token exchange and Keychain write cannot be atomic; an interrupted rotation requires reconnect. The auth/balance probe persists no tokens.
 - The observed access-token lifetime was 599 seconds. Always honor `expires_in`.
 - MFA behavior remains unverified. Never disable MFA to make the integration work.
 
@@ -28,12 +28,16 @@ The password grant is a legacy flow: the app briefly handles the account passwor
 
 `GET /subscriptions` and `GET /subscriptions/{id}/balance` succeeded using a refreshed token. Balance data included a finite data bundle with total, used, remaining, validity dates, and out-of-bundle cost. Personal values and identifiers are intentionally omitted.
 
-## Data documented, not yet verified
+Later stored-session gates verified these reads:
 
-- `/subscriptions/{id}/usage-summary`: summaries by time range, traffic type, regionality, and in/out-of-bundle usage.
-- `/subscriptions/{id}/usage`: detailed records. Prefer summaries when sufficient; details can contain phone numbers.
-- `/loyalty-points/balance` and `/loyalty-points/transactions`: available/pending/blocked points and transaction states.
-- `/invoices`, invoice details, and PDF endpoints: payment state, amount due, discounts, and grouped bills.
+- `/subscriptions/{id}/usage-summary`: daily outgoing data summaries. See [history](docs/history.md).
+- `/loyalty-points/balance` and `/loyalty-points/transactions`: available/pending/blocked points and transaction states. See [live proof](docs/live-proof.md#viking-points-proof).
+- `/invoices` and invoice PDFs: payment state, amount due, and grouped bills. See [invoices](docs/invoices.md).
+
+## Data documented, not requested
+
+- `/subscriptions/{id}/usage`: detailed records. Prefer summaries when sufficient; details can contain phone numbers. Not in the request allowlist.
+- Invoice detail endpoints. Not in the request allowlist.
 
 Other API responses can include SIM PIN/PUK and customer information. Decode and export only needed fields. Do not save raw responses as fixtures.
 

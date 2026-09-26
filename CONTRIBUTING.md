@@ -1,6 +1,6 @@
 # Contribute to VikingBar
 
-Use macOS 14 or later on Apple Silicon with Swift 6.2 or later. Read [development commands](docs/development.md) for local setup.
+Use macOS 14 or later on Apple Silicon with Swift 6.2 or later and Go 1.24 or later for the payment QR helper. Read [development commands](docs/development.md) for local setup.
 
 1. Run `Scripts/bootstrap-ci-tools.sh` to install the pinned check tools into this checkout.
 2. Run `Scripts/ci-build.sh` for the same checks and development archives as GitHub Actions.

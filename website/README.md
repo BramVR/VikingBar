@@ -62,7 +62,7 @@ Barlow Condensed and DM Sans are self-hosted. Their license files are in `public
 
 ## Product information
 
-`src/InfoSections.jsx` adds setup steps, requirements, a compact menu-bar example, native disclosure FAQs, and build/setup/source links. `src/App.jsx` owns the product articles. Layout follows `output/imagegen/vikingbar-info-refined-concept.png` in the repository root. Copy stays factual; connection details remain in the setup guide. The QR text reflects merged PR #33: local generation with a bundled helper, copyable transfer fields, and review in a banking app. VikingBar does not execute payments; users need no Go installation.
+`src/InfoSections.jsx` adds setup steps, requirements, a compact menu-bar example, native disclosure FAQs, and build/setup/source links. `src/App.jsx` owns the product articles. Layout follows a local design concept that is not committed. Copy stays factual; connection details remain in the setup guide. The QR text reflects merged PR #33: local generation with a bundled helper, copyable transfer fields, and review in a banking app. VikingBar does not execute payments; users need no Go installation.
 
 ## GitHub Pages and search
 
