@@ -4,7 +4,7 @@
 - [Telenet home internet](telenet-home.md). Verify home policy and traffic counters, native connection, refresh, provider switching, and stored-session relaunch.
 - [Data card](data-card.md). Open the compact balance and inspect SIM/bundle selection, remaining progress, expiry, details, refresh, and footer Settings.
 - [Helmet and display setting](helmet-and-display-setting.md). Verify native fill, exceptional states, optional GB text, Settings, isolated persistence, and render scales.
-- [Fixture selection](fixture-selection.md). Use fixture-only Settings for five synthetic states and Not connected; drive separate SIMs/bundles and simulated refresh.
+- [Fixture selection](fixture-selection.md). Use fixture-only Settings for six synthetic states and Not connected; drive separate SIMs/bundles and simulated refresh.
 - [CLI JSON](cli-json.md). Inspect shared snapshots, menu models, and synthetic points with explicit units and timezone.
 - [Live balance](live-balance.md). Verify native connection, separate SIMs and bundles, Refresh, API comparisons, and stored-token relaunch after a release rebuild. Core live gate and stored-session picker proof passed. Live selection coverage is limited to one SIM and one data bundle.
 - [Daily SIM data and estimate](history.md). Verify bounded daily summaries, missing and stale days, cycle estimates, and native chart values. Complete live API, forecast, main hover, click-open chart, Refresh, and cleanup proof passed on `8645afe`.

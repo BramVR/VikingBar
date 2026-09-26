@@ -15,7 +15,7 @@ Run `make smoke-app-fixture` under the [launch and isolation contract](../SKILL.
 - Empty default status title and fixed icon-only width through allowance changes.
 - Exact Settings copy, fixture marker, toggle value, and immediate status change.
 - Finite `36 GB`, exhausted `0 GB`, and honest `Unlimited`/`Unavailable` titles; GB remains decimal when the card uses GiB.
-- All five fixture states plus Not connected in both modes, with visible status crops and exact card states.
+- All six fixture states plus Not connected in both modes, with visible status crops and exact card states. Mixed keeps the data-only `36 GB` title; non-data bundles never change the helmet.
 - Preference on survives the first real Quit/relaunch; off survives the second. All four task-owned processes exit through Quit with code 0.
 
 Inspect status crops, Settings captures, `result.json` persistence fields, and `cleanup.json`. Compare finite, exhausted, infinity, and question-mark images; screenshots and semantic AX assertions both matter. The smoke retains crops for visual inspection rather than claiming a pixel comparison.
