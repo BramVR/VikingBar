@@ -177,7 +177,7 @@ struct OracleBundle: Decodable {
 }
 
 extension OracleBundle {
-    enum Amounts: Equatable {
+    private enum Amounts: Equatable {
         case finite(total: Decimal, used: Decimal, remaining: Decimal)
         case unlimited(used: Decimal)
         case unavailable
