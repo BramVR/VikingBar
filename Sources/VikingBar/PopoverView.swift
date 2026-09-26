@@ -24,6 +24,7 @@ struct PopoverView: View {
     let historyCompanion: HistoryCompanionController
     @State private var destination = Destination.balance
     @State private var detailsExpanded = false
+    @State private var otherBundlesExpanded = false
     @State private var pointsExpanded = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var connect: (Bool) -> Void = { _ in }
@@ -114,6 +115,7 @@ struct PopoverView: View {
                 DataCard(
                     session: self.session,
                     detailsExpanded: self.$detailsExpanded,
+                    otherBundlesExpanded: self.$otherBundlesExpanded,
                     historyCompanion: self.historyCompanion,
                     presentConnection: { self.destination = .connection(.balance) },
                 )
