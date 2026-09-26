@@ -72,6 +72,8 @@ For the optional 1Password method, `AccountConnector` starts the packaged `conne
 
 Each successful connection receives a new connection ID. Cached subscription state belongs to that connection, and each SIM retains its own bundles. The selected active data bundle supplies the helmet and allowance card. Applicability, expiry, and extra charges remain separate display values. Missing amounts stay unavailable.
 
+`BalanceBundle.type` is a `BundleKind` whose raw values are the provider strings, so saved balances decode unchanged. `balance(at:)` derives a typed amount for each kind: bytes for data, a message count for SMS, seconds for calls, and `Decimal` euros for credit. The unit types share no arithmetic, so call time or credit cannot be added to data. Only data bundles can be selected. `BundleRowPresentation.rows(for:at:timeZone:)` formats the other kinds for the CLI report and the native card. The balance oracle rebuilds each row from the raw response with its own formatting.
+
 A process lease serializes token rotation across CLI processes. The owner records a pending rotation before the refresh request and replaces the whole Keychain record afterward. An interrupted rotation requires reconnect. The server exchange and local write cannot be atomic. Relaunch refresh uses the stored token without another 1Password read. Unsigned rebuilds can require renewed Keychain authorization; the release rebuild proof must verify that boundary.
 
 Fixture isolation is fixed at launch. Selecting **Not connected** in a fixture picker does not create a live worker or read Keychain. Fixture settings remain in memory unless `--settings-file` supplies an isolated path. Live startup uses the app's settings file and exposes no fixture picker.

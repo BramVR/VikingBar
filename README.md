@@ -9,6 +9,7 @@ VikingBar is a native macOS menu bar app for Mobile Vikings and Telenet home int
 The helmet in the menu bar shows the selected data bundle's remaining allowance. The app includes:
 
 - Separate SIM and data bundle selection, with allowance, expiry, and extra charges in euros.
+- Each SIM's SMS, call, and prepaid-credit bundles below its data allowance, with their own amounts, units, category, and validity.
 - Telenet home service selection, billing periods, policy counters, and separate peak/off-peak traffic. See [Telenet setup and usage](docs/telenet-home.md).
 - An optional remaining-GB label beside the helmet, controlled in **Settings**.
 - Customer-wide Viking Points, with separate available, pending, and blocked balances and recent transactions.

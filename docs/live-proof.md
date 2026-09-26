@@ -101,7 +101,9 @@ Required issue #4 sequence:
 6. Quit, rebuild the bundle in release configuration, and relaunch. Require another successful stored-token refresh with the same connection ID and no second 1Password read.
 7. Preserve API comparison, native captures, build identities, connection, relaunch, and cleanup receipts. Missing stages fail the gate.
 
-`vikingbar proof balance-api` forces token refresh and independently checks subscription IDs, bundle fields, expiry, regionality, extra charges, and the selected allowance presentation against API responses. Its receipt is redacted. It requires an existing connection and accesses Keychain and the account API.
+`vikingbar proof balance-api` forces token refresh and independently checks subscription IDs, bundle fields, expiry, regionality, extra charges, and the selected allowance presentation against API responses. It also rebuilds every SMS, call, and credit row from the raw values and compares the typed amounts and the displayed text. Its receipt is redacted. `bundle_types` holds the counts of `data`, `sms`, `voice`, and `value` bundles, zeros included, and the counts sum to `bundle_count`.
+
+`balance-ui` expands **Other bundles** at each stage and compares every row with the CLI report, field by field through the row identifiers. The compared kinds must equal the kinds with a nonzero `bundle_types` count. The final receipt lists them in `bundle_kinds`. A run covers only the kinds the account returned. Fixture rows cover the others. It requires an existing connection and accesses Keychain and the account API.
 
 `vikingbar live` refreshes and prints private state, snapshots, and presentation values. `live --cached` reads saved state. The app's private `vikingbar session` JSON-lines interface accepts restore, refresh, subscription selection, bundle selection, cancel, and shutdown commands. Treat these as explicit account-access paths, not fixture diagnostics. Never place their output in hosted CI or public proof.
 

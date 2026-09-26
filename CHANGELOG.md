@@ -2,6 +2,7 @@
 
 ## 0.1.1 (Unreleased)
 
+- Show each SIM's SMS, call, and prepaid-credit bundles below its data allowance with their own units, category, validity, and unlimited or expired states, plus a `mixed` fixture, `nonDataBundles` CLI output, and per-kind API and native proof with redacted `bundle_types` counts.
 - Add Telenet daily download charts with the same hover and detail panel as Mobile Vikings, with partial-day and missing-data states, separate cycle totals, and labeled estimates.
 - Add Telenet residential home internet beside Mobile Vikings, with a visual allowance card, separate peak/off-peak traffic breakdown, billing periods, account-scoped cookie sessions, conservative polling, and native/CLI proof.
 - Report `session-busy` from CLI live reads when another process is updating the account, so verification can wait without interrupting the refresh.

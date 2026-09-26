@@ -26,7 +26,7 @@ The password grant is a legacy flow: the app briefly handles the account passwor
 
 ## Data verified
 
-`GET /subscriptions` and `GET /subscriptions/{id}/balance` succeeded using a refreshed token. Balance data included a finite data bundle with total, used, remaining, validity dates, and out-of-bundle cost. Personal values and identifiers are intentionally omitted.
+`GET /subscriptions` and `GET /subscriptions/{id}/balance` succeeded using a refreshed token. Balance data included a finite data bundle with total, used, remaining, validity dates, and out-of-bundle cost. The same SIM also returns voice and SMS bundles. No live value bundle has been observed. Personal values and identifiers are intentionally omitted.
 
 ## Data documented, not yet verified
 
@@ -44,6 +44,7 @@ Other API responses can include SIM PIN/PUK and customer information. Decode and
 - Bundle: allowance with its own validity and applicability. Different bundles are not automatically additive.
 - Data amount: API bytes. Label binary conversion as GiB; GB uses decimal conversion.
 - Unlimited: bundle total `-1`; show usage without a fabricated percentage.
+- Bundle kind: provider `type`. Data amounts are bytes, SMS amounts are message counts, and voice amounts are seconds, as the official documentation states. Value amounts are euros by inference, because the documentation gives no unit and every other API money field is in euros. Kinds never add together, and only data bundles drive the helmet.
 - Expiry: bundle `valid_until`, not necessarily an invoice date or a guaranteed future renewal.
 - Regionality: provider classification of domestic/roaming context, not a precise location.
 - Forecast: locally calculated estimate, separate from reported balance.
