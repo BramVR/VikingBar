@@ -281,8 +281,11 @@ private struct BundleRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(self.row.detailText).accessibilityIdentifier("\(id).detail")
                 Spacer(minLength: 6)
-                Label(self.row.validityText, systemImage: "calendar")
-                    .accessibilityIdentifier("\(id).validity")
+                Label {
+                    Text(self.row.validityText).accessibilityIdentifier("\(id).validity")
+                } icon: {
+                    Image(systemName: "calendar")
+                }
             }
             .font(.caption).foregroundStyle(.secondary)
             if !self.row.description.isEmpty {
