@@ -11,16 +11,54 @@ struct BundleRowPresentationTests {
         let rows = BundleRowPresentation.rows(for: bundles, at: Self.referenceDate, timeZone: Self.utc)
         let expires = "Expires 19 Jul 2026, 12:00 GMT"
         #expect(rows == [
-            Self.row(0, .sms, "Monthly SMS", "Synthetic monthly SMS", "60 SMS", "40 SMS used", "100 SMS total",
-                     "SMS · default", expires, .finite),
-            Self.row(1, .voice, "Call bundle 2", "", "19 min 30 s", "20 min 30 s used", "40 min total",
-                     "Calls · default", expires, .finite),
-            Self.row(2, .value, "Prepaid credit", "Synthetic prepaid credit", "€12.50", "€2.50 used", "€15.00 total",
-                     "Credit · default", expires, .finite),
-            Self.row(3, .sms, "Unlimited SMS", "Synthetic unlimited SMS", "Unlimited", "12 SMS used",
-                     "Unlimited allowance", "SMS · super_on_net", expires, .unlimited),
-            Self.row(4, .voice, "Roaming calls", "Synthetic roaming minutes", "Unavailable", "Usage unavailable",
-                     "Allowance unavailable", "Calls · default", "Expired 4 Jul 2026, 12:00 GMT", .expired),
+            BundleRowPresentation(
+                index: 0, kind: .sms, title: "Monthly SMS", description: "Synthetic monthly SMS",
+                remainingText: "60 SMS", usedText: "40 SMS used", totalText: "100 SMS total",
+                detailText: "SMS · default", validityText: expires, state: .finite, percentageRemaining: 60,
+            ),
+            BundleRowPresentation(
+                index: 1, kind: .voice, title: "Call bundle 2", description: "", remainingText: "19 min 30 s",
+                usedText: "20 min 30 s used", totalText: "40 min total", detailText: "Calls · default",
+                validityText: expires, state: .finite, percentageRemaining: 48.75,
+            ),
+            BundleRowPresentation(
+                index: 2, kind: .value, title: "Prepaid credit", description: "Synthetic prepaid credit",
+                remainingText: "€12.50", usedText: "€2.50 used", totalText: "€15.00 total",
+                detailText: "Credit · default", validityText: expires, state: .finite,
+                percentageRemaining: 12.5 * 100 / 15,
+            ),
+            BundleRowPresentation(
+                index: 3, kind: .sms, title: "Unlimited SMS", description: "Synthetic unlimited SMS",
+                remainingText: "Unlimited", usedText: "12 SMS used", totalText: "Unlimited allowance",
+                detailText: "SMS · super_on_net", validityText: expires, state: .unlimited, percentageRemaining: nil,
+            ),
+            BundleRowPresentation(
+                index: 4, kind: .voice, title: "Roaming calls", description: "Synthetic roaming minutes",
+                remainingText: "Unavailable", usedText: "Usage unavailable", totalText: "Allowance unavailable",
+                detailText: "Calls · default", validityText: "Expired 4 Jul 2026, 12:00 GMT", state: .expired,
+                percentageRemaining: nil,
+            ),
+        ])
+    }
+
+    @Test func `zero-sized call and SMS bundles read as exhausted without progress`() {
+        let bundles = [
+            Self.bundle(.voice, total: 0, used: 0, remaining: 0),
+            Self.bundle(.sms, total: 0, used: 0, remaining: 0),
+        ]
+        let rows = BundleRowPresentation.rows(for: bundles, at: Self.referenceDate, timeZone: Self.utc)
+        let expires = "Expires 19 Jul 2026, 12:00 GMT"
+        #expect(rows == [
+            BundleRowPresentation(
+                index: 0, kind: .voice, title: "Call bundle 1", description: "", remainingText: "0 min",
+                usedText: "0 min used", totalText: "0 min total", detailText: "Calls · default",
+                validityText: expires, state: .exhausted, percentageRemaining: nil,
+            ),
+            BundleRowPresentation(
+                index: 1, kind: .sms, title: "SMS bundle 2", description: "", remainingText: "0 SMS",
+                usedText: "0 SMS used", totalText: "0 SMS total", detailText: "SMS · default", validityText: expires,
+                state: .exhausted, percentageRemaining: nil,
+            ),
         ])
     }
 
@@ -29,6 +67,7 @@ struct BundleRowPresentationTests {
         let rows = BundleRowPresentation.rows(for: travel, at: Self.referenceDate, timeZone: Self.utc)
         #expect(rows.map(\.title) == ["Travel credit"])
         #expect(rows.map(\.remainingText) == ["€5.00"])
+        #expect(rows.map(\.percentageRemaining) == [100])
         for state in FixtureState.allCases where state != .mixed {
             #expect(state.nonDataBundles(subscriptionID: "example", referenceDate: Self.referenceDate).isEmpty)
         }
@@ -45,8 +84,9 @@ struct BundleRowPresentationTests {
         #expect(rows.map(\.index) == [1, 3])
         #expect(rows.map(\.title) == ["Call bundle 2", "Credit bundle 4"])
         #expect(rows.map(\.remainingText) == ["45 s", "€0.00"])
-        #expect(rows.map(\.usedText) == ["0 s used", "€0.00 used"])
+        #expect(rows.map(\.usedText) == ["0 min used", "€0.00 used"])
         #expect(rows.map(\.state) == [.finite, .exhausted])
+        #expect(rows.map(\.percentageRemaining) == [100, nil])
         #expect(LiveBalancePresentation.title(for: bundles[2], index: 2) == "Data bundle 3")
         #expect(LiveBalancePresentation.title(for: Self.bundle(.sms, total: 1, used: 0, remaining: 1), index: 0)
             == "SMS bundle 1")
@@ -90,17 +130,6 @@ struct BundleRowPresentationTests {
             title: "", description: "", category: "default", type: type, total: total, used: used,
             remaining: remaining, validFrom: validFrom ?? self.referenceDate.addingTimeInterval(-86400),
             validUntil: validUntil ?? self.referenceDate.addingTimeInterval(14 * 86400),
-        )
-    }
-
-    // swiftlint:disable:next function_parameter_count
-    private static func row(
-        _ index: Int, _ kind: BundleKind, _ title: String, _ description: String, _ remaining: String,
-        _ used: String, _ total: String, _ detail: String, _ validity: String, _ state: BundleRowPresentation.State,
-    ) -> BundleRowPresentation {
-        BundleRowPresentation(
-            index: index, kind: kind, title: title, description: description, remainingText: remaining,
-            usedText: used, totalText: total, detailText: detail, validityText: validity, state: state,
         )
     }
 }

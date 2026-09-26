@@ -59,6 +59,7 @@ public struct BundleRowPresentation: Codable, Equatable, Sendable {
     public let detailText: String
     public let validityText: String
     public let state: State
+    public let percentageRemaining: Double?
 
     public static func rows(
         for bundles: [BalanceBundle], at now: Date, timeZone: TimeZone = .current,
@@ -70,12 +71,14 @@ public struct BundleRowPresentation: Codable, Equatable, Sendable {
             case .data:
                 return nil
             case let .sms(metered):
-                amounts = AmountTexts(metered, isEmpty: { $0.count == 0 }, format: { "\($0.count) SMS" })
+                amounts = AmountTexts(metered, magnitude: { Double($0.count) }, format: { "\($0.count) SMS" })
             case let .voice(metered):
-                amounts = AmountTexts(metered, isEmpty: { $0.seconds == 0 }, format: { Self.duration($0.seconds) })
+                amounts = AmountTexts(
+                    metered, magnitude: { Double($0.seconds) }, format: { Self.duration($0.seconds) },
+                )
             case let .value(metered):
                 amounts = AmountTexts(
-                    metered, isEmpty: { $0.euros == 0 },
+                    metered, magnitude: { NSDecimalNumber(decimal: $0.euros).doubleValue },
                     format: { LiveBalancePresentation.euros($0.euros) ?? "Unavailable" },
                 )
             }
@@ -90,7 +93,7 @@ public struct BundleRowPresentation: Codable, Equatable, Sendable {
                 index: index, kind: bundle.type, title: LiveBalancePresentation.title(for: bundle, index: index),
                 description: bundle.description, remainingText: amounts.remaining, usedText: amounts.used,
                 totalText: amounts.total, detailText: "\(bundle.type.label) · \(bundle.category)",
-                validityText: validity.text, state: validity.state,
+                validityText: validity.text, state: validity.state, percentageRemaining: amounts.percentageRemaining,
             )
         }
     }
@@ -98,6 +101,7 @@ public struct BundleRowPresentation: Codable, Equatable, Sendable {
     static func duration(_ seconds: UInt64) -> String {
         let (minutes, rest) = seconds.quotientAndRemainder(dividingBy: 60)
         return switch (minutes, rest) {
+        case (0, 0): "0 min"
         case (0, _): "\(rest) s"
         case (_, 0): "\(minutes) min"
         default: "\(minutes) min \(rest) s"
@@ -110,24 +114,29 @@ private struct AmountTexts {
     let used: String
     let total: String
     let state: BundleRowPresentation.State
+    let percentageRemaining: Double?
 
-    init<Amount>(_ metered: Metered<Amount>, isEmpty: (Amount) -> Bool, format: (Amount) -> String) {
+    init<Amount>(_ metered: Metered<Amount>, magnitude: (Amount) -> Double, format: (Amount) -> String) {
         switch metered {
         case let .finite(total, used, remaining):
             self.remaining = format(remaining)
             self.used = "\(format(used)) used"
             self.total = "\(format(total)) total"
-            self.state = isEmpty(remaining) ? .exhausted : .finite
+            self.state = magnitude(remaining) == 0 ? .exhausted : .finite
+            self.percentageRemaining = magnitude(total) == 0
+                ? nil : min(100, magnitude(remaining) * 100 / magnitude(total))
         case let .unlimited(used):
             self.remaining = "Unlimited"
             self.used = "\(format(used)) used"
             self.total = "Unlimited allowance"
             self.state = .unlimited
+            self.percentageRemaining = nil
         case .unavailable:
             self.remaining = "Unavailable"
             self.used = "Usage unavailable"
             self.total = "Allowance unavailable"
             self.state = .unavailable
+            self.percentageRemaining = nil
         }
     }
 }

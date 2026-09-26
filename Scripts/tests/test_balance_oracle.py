@@ -25,7 +25,9 @@ def payload():
            raw_bundle("value", "Prepaid credit", 15, 2.5, 12.5),
            raw_bundle("sms", "", -1, 12, -1, category="super_on_net"),
            raw_bundle("voice", "Roaming calls", 600, 0, 600, valid_until="2026-09-06T00:00:00Z"),
-           raw_bundle("data", "Extra data", 5000000000, 1000000000, 4000000000)]
+           raw_bundle("data", "Extra data", 5000000000, 1000000000, 4000000000),
+           raw_bundle("voice", "", 0, 0, 0, description=""),
+           raw_bundle("sms", "", 0, 0, 0, description="")]
     bundles = [{"title": b["descriptions"]["title"], "description": b["descriptions"]["description"],
                 "category": b["category"], "type": b["type"], "total": b["total"], "used": b["used"],
                 "remaining": b["remaining"], "validFrom": b["valid_from"], "validUntil": b["valid_until"]}
@@ -67,12 +69,12 @@ class BalanceOracleTests(unittest.TestCase):
 
     def test_every_kind_matches_and_receipt_counts_raw_types(self):
         value = payload()
-        value["cases"] = [{"index": index} for index in range(7)]
+        value["cases"] = [{"index": index} for index in range(9)]
         output = self.run_oracle(value)
         self.assertEqual(output["receipt"], {"schema_version": 1, "check": "balance-api", "passed": True,
-                                             "api_matches": True, "token_refreshed": True, "bundle_count": 7,
-                                             "bundle_types": {"data": 2, "sms": 2, "voice": 2, "value": 1}})
-        self.assertEqual(output["cases"], [True] * 7)
+                                             "api_matches": True, "token_refreshed": True, "bundle_count": 9,
+                                             "bundle_types": {"data": 2, "sms": 3, "voice": 3, "value": 1}})
+        self.assertEqual(output["cases"], [True] * 9)
         self.assertNotIn("Monthly SMS", json.dumps(output))
 
     def test_state_mapping_and_identity_errors_fail_the_receipt(self):
@@ -88,6 +90,22 @@ class BalanceOracleTests(unittest.TestCase):
             value = payload()
             mutate(value)
             self.assertIsNone(self.run_oracle(value)["receipt"])
+
+    def test_oracle_expects_literal_row_strings_and_progress(self):
+        expected = [
+            {"index": 1, "row": {"remainingText": "60 SMS", "percentageRemaining": 60}},
+            {"index": 2, "row": {"remainingText": "19 min 30 s", "percentageRemaining": 48.75}},
+            {"index": 3, "row": {"remainingText": "€12.50", "percentageRemaining": 12.5 * 100 / 15}},
+            {"index": 4, "row": {"remainingText": "Unlimited", "percentageRemaining": None}},
+            {"index": 5, "row": {"remainingText": "Unavailable", "percentageRemaining": None}},
+            {"index": 7, "row": {"remainingText": "0 min", "usedText": "0 min used", "totalText": "0 min total",
+                                 "state": "exhausted", "percentageRemaining": None}},
+            {"index": 8, "row": {"remainingText": "0 SMS", "usedText": "0 SMS used", "totalText": "0 SMS total",
+                                 "state": "exhausted", "percentageRemaining": None}},
+        ]
+        value = payload()
+        value["cases"] = expected
+        self.assertEqual(self.run_oracle(value)["cases"], [True] * len(expected))
 
     def test_production_values_and_strings_are_checked_per_kind(self):
         tampered = [
@@ -109,6 +127,13 @@ class BalanceOracleTests(unittest.TestCase):
             {"index": 5, "row": {"remainingText": "10 min"}},
             {"index": 6, "bundle": {"remaining": 3000000000}},
             {"index": 6, "bundle": {"type": "sms"}},
+            {"index": 1, "row": {"percentageRemaining": 61}},
+            {"index": 1, "row": {"percentageRemaining": None}},
+            {"index": 4, "row": {"percentageRemaining": 100}},
+            {"index": 5, "row": {"percentageRemaining": 100}},
+            {"index": 7, "row": {"remainingText": "0 s"}},
+            {"index": 7, "row": {"percentageRemaining": 0}},
+            {"index": 8, "row": {"state": "finite"}},
         ]
         value = payload()
         value["cases"] = tampered

@@ -269,8 +269,15 @@ extension OracleBundle {
         } else {
             ["Expires \(dates.string(from: end))", texts[3]]
         }
+        let percentage: Double? = if case let .finite(total, _, remaining) = amounts, total != 0 {
+            min(100, NSDecimalNumber(decimal: remaining / total * 100).doubleValue)
+        } else {
+            nil
+        }
         let title = self.descriptions.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard row.index == index, row.kind.rawValue == self.type,
+        guard (row.percentageRemaining == nil) == (percentage == nil),
+              abs((row.percentageRemaining ?? 0) - (percentage ?? 0)) < 0.000001,
+              row.index == index, row.kind.rawValue == self.type,
               row.title == (title.isEmpty ? "\(kind.name) \(index + 1)" : title),
               row.description == self.descriptions.description,
               [row.remainingText, row.usedText, row.totalText] == Array(texts[0 ..< 3]),
@@ -283,6 +290,9 @@ extension OracleBundle {
         let total = NSDecimalNumber(decimal: seconds).uint64Value
         let minutes = total / 60
         let rest = total % 60
+        if total == 0 {
+            return "0 min"
+        }
         if minutes == 0 {
             return "\(rest) s"
         }
