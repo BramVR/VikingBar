@@ -36,9 +36,11 @@ class HistoryProofTests(unittest.TestCase):
         cycle = {"cycleStart": "2026-09-01T00:00:00Z", "cycleEnd": "2026-10-01T00:00:00Z"}
         connection = {"rawValue": "00000000-0000-0000-0000-000000000001"}
         self.report = {"schemaVersion": 1, "snapshot": snapshot, "historyPresentation": self.presentation,
+                       "nonDataBundles": [],
                        "state": {"snapshot": snapshot, "connectionID": connection, "historyRevision": "revision-one",
                                  "selectedSubscriptionID": "sim-one", "selectedBundleIndex": 0,
-                                 "balance": {"bundles": [{"validFrom": cycle["cycleStart"], "validUntil": cycle["cycleEnd"]}]},
+                                 "balance": {"bundles": [{"type": "data", "validFrom": cycle["cycleStart"],
+                                                          "validUntil": cycle["cycleEnd"]}]},
                                  "history": {"context": {"connectionID": connection, "subscriptionID": "sim-one",
                                                          "bundleIndex": 0, "revision": "revision-one", "bundle": cycle},
                                              "attemptedAt": "2026-09-07T12:00:00Z", "truncated": False,
