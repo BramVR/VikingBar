@@ -43,6 +43,7 @@ public struct LiveBalancePresentation: Codable, Equatable, Sendable {
 }
 
 /// Rows cover non-data bundles only. The main card and its picker own data bundles.
+/// Zero-sized bundles, whose provider total is exactly 0, get no row.
 public struct BundleRowPresentation: Codable, Equatable, Sendable {
     public enum State: String, Codable, Sendable {
         case finite, exhausted, unlimited, expired, upcoming, unavailable
@@ -66,6 +67,7 @@ public struct BundleRowPresentation: Codable, Equatable, Sendable {
     ) -> [BundleRowPresentation] {
         let formatter = MenuPresentation.dateFormatter(timeZone: timeZone)
         return bundles.enumerated().compactMap { index, bundle in
+            guard bundle.total != 0 else { return nil }
             let amounts: AmountTexts
             switch bundle.balance(at: now) {
             case .data:

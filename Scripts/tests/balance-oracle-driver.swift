@@ -58,7 +58,11 @@ struct BalanceOracleDriver {
         return try values.map { value in
             let index = value["index"] as! Int
             let bundle = try Self.merged(bundles[index], value["bundle"] as? [String: Any])
-            let row = try rows.first { $0.index == index }.map { try Self.merged($0, value["row"] as? [String: Any]) }
+            let overrides = value["row"] as? [String: Any]
+            let row = try rows.first { $0.index == index }.map { try Self.merged($0, overrides) }
+                ?? overrides.map { try Self.decoder.decode(
+                    BundleRowPresentation.self, from: JSONSerialization.data(withJSONObject: $0),
+                ) }
             do {
                 try oracle.bundles[index].verify(bundle: bundle, row: row, index: index, at: updated)
                 return true

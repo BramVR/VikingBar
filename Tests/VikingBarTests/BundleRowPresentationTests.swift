@@ -41,23 +41,33 @@ struct BundleRowPresentationTests {
         ])
     }
 
-    @Test func `zero-sized call and SMS bundles read as exhausted without progress`() {
+    @Test func `zero-sized call and SMS bundles get no rows`() {
         let bundles = [
             Self.bundle(.voice, total: 0, used: 0, remaining: 0),
             Self.bundle(.sms, total: 0, used: 0, remaining: 0),
+        ]
+        #expect(BundleRowPresentation.rows(for: bundles, at: Self.referenceDate, timeZone: Self.utc) == [])
+    }
+
+    @Test func `only zero-sized bundles are hidden and the rest keep provider indices`() {
+        let bundles = [
+            Self.bundle(.voice, total: 0, used: 0, remaining: 0),
+            Self.bundle(.sms, total: -1, used: 3, remaining: -1),
+            Self.bundle(.value, total: 0, used: 0, remaining: 0),
+            Self.bundle(.voice, total: 120, used: 60, remaining: 60),
         ]
         let rows = BundleRowPresentation.rows(for: bundles, at: Self.referenceDate, timeZone: Self.utc)
         let expires = "Expires 19 Jul 2026, 12:00 GMT"
         #expect(rows == [
             BundleRowPresentation(
-                index: 0, kind: .voice, title: "Call bundle 1", description: "", remainingText: "0 min",
-                usedText: "0 min used", totalText: "0 min total", detailText: "Calls · default",
-                validityText: expires, state: .exhausted, percentageRemaining: nil,
+                index: 1, kind: .sms, title: "SMS bundle 2", description: "", remainingText: "Unlimited",
+                usedText: "3 SMS used", totalText: "Unlimited allowance", detailText: "SMS · default",
+                validityText: expires, state: .unlimited, percentageRemaining: nil,
             ),
             BundleRowPresentation(
-                index: 1, kind: .sms, title: "SMS bundle 2", description: "", remainingText: "0 SMS",
-                usedText: "0 SMS used", totalText: "0 SMS total", detailText: "SMS · default", validityText: expires,
-                state: .exhausted, percentageRemaining: nil,
+                index: 3, kind: .voice, title: "Call bundle 4", description: "", remainingText: "1 min",
+                usedText: "1 min used", totalText: "2 min total", detailText: "Calls · default",
+                validityText: expires, state: .finite, percentageRemaining: 50,
             ),
         ])
     }
@@ -78,15 +88,15 @@ struct BundleRowPresentationTests {
             Self.bundle(.data, total: 50, used: 20, remaining: 30),
             Self.bundle(.voice, total: 45, used: 0, remaining: 45),
             Self.bundle(.data, total: 10, used: 1, remaining: 9),
-            Self.bundle(.value, total: 0, used: 0, remaining: 0),
+            Self.bundle(.value, total: 5, used: 5, remaining: 0),
         ]
         let rows = BundleRowPresentation.rows(for: bundles, at: Self.referenceDate, timeZone: Self.utc)
         #expect(rows.map(\.index) == [1, 3])
         #expect(rows.map(\.title) == ["Call bundle 2", "Credit bundle 4"])
         #expect(rows.map(\.remainingText) == ["45 s", "€0.00"])
-        #expect(rows.map(\.usedText) == ["0 min used", "€0.00 used"])
+        #expect(rows.map(\.usedText) == ["0 min used", "€5.00 used"])
         #expect(rows.map(\.state) == [.finite, .exhausted])
-        #expect(rows.map(\.percentageRemaining) == [100, nil])
+        #expect(rows.map(\.percentageRemaining) == [100, 0])
         #expect(LiveBalancePresentation.title(for: bundles[2], index: 2) == "Data bundle 3")
         #expect(LiveBalancePresentation.title(for: Self.bundle(.sms, total: 1, used: 0, remaining: 1), index: 0)
             == "SMS bundle 1")

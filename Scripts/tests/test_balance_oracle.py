@@ -44,6 +44,12 @@ def payload():
     return {"balance": {"bundles": raw, "regionality": "national", "out_of_bundle_cost": 0}, "state": state}
 
 
+def zero_row(index, kind, title, amount, label):
+    return {"index": index, "kind": kind, "title": title, "description": "", "remainingText": amount,
+            "usedText": f"{amount} used", "totalText": f"{amount} total", "detailText": f"{label} · default",
+            "validityText": "Expires 1 Oct 2026, 00:00 GMT", "state": "exhausted"}
+
+
 class BalanceOracleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -98,10 +104,8 @@ class BalanceOracleTests(unittest.TestCase):
             {"index": 3, "row": {"remainingText": "€12.50", "percentageRemaining": 12.5 * 100 / 15}},
             {"index": 4, "row": {"remainingText": "Unlimited", "percentageRemaining": None}},
             {"index": 5, "row": {"remainingText": "Unavailable", "percentageRemaining": None}},
-            {"index": 7, "row": {"remainingText": "0 min", "usedText": "0 min used", "totalText": "0 min total",
-                                 "state": "exhausted", "percentageRemaining": None}},
-            {"index": 8, "row": {"remainingText": "0 SMS", "usedText": "0 SMS used", "totalText": "0 SMS total",
-                                 "state": "exhausted", "percentageRemaining": None}},
+            {"index": 7},
+            {"index": 8},
         ]
         value = payload()
         value["cases"] = expected
@@ -131,9 +135,10 @@ class BalanceOracleTests(unittest.TestCase):
             {"index": 1, "row": {"percentageRemaining": None}},
             {"index": 4, "row": {"percentageRemaining": 100}},
             {"index": 5, "row": {"percentageRemaining": 100}},
-            {"index": 7, "row": {"remainingText": "0 s"}},
-            {"index": 7, "row": {"percentageRemaining": 0}},
-            {"index": 8, "row": {"state": "finite"}},
+            {"index": 7, "bundle": {"remaining": 1}},
+            {"index": 8, "bundle": {"used": 1}},
+            {"index": 7, "row": zero_row(7, "voice", "Call bundle 8", "0 min", "Calls")},
+            {"index": 8, "row": zero_row(8, "sms", "SMS bundle 9", "0 SMS", "SMS")},
         ]
         value = payload()
         value["cases"] = tampered

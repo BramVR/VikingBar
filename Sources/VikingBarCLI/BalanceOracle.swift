@@ -99,7 +99,7 @@ struct OracleBalance: Decodable {
     func verify(bundles actual: [BalanceBundle], at now: Date) throws {
         let rows = BundleRowPresentation.rows(for: actual, at: now, timeZone: OracleBundle.utc)
         guard actual.count == self.bundles.count,
-              rows.map(\.index) == self.bundles.indices.filter({ self.bundles[$0].type != "data" })
+              rows.map(\.index) == self.bundles.indices.filter({ self.bundles[$0].isDisplayed })
         else { throw ProofFailure.malformedResponse }
         for (index, raw) in self.bundles.enumerated() {
             try raw.verify(bundle: actual[index], row: rows.first { $0.index == index }, index: index, at: now)
@@ -126,6 +126,10 @@ struct OracleBundle: Decodable {
         case descriptions, category, type, total, used, remaining
         case validFrom = "valid_from"
         case validUntil = "valid_until"
+    }
+
+    var isDisplayed: Bool {
+        self.type != "data" && self.total != 0
     }
 
     func startDate() throws -> Date {
@@ -200,7 +204,7 @@ extension OracleBundle {
     func verify(bundle: BalanceBundle, row: BundleRowPresentation?, index: Int, at now: Date) throws {
         let expected = try self.amounts(at: now)
         let typed: BundleBalance = self.type == "data" ? .data(bundle.allowance(at: now)) : bundle.balance(at: now)
-        guard Self.amounts(of: typed, type: self.type) == expected, (row == nil) == (self.type == "data")
+        guard Self.amounts(of: typed, type: self.type) == expected, (row == nil) == !self.isDisplayed
         else { throw ProofFailure.malformedResponse }
         if let row {
             try self.verify(row: row, amounts: expected, index: index, at: now)
