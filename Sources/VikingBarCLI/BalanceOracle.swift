@@ -58,7 +58,7 @@ actor BalanceOracleTransport: ProofHTTPTransport {
         else { throw ProofFailure.malformedResponse }
         for (raw, actual) in zip(oracle.bundles, balance.bundles) {
             guard raw.total == actual.total, raw.used == actual.used, raw.remaining == actual.remaining,
-                  raw.type == actual.type, raw.category == actual.category,
+                  raw.type == actual.type.rawValue, raw.category == actual.category,
                   raw.descriptions.title == actual.title, raw.descriptions.description == actual.description,
                   try raw.startDate() == actual.validFrom, try raw.endDate() == actual.validUntil
             else { throw ProofFailure.malformedResponse }

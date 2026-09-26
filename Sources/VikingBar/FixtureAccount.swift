@@ -63,7 +63,8 @@ struct FixtureAccount {
         let total = self.bundle.total * 1_000_000_000
         let remaining = self.bundle.remaining * 1_000_000_000
         let allowance: Allowance = switch state {
-        case .finite, .stale: .finite(totalBytes: total, usedBytes: total - remaining, remainingBytes: remaining)
+        case .finite, .stale, .mixed:
+            .finite(totalBytes: total, usedBytes: total - remaining, remainingBytes: remaining)
         case .exhausted: .finite(totalBytes: total, usedBytes: total, remainingBytes: 0)
         case .unlimited: .unlimited(usedBytes: total - remaining)
         case .error: .unavailable

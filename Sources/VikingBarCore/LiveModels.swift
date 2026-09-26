@@ -59,33 +59,119 @@ public struct MobileSubscription: Codable, Equatable, Sendable {
     public let type: String
 }
 
+/// The provider's bundle `type`. Raw values are the wire strings, so cached balances decode unchanged.
+public enum BundleKind: String, Codable, CaseIterable, Sendable {
+    case data, sms, voice, value
+
+    public var label: String {
+        switch self {
+        case .data: "Data"
+        case .sms: "SMS"
+        case .voice: "Calls"
+        case .value: "Credit"
+        }
+    }
+
+    public var bundleName: String {
+        switch self {
+        case .data: "Data bundle"
+        case .sms: "SMS bundle"
+        case .voice: "Call bundle"
+        case .value: "Credit bundle"
+        }
+    }
+}
+
+public struct MessageCount: Equatable, Sendable {
+    public let count: UInt64
+
+    init?(exact amount: Decimal) {
+        guard let count = BalanceBundle.exactInteger(amount) else { return nil }
+        self.count = count
+    }
+}
+
+public struct CallDuration: Equatable, Sendable {
+    public let seconds: UInt64
+
+    init?(exact amount: Decimal) {
+        guard let seconds = BalanceBundle.exactInteger(amount) else { return nil }
+        self.seconds = seconds
+    }
+}
+
+/// The API documents no unit for `value` bundles. Every other money field it returns is EUR, so euros are inferred.
+public struct EuroAmount: Equatable, Sendable {
+    public let euros: Decimal
+
+    init?(exact amount: Decimal) {
+        guard !amount.isNaN, amount >= 0 else { return nil }
+        self.euros = amount
+    }
+}
+
+public enum Metered<Amount: Equatable & Sendable>: Equatable, Sendable {
+    case finite(total: Amount, used: Amount, remaining: Amount)
+    case unlimited(used: Amount)
+    case unavailable
+}
+
+public enum BundleBalance: Equatable, Sendable {
+    case data(Allowance)
+    case sms(Metered<MessageCount>)
+    case voice(Metered<CallDuration>)
+    case value(Metered<EuroAmount>)
+}
+
 public struct BalanceBundle: Codable, Equatable, Sendable {
     public let title: String
     public let description: String
     public let category: String
-    public let type: String
+    public let type: BundleKind
     public let total: Decimal
     public let used: Decimal
     public let remaining: Decimal
     public let validFrom: Date
     public let validUntil: Date
 
+    public func isCurrent(at date: Date) -> Bool {
+        self.validFrom <= date && date < self.validUntil
+    }
+
     public func isActive(at date: Date) -> Bool {
-        self.type == "data" && self.validFrom <= date && date < self.validUntil
+        self.type == .data && self.isCurrent(at: date)
     }
 
     public func allowance(at date: Date) -> Allowance {
-        guard self.isActive(at: date), let used = Self.exactBytes(self.used) else { return .unavailable }
+        guard self.isActive(at: date), let used = Self.exactInteger(self.used) else { return .unavailable }
         if self.total == -1 {
             return .unlimited(usedBytes: used)
         }
-        guard let total = Self.exactBytes(self.total), let remaining = Self.exactBytes(self.remaining) else {
+        guard let total = Self.exactInteger(self.total), let remaining = Self.exactInteger(self.remaining) else {
             return .unavailable
         }
         return .finite(totalBytes: total, usedBytes: used, remainingBytes: remaining)
     }
 
-    private static func exactBytes(_ decimal: Decimal) -> UInt64? {
+    public func balance(at date: Date) -> BundleBalance {
+        switch self.type {
+        case .data: .data(self.allowance(at: date))
+        case .sms: .sms(self.metered(MessageCount.init(exact:), at: date))
+        case .voice: .voice(self.metered(CallDuration.init(exact:), at: date))
+        case .value: .value(self.metered(EuroAmount.init(exact:), at: date))
+        }
+    }
+
+    private func metered<Amount>(_ parse: (Decimal) -> Amount?, at date: Date) -> Metered<Amount> {
+        guard self.isCurrent(at: date), let used = parse(self.used) else { return .unavailable }
+        if self.total == -1 {
+            return .unlimited(used: used)
+        }
+        guard let total = parse(self.total), let remaining = parse(self.remaining) else { return .unavailable }
+        return .finite(total: total, used: used, remaining: remaining)
+    }
+
+    static func exactInteger(_ decimal: Decimal) -> UInt64? {
         guard !decimal.isNaN, decimal >= 0, decimal <= Decimal(UInt64.max) else { return nil }
         let value = NSDecimalNumber(decimal: decimal).uint64Value
         return Decimal(value) == decimal ? value : nil

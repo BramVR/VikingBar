@@ -362,7 +362,7 @@ extension UsageHistoryTests {
         let start = Self.date(start)
         let now = Self.date(now)
         let bundle = BalanceBundle(
-            title: "Data", description: "Synthetic", category: "default", type: "data", total: 10_000_000_000,
+            title: "Data", description: "Synthetic", category: "default", type: .data, total: 10_000_000_000,
             used: 2_000_000_000, remaining: 8_000_000_000, validFrom: start,
             validUntil: start.addingTimeInterval(cycleDuration),
         )

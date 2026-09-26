@@ -116,7 +116,7 @@ struct SyntheticHistoryTransport: ProofHTTPTransport {
         now: Date, missing: Bool, grouped: Bool = true, middayStart: Bool = false,
     ) async throws -> (HistoryOracleTransport, LiveSessionState) {
         let formatter = ISO8601DateFormatter()
-        let bundle = BalanceBundle(title: "Data", description: "Synthetic", category: "default", type: "data",
+        let bundle = BalanceBundle(title: "Data", description: "Synthetic", category: "default", type: .data,
                                    total: 50_000_000_000, used: 8_000_000_000, remaining: 42_000_000_000,
                                    validFrom: formatter.date(from: middayStart ? "2026-03-27T11:00:00Z" : "2026-03-26T23:00:00Z")!,
                                    validUntil: formatter.date(from: "2026-04-26T22:00:00Z")!)

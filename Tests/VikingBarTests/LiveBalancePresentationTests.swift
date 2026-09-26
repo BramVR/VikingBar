@@ -7,7 +7,7 @@ struct LiveBalancePresentationTests {
         var state = LiveSessionState()
         let bundles = ["", " \n\t"].map { title in
             BalanceBundle(
-                title: title, description: "", category: "default", type: "data",
+                title: title, description: "", category: "default", type: .data,
                 total: 100, used: 20, remaining: 80, validFrom: .distantPast, validUntil: .distantFuture,
             )
         }
@@ -30,7 +30,7 @@ struct LiveBalancePresentationTests {
     @Test func `selected bundle keeps its applicability and description`() {
         var state = LiveSessionState()
         let bundle = BalanceBundle(
-            title: " Roaming data ", description: "Only in selected countries", category: "travel", type: "data",
+            title: " Roaming data ", description: "Only in selected countries", category: "travel", type: .data,
             total: 100, used: 20, remaining: 80, validFrom: .distantPast, validUntil: .distantFuture,
         )
         state.balance = LiveBalance(bundles: [bundle], regionality: "international", outOfBundleCost: nil)

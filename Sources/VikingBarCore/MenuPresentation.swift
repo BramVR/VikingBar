@@ -63,10 +63,7 @@ public struct MenuPresentation: Codable, Equatable, Sendable {
         self.usedPercentageText = balance.usedPercentageText
         self.percentageRemaining = balance.percentageRemaining
         self.percentageText = balance.percentageText
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "d MMM yyyy, HH:mm z"
+        let formatter = Self.dateFormatter(timeZone: timeZone)
         self.expiryText = snapshot.expiresAt.map { "Expires \(formatter.string(from: $0))" } ?? "Expiry unavailable"
         let stale: Bool
         switch snapshot.freshness {
@@ -85,6 +82,14 @@ public struct MenuPresentation: Codable, Equatable, Sendable {
         self.statusTitle = "\(isFixture ? "Fixture" : "VikingBar") \(stale ? "Stale " : "")\(balance.statusBalance)"
         let statusLabel = isFixture ? "VikingBar \(self.statusTitle)" : self.statusTitle
         self.accessibilityLabel = "\(statusLabel), \(self.remainingText), \(self.sourceLabel)"
+    }
+
+    static func dateFormatter(timeZone: TimeZone) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "d MMM yyyy, HH:mm z"
+        return formatter
     }
 }
 

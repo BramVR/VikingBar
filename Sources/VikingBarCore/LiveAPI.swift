@@ -130,14 +130,14 @@ struct LiveAPI: Sendable {
         do {
             let response = try JSONDecoder().decode(BalanceResponse.self, from: data)
             let bundles = try response.bundles.map { value in
-                guard ["data", "sms", "voice", "value"].contains(value.type),
+                guard let kind = BundleKind(rawValue: value.type),
                       ["default", "super_on_net", "loyalty", "unknown"].contains(value.category),
                       let from = Self.date(value.validFrom), let until = Self.date(value.validUntil), until >= from,
                       !value.total.isNaN, !value.used.isNaN, !value.remaining.isNaN
                 else { throw LiveFailure.malformedResponse }
                 return BalanceBundle(
                     title: value.descriptions.title, description: value.descriptions.description,
-                    category: value.category, type: value.type, total: value.total, used: value.used,
+                    category: value.category, type: kind, total: value.total, used: value.used,
                     remaining: value.remaining, validFrom: from, validUntil: until,
                 )
             }

@@ -12,7 +12,7 @@ public struct HistoryBundleIdentity: Codable, Equatable, Sendable {
         self.title = bundle.title
         self.description = bundle.description
         self.category = bundle.category
-        self.type = bundle.type
+        self.type = bundle.type.rawValue
         self.cycleStart = bundle.validFrom
         self.cycleEnd = bundle.validUntil
     }
