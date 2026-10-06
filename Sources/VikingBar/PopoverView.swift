@@ -267,6 +267,8 @@ private extension PopoverView {
             }
         }
         .pickerStyle(.menu)
+        .menuIndicator(.visible)
+        .buttonStyle(.bordered)
         .disabled(self.session.activity == .connecting || self.session.activity == .switching)
     }
 }
