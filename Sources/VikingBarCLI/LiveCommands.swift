@@ -157,7 +157,7 @@ extension VikingBarCLI {
         return credentials
     }
 
-    private static func readConnectionInput() throws -> Data {
+    static func readConnectionInput() throws -> Data {
         var input = Data()
         while let chunk = try FileHandle.standardInput.read(upToCount: 4096), !chunk.isEmpty {
             input.append(chunk)
@@ -176,18 +176,24 @@ extension VikingBarCLI {
         do {
             let options: AccountOptions
             let key: AccountKey
-            let credentials: ProviderCredentials
+            let request: AccountConnectionRequest
             do {
                 options = try AccountOptions(arguments: Array(arguments.dropFirst()))
                 guard options.remaining.isEmpty else { throw BootstrapFailure.credentialInput }
                 let input = try self.readConnectionInput()
                 key = try options.account ?? AccountCatalog.production()
                     .selectedAtInvocation(provider: options.provider)
-                credentials = try ProviderCredentials.decode(input, for: key.provider)
+                request = try AccountConnectionRequest.decode(input, for: key.provider)
             } catch { throw BootstrapFailure.credentialInput }
             let session: any ProviderAccountSession
-            do { session = try makeSession(key) } catch { throw BootstrapFailure.localFilesystem }
-            let connectionID = try await session.connect(credentials: credentials)
+            do {
+                session = try options.accountRoot == nil ? makeSession(key) : options.openSession()
+            } catch { throw BootstrapFailure.localFilesystem }
+            let connectionID = try await session.connect(
+                credentials: request.credentials,
+                rememberPassword: request.rememberPassword,
+                expected: request.expected,
+            )
             self.writeJSON(ConnectReceipt(connectionID: connectionID))
         } catch {
             self.writeJSON(CommandFailure(error: (error as? BootstrapFailure ?? .connectFailed).rawValue))
@@ -200,9 +206,7 @@ extension VikingBarCLI {
         do {
             let selectors = try AccountOptions(arguments: Array(arguments.dropFirst()))
             let options = try LiveOptions(arguments: selectors.remaining)
-            let catalog = try AccountCatalog.production()
-            let key = try selectors.resolve(in: catalog)
-            let active = try ProviderRegistry.production.open(key, catalog: catalog)
+            let active = try selectors.openSession()
             session = active
             let state = try await self.loadLive(options: options, active: active)
             self.writeJSON(LiveReport(state: state))
@@ -323,10 +327,17 @@ extension VikingBarCLI {
         }
     }
 
-    static func balanceProof() async {
+    static func balanceProof(arguments: [String] = []) async {
         do {
+            let options = try AccountOptions(arguments: arguments)
+            guard options.remaining.isEmpty else { throw ProofFailure.invalidInput }
+            let root = try options.accountRoot ?? AccountCatalog.production().root
+            let key = try options.resolve(in: AccountCatalog(root: root))
+            guard key.provider == .mobileVikings else { throw ProofFailure.invalidInput }
             let transport = BalanceOracleTransport(base: EphemeralProofTransport())
-            let session = try VikingSession.production(transport: transport)
+            let session = try VikingSession.production(storage: AccountStorage(root: root, key: key),
+                                                       transport: transport,
+                                                       allowInteraction: options.accountRoot == nil)
             _ = try await session.restore()
             _ = try await session.refresh(forceTokenRefresh: true)
             let state = await session.state()

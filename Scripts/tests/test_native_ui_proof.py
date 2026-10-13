@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 SPEC = importlib.util.spec_from_file_location(
     "native_ui_proof", Path(__file__).resolve().parents[1] / "native-ui-proof.py")
@@ -12,7 +13,65 @@ UI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(UI)
 
 
+class SignInAddDefaultsTests(unittest.TestCase):
+    def test_add_form_waits_for_selected_provider_fields(self):
+        source = (Path(__file__).resolve().parents[1] / "smoke-app-fixture.py").read_text()
+        module = ast.parse(source)
+        functions = [node for node in module.body if isinstance(node, ast.FunctionDef)
+                     and node.name in ("element", "wait_for", "assert_remembered_form", "sign_in_add_defaults")]
+        definitions = compile(ast.Module(body=functions, type_ignores=[]), "smoke-app-fixture.py", "exec")
+
+        def form(client_id):
+            items = [
+                {"AXIdentifier": "vikingbar.connect.provider"},
+                {"AXIdentifier": "vikingbar.connect.username", "valueEmpty": True},
+                {"AXIdentifier": "vikingbar.connect.password", "valueEmpty": True},
+                {"AXIdentifier": "vikingbar.connect.remember-password", "AXValue": "0"},
+            ]
+            if client_id:
+                items.append({"AXIdentifier": "vikingbar.connect.client-id", "valueEmpty": True})
+            return {"elements": items}
+
+        for provider, expected_client in (("Telenet", False), ("Mobile Vikings", True)):
+            with self.subTest(provider=provider):
+                stale, ready = form(not expected_client), form(expected_client)
+                inspect = mock.Mock(side_effect=[stale, stale, ready, {
+                    "elements": [{"AXIdentifier": "vikingbar.account.status"}],
+                }])
+                namespace = {
+                    "inspect": inspect, "time": mock.Mock(monotonic=mock.Mock(return_value=0)),
+                    "sign_in_account": mock.Mock(), "press": mock.Mock(), "choose_popup": mock.Mock(),
+                    "verify_sign_in_prefill": mock.Mock(), "sign_in_back_from_account": mock.Mock(),
+                }
+                exec(definitions, namespace)
+                namespace["sign_in_add_defaults"](provider, "proof")
+                self.assertEqual(inspect.call_args_list, [
+                    mock.call("proof-add-ready.json"), mock.call("proof-add-form.json"),
+                    mock.call("proof-add-form.json"), mock.call("proof-add-cancelled.json"),
+                ])
+                namespace["verify_sign_in_prefill"].assert_called_once_with(provider, empty=True)
+                self.assertEqual(namespace["press"].call_args_list, [
+                    mock.call("vikingbar.account.add", "proof-add"),
+                    mock.call("vikingbar.connect.cancel", "proof-add-cancel"),
+                ])
+
+
 class NativeUIProofTests(unittest.TestCase):
+    def test_fixture_home_period_uses_recorded_launch_month_in_brussels(self):
+        for launched, expected in (
+                ('2026-09-13T09:34:55.187114+00:00', 'Billing period 2026-09-01 to 2026-09-30'),
+                ('2026-10-13T09:34:55.187114+00:00', 'Billing period 2026-10-01 to 2026-10-31'),
+                ('2024-02-29T12:00:00Z', 'Billing period 2024-02-01 to 2024-02-29'),
+                ('2026-09-30T21:30:00Z', 'Billing period 2026-09-01 to 2026-09-30'),
+                ('2026-09-30T22:30:00Z', 'Billing period 2026-10-01 to 2026-10-31'),
+                ('2026-12-31T23:30:00Z', 'Billing period 2027-01-01 to 2027-01-31')):
+            with self.subTest(launched=launched):
+                self.assertEqual(UI.fixture_home_period(launched), expected)
+        for invalid in ('2026-10-13T09:34:55', 'private-sentinel', None):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(UI.UIFailure, '^fixture-launch-time-invalid$'):
+                    UI.fixture_home_period(invalid)
+
     def setUp(self):
         self.screens = [{"bounds": {"x": 0, "y": 0, "width": 1440, "height": 900}}]
         self.tree = {"elements": [

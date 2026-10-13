@@ -108,6 +108,10 @@ func record(_ element: AXUIElement, redactText: Bool = false) -> [String: Any] {
        ["vikingbar.connect.client-id", "vikingbar.connect.username", "vikingbar.connect.password"].contains(identifier) {
         result["valueEmpty"] = (attribute(element, "AXValue") as? String)?.isEmpty == true
     }
+    if redactText, (attribute(element, "AXIdentifier") as? String) == "vikingbar.connect.remember-password",
+       let value = attribute(element, "AXValue") {
+        result["AXValue"] = String(describing: value)
+    }
     if redactText, (attribute(element, "AXIdentifier") as? String) == "vikingbar.connect.error" {
         let codes = ["Enter all three fields.": "required-fields",
                      "Fixture mode does not connect to an account.": "fixture-direct",
@@ -118,15 +122,9 @@ func record(_ element: AXUIElement, redactText: Bool = false) -> [String: Any] {
             }
         }
     }
-    var point = CGPoint.zero
-    var size = CGSize.zero
-    if let value = attribute(element, "AXPosition"), CFGetTypeID(value) == AXValueGetTypeID() {
-        AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgPoint, &point)
+    if let rectangle = frame(element) {
+        result["frame"] = [[rectangle.origin.x, rectangle.origin.y], [rectangle.width, rectangle.height]]
     }
-    if let value = attribute(element, "AXSize"), CFGetTypeID(value) == AXValueGetTypeID() {
-        AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgSize, &size)
-    }
-    result["frame"] = [[point.x, point.y], [size.width, size.height]]
     return result
 }
 
@@ -349,7 +347,8 @@ guard let app = runningApp,
       )
 else { fatalError("Require the packaged VikingBar application.") }
 let root = AXUIElementCreateApplication(pid)
-if arguments.count == 2, arguments[1] == "fill-direct" {
+if arguments.count == 2, ["fill-direct", "verify-direct"].contains(arguments[1]) {
+    let fill = arguments[1] == "fill-direct"
     let tree = elements(root)
     var inputInfo = stat()
     guard fstat(STDIN_FILENO, &inputInfo) == 0, inputInfo.st_mode & S_IFMT == S_IFIFO else { exit(1) }
@@ -360,19 +359,35 @@ if arguments.count == 2, arguments[1] == "fill-direct" {
             if chunk.isEmpty { break }
             data.append(chunk)
         }
+        let allowed = fill
+            ? [Set(["client_id", "username", "password"]), Set(["username", "password"])]
+            : [Set(["client_id", "username"]), Set(["username"])]
         guard data.count <= 16384,
               let payload = try JSONSerialization.jsonObject(with: data) as? [String: String],
-              Set(payload.keys) == Set(["client_id", "username", "password"])
-        else { exit(1) }
+              allowed.contains(Set(payload.keys)) else { exit(1) }
         data.resetBytes(in: 0..<data.count)
-        let fields = [("client_id", "client-id"), ("username", "username"), ("password", "password")]
+        let fields = (payload["client_id"] == nil ? [] : [("client_id", "client-id")])
+            + [("username", "username")] + (fill ? [("password", "password")] : [])
         var targets: [AXUIElement] = []
         for (_, identifier) in fields {
             let matches = tree.filter { (attribute($0, "AXIdentifier") as? String) == "vikingbar.connect." + identifier }
             guard let target = uniqueElement(matches) else { exit(1) }
             targets.append(target)
         }
-        guard (attribute(targets[2], "AXSubrole") as? String) == "AXSecureTextField" else { exit(1) }
+        if !fill {
+            let passwords = tree.filter { (attribute($0, "AXIdentifier") as? String) == "vikingbar.connect.password" }
+            guard let password = uniqueElement(passwords),
+                  (attribute(password, "AXSubrole") as? String) == "AXSecureTextField",
+                  (attribute(password, "AXValue") as? String) == "",
+                  zip(targets, fields).allSatisfy({ (attribute($0.0, "AXValue") as? String) == payload[$0.1.0] }),
+                  payload["client_id"] != nil || !tree.contains(where: {
+                      (attribute($0, "AXIdentifier") as? String) == "vikingbar.connect.client-id"
+                  }) else { exit(1) }
+            print("{\"matched\":true}")
+            exit(0)
+        }
+        guard let secureTarget = targets.last,
+              (attribute(secureTarget, "AXSubrole") as? String) == "AXSecureTextField" else { exit(1) }
         let filled = fillDirectFields(targets, values: fields.map { payload[$0.0]! }, focus: { target in
             guard AXUIElementSetAttributeValue(target, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
             else { return false }

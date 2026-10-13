@@ -105,6 +105,74 @@ class ConnectAccountTests(unittest.TestCase):
         self.assertEqual(calls[1][1]["env"], {"PATH": "/synthetic"})
         self.assertEqual(json.loads(calls[1][1]["input"])["password"], "synthetic-password")
 
+    def test_remember_consent_and_fence_reach_cli_stdin_after_one_credential_read(self):
+        selector = 'mobile-vikings/00000000-0000-0000-0000-000000000042'
+        options = {'remember_password': True, 'expected_fence': {
+            'revision': 42, 'connectionID': {'rawValue': '00000000-0000-0000-0000-000000000043'}}}
+        calls = []
+        def execute(command, **kwargs):
+            calls.append((command, kwargs))
+            value = ({'fields': [{'label': key, 'value': 'synthetic-' + key}
+                                 for key in ('client_id', 'username', 'password')]}
+                     if len(calls) == 1 else self.receipt)
+            return subprocess.CompletedProcess(command, 0, json.dumps(value).encode(), b'private-error')
+        with patch.object(CONNECT.shutil, 'which', return_value='/synthetic/op'):
+            receipt = CONNECT.inside(self.cli, self.reference, self.environment, execute,
+                                     account=selector, options=json.dumps(options))
+        self.assertEqual(receipt, self.receipt)
+        self.assertEqual([command for command, _ in calls], [
+            ['/synthetic/op', 'item', 'get', 'synthetic', '--vault', 'Codex Automation', '--format', 'json'],
+            [str(self.cli), 'connect', '--account', selector]])
+        self.assertEqual(json.loads(calls[1][1]['input']), {
+            'client_id': 'synthetic-client_id', 'username': 'synthetic-username', 'password': 'synthetic-password',
+            'remember_password': True, 'expected_fence': {
+                'revision': 42, 'connectionID': {'rawValue': '00000000-0000-0000-0000-000000000043'}}})
+        self.assertEqual(calls[1][1]['env'], {'PATH': '/synthetic'})
+        self.assertNotIn('synthetic-password', json.dumps([command for command, _ in calls]))
+
+    def test_invalid_connection_options_fail_before_any_external_command(self):
+        invalid = ['private-sentinel', [], True, {'remember_password': 1}, {'password': 'private-sentinel'},
+                   {'remember_password': True, 'unexpected': None}, {'expected_fence': None},
+                   {'expected_fence': {'revision': 1}},
+                   {'expected_fence': {'revision': True, 'connectionID': None}},
+                   {'expected_fence': {'revision': -1, 'connectionID': None}},
+                   {'expected_fence': {'revision': 18446744073709551616, 'connectionID': None}},
+                   {'expected_fence': {'revision': 1, 'connectionID': {'rawValue': 'private-sentinel'}}},
+                   {'expected_fence': {'revision': 1, 'connectionID': None, 'password': 'private-sentinel'}}]
+        for entrypoint in (CONNECT.inside, CONNECT.supervise):
+            for options in invalid:
+                with self.subTest(entrypoint=entrypoint.__name__, options=options):
+                    with self.assertRaisesRegex(CONNECT.ConnectFailure, '^invalid-connection-options$'):
+                        entrypoint(self.cli, self.reference, self.environment,
+                                   lambda *_args, **_kwargs: self.fail('Rejected options dispatched an external command.'),
+                                   options=options)
+
+    def test_supervisor_forwards_validated_nonsecret_options_to_its_owned_child(self):
+        import shlex
+        options = {'remember_password': True, 'expected_fence': {'revision': 0, 'connectionID': None}}
+        selector = 'mobile-vikings/00000000-0000-0000-0000-000000000042'
+        calls = []
+        children = []
+        def execute(command, **kwargs):
+            calls.append((command, kwargs))
+            if 'new-session' in command:
+                child = shlex.split(command[-1].split('; exec ', 1)[1])
+                children.append(child)
+                CONNECT.write_receipt(child[child.index('--result') + 1], self.receipt)
+            return subprocess.CompletedProcess(command, 0, b'', b'')
+        with patch.object(CONNECT.shutil, 'which', return_value='/synthetic/tmux'):
+            receipt = CONNECT.supervise(self.cli, self.reference, self.environment, execute,
+                                        account=selector, options=options)
+        self.assertEqual(receipt, self.receipt)
+        self.assertEqual(len(children), 1)
+        child = children[0]
+        self.assertEqual(child[child.index('--account') + 1], selector)
+        self.assertEqual(json.loads(child[child.index('--connection-options') + 1]), {
+            'remember_password': True, 'expected_fence': {'revision': 0, 'connectionID': None}})
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1][0][-3:], ['kill-session', '-t', '=' + calls[0][0][2]])
+        self.assertNotIn('secret', json.dumps(calls))
+
     def test_supervisor_uses_private_tmux_server_and_exact_cleanup(self):
         calls = []
         def execute(command, **kwargs):

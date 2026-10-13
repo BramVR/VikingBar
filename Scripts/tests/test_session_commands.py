@@ -85,6 +85,46 @@ class SessionCommandTests(unittest.TestCase):
         self.assertNotIn("error", json.loads(self.line(process.stdout)))
         self.assertEqual(process.wait(timeout=3), 0)
 
+    def test_sign_in_mutations_forward_exact_fences_through_production_framing(self):
+        for connection in (None, {'rawValue': '00000000-0000-0000-0000-000000000042'}):
+            for command, selection, remembered in (('savedSignIn', 'saved-sign-in', 'available'),
+                                                    ('disableRememberedSignIn', 'remembered-disabled', 'disabled'),
+                                                    ('logout', 'logged-out', 'disabled')):
+                with self.subTest(command=command, connection=connection):
+                    process = self.start()
+                    fence = {'revision': 18446744073709551615, 'connectionID': connection}
+                    self.send(process, {'command': command, 'fence': fence})
+                    reply = json.loads(self.line(process.stdout))
+                    self.assertEqual(reply['state']['selectedSubscriptionID'], selection)
+                    self.assertEqual(reply['state']['signIn'], {'fence': fence, 'remembered': remembered,
+                                                               'attemptPending': False})
+                    self.send(process, {'command': 'shutdown'})
+                    self.line(process.stdout)
+                    self.assertEqual(process.wait(timeout=3), 0)
+
+    def test_sign_in_mutations_reject_missing_malformed_and_extra_fences_without_leaks(self):
+        invalid = [None, {}, {'revision': 1}, {'connectionID': None},
+                   {'revision': True, 'connectionID': None}, {'revision': -1, 'connectionID': None},
+                   {'revision': 18446744073709551616, 'connectionID': None},
+                   {'revision': '1', 'connectionID': None}, {'revision': 1.5, 'connectionID': None},
+                   {'revision': 1, 'connectionID': 'private-sentinel'},
+                   {'revision': 1, 'connectionID': {'rawValue': 'private-sentinel'}},
+                   {'revision': 1, 'connectionID': {'rawValue': '00000000-0000-0000-0000-000000000042',
+                                                    'password': 'private-sentinel'}},
+                   {'revision': 1, 'connectionID': None, 'password': 'private-sentinel'}]
+        for name in ('savedSignIn', 'disableRememberedSignIn', 'logout'):
+            commands = [{'command': name}, {'command': name, 'fence': {'revision': 1, 'connectionID': None},
+                                            'password': 'private-sentinel'}]
+            commands += [{'command': name, 'fence': fence} for fence in invalid]
+            for command in commands:
+                with self.subTest(command=command):
+                    process = self.start()
+                    self.send(process, command)
+                    failure = self.line(process.stdout)
+                    self.assertEqual(json.loads(failure), {'passed': False, 'error': 'invalid-session-command'})
+                    self.assertNotIn(b'private-sentinel', failure)
+                    self.assertEqual(process.wait(timeout=3), 1)
+
     def test_configure_accepts_supported_interval(self):
         process = self.start()
         self.send(process, {"command": "configure", "refreshInterval": 900})

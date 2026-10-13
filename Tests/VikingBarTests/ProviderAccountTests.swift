@@ -43,6 +43,7 @@ struct ProviderAccountTests {
         let restored = try await second.newSession().restore()
         #expect(restored.connectionID == secondConnection)
         #expect(restored.selectedSubscriptionID == other.selectedSubscriptionID)
+        second.clock.advance(61)
         let reconnected = try await two.connect(credentials: .mobileVikings(ProofCredentials(
             clientID: "client-b", username: "account-b",
             password: "synthetic-b",

@@ -129,7 +129,7 @@ extension AppSession {
     var accountPresentation: AccountPresentation {
         if self.usesMobileFixture {
             return AccountPresentation(
-                summary: AccountConnectionSummary(
+                summary: self.liveState.connectionSummary ?? AccountConnectionSummary(
                     clientID: "demo-public-client", username: "alex@example.invalid",
                 ),
                 isConnected: self.fixture != nil, isDemo: true,

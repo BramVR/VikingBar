@@ -69,7 +69,7 @@ struct AppAccountTests {
         let app = try AppSession(options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil))
         app.addingAccount = true
         var addIntent: Bool?
-        let form = ConnectionForm(session: app, resultURL: nil, reference: { addIntent = $0 },
+        let form = ConnectionForm(session: app, resultURL: nil, reference: { addIntent = $0.adding },
                                   dismiss: { app.addingAccount = false })
         form.connectReference()
         #expect(app.addingAccount == false)

@@ -99,7 +99,11 @@ struct LiveSessionCacheFailureTests {
             _ = try await rig.session.bootstrap(credentials: LiveSessionTests.credentials)
             _ = try await rig.session.refresh()
             for _ in 0 ..< (failureCode == 503 ? 7 : 1) {
-                await rig.transport.failNext(code: failureCode)
+                if failureCode == 401 {
+                    await rig.transport.failBalance(code: failureCode, count: 2)
+                } else {
+                    await rig.transport.failNext(code: failureCode)
+                }
                 _ = try? await rig.session.refresh()
             }
             let failed = await rig.session.state()

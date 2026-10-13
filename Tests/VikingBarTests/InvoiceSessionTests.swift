@@ -44,6 +44,7 @@ struct InvoiceSessionTests {
         await rig.transport.pauseNext(path: "/mv/invoices")
         let old = Task { try await rig.session.refreshInvoices() }
         await rig.transport.waitUntilPaused()
+        rig.clock.advance(61)
         let replacement = try await rig.newSession().bootstrap(credentials: LiveSessionTests.credentials)
         await rig.transport.resume()
         await #expect(throws: LiveFailure.connectionChanged) { try await old.value }

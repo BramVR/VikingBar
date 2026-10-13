@@ -14,13 +14,21 @@ public extension VikingSession {
     static func production(
         storage: AccountStorage,
         transport: any ProofHTTPTransport = EphemeralProofTransport(),
+        allowInteraction: Bool = true,
     ) throws -> VikingSession {
         guard storage.key.provider == .mobileVikings else { throw LiveFailure.invalidSelection }
         try storage.prepare()
         return VikingSession(
-            transport: transport, store: KeychainSessionStore(account: storage.keychainAccount),
+            transport: transport, store: KeychainSessionStore(
+                account: storage.keychainAccount,
+                allowInteraction: allowInteraction,
+            ),
             lease: FileSessionLease(url: storage.leaseURL),
             cache: FileBalanceCache(url: storage.cacheURL),
+            key: storage.key, signInStore: FileAccountSignInStore(url: storage.signInURL),
+            rememberedStore: KeychainSessionStore(account: storage.keychainAccount,
+                                                  service: "be.bram.vikingbar.remembered-sign-in",
+                                                  allowInteraction: allowInteraction),
             paymentQRRenderer: PaymentQRHelper(executableURL: PaymentQRHelper.productionExecutableURL()),
         )
     }

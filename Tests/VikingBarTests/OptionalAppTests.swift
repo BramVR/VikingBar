@@ -169,7 +169,7 @@ struct OptionalAppTests {
         await model.stop()
     }
 
-    @Test func `reconnect clears queued old customer metadata and rejects delayed points`() async throws {
+    @Test func `failed reconnect retains prior customer metadata and rejects delayed points`() async throws {
         let client = try OptionalModelClient()
         client.hold = ["points"]
         let model = try Self.model(client)
@@ -178,9 +178,9 @@ struct OptionalAppTests {
         model.loadInvoices()
         model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
         try await AppSessionTests.until { model.activity == .idle }
-        #expect(model.liveState.connectionID == nil)
-        #expect(model.liveState.points == nil)
-        #expect(model.liveState.invoices == nil)
+        #expect(model.liveState.connectionID == client.state.connectionID)
+        #expect(model.liveState.points == client.state.points)
+        #expect(model.liveState.invoices == client.state.invoices)
         #expect(!model.isLoadingInvoices)
         #expect(!client.requests.contains("invoices"))
         await model.stop()
@@ -304,6 +304,9 @@ final class OptionalModelClient: SessionClient {
     // swiftlint:disable:next cyclomatic_complexity
     private func standardName(for request: SessionRequest) -> String {
         switch request {
+        case .savedSignIn: "savedSignIn"
+        case .disableRememberedSignIn: "disableRememberedSignIn"
+        case .logout: "logout"
         case .restore: "restore"
         case .refresh: "refresh"
         case .configure: "configure"

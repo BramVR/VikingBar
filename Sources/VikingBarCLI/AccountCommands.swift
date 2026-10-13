@@ -4,16 +4,22 @@ import VikingBarCore
 struct AccountOptions {
     var account: AccountKey?
     var provider: ProviderID?
+    var accountRoot: URL?
     var remaining: [String] = []
 
     init(arguments: [String]) throws {
         var index = 0
         while index < arguments.count {
             let option = arguments[index]
-            if option == "--account" || option == "--provider" {
+            if option == "--account" || option == "--provider" || option == "--account-root" {
                 guard index + 1 < arguments.count else { throw ProofFailure.invalidInput }
                 index += 1
-                if option == "--account" {
+                if option == "--account-root" {
+                    guard self.accountRoot == nil, arguments[index].hasPrefix("/"), arguments[index] != "/" else {
+                        throw ProofFailure.invalidInput
+                    }
+                    self.accountRoot = URL(fileURLWithPath: arguments[index])
+                } else if option == "--account" {
                     guard self.account == nil else { throw ProofFailure.invalidInput }
                     self.account = try AccountKey(selector: arguments[index])
                     _ = try ProviderRegistry.production.registration(self.account!.provider)
@@ -29,13 +35,33 @@ struct AccountOptions {
             }
             index += 1
         }
+        guard self.accountRoot == nil || (self.account != nil && self.account != .legacy) else {
+            throw ProofFailure.invalidInput
+        }
         guard self.account == nil || self.provider == nil || self.account?.provider == self.provider else {
             throw ProofFailure.invalidInput
         }
     }
 
+    func openSession() throws -> any ProviderAccountSession {
+        if let accountRoot, let account {
+            let storage = AccountStorage(root: accountRoot, key: account)
+            if account.provider == .mobileVikings {
+                return try MobileVikingsAccount(key: account, session: VikingSession.production(
+                    storage: storage, allowInteraction: false,
+                ))
+            }
+            return try TelenetHomeAccount.production(storage: storage, allowInteraction: false)
+        }
+        let catalog = try AccountCatalog.production()
+        return try ProviderRegistry.production.open(self.resolve(in: catalog), catalog: catalog)
+    }
+
     func resolve(in catalog: AccountCatalog) throws -> AccountKey {
-        try catalog.resolve(self.account, provider: self.provider)
+        if self.accountRoot != nil, let account {
+            return account
+        }
+        return try catalog.resolve(self.account, provider: self.provider)
     }
 }
 
@@ -44,6 +70,7 @@ extension VikingBarCLI {
         do {
             guard let command = arguments.first else { throw ProofFailure.invalidInput }
             let options = try AccountOptions(arguments: Array(arguments.dropFirst()))
+            guard options.accountRoot == nil else { throw ProofFailure.invalidInput }
             switch command {
             case "list":
                 guard options.remaining.isEmpty, options.account == nil, options.provider == nil else {

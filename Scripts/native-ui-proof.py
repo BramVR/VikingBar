@@ -1,5 +1,9 @@
+import calendar
+import datetime
 import math
 from pathlib import Path
+import os
+from zoneinfo import ZoneInfo
 
 
 class UIFailure(Exception):
@@ -7,6 +11,44 @@ class UIFailure(Exception):
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def fixture_home_period(started_at):
+    try:
+        launched = datetime.datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+        if launched.tzinfo is None:
+            raise ValueError()
+        local = launched.astimezone(ZoneInfo('Europe/Brussels'))
+        first = datetime.date(local.year, local.month, 1)
+        last = datetime.date(local.year, local.month, calendar.monthrange(local.year, local.month)[1])
+        return f'Billing period {first.isoformat()} to {last.isoformat()}'
+    except (AttributeError, TypeError, ValueError):
+        raise UIFailure('fixture-launch-time-invalid') from None
+
+
+def live_bundle_processes(apps, bundle_id, probe=os.kill):
+    found = []
+    def visit(value):
+        if isinstance(value, dict):
+            identifiers = (value.get('bundleIdentifier'), value.get('bundleID'), value.get('bundle_id'))
+            if bundle_id in identifiers:
+                pid = value.get('processIdentifier', value.get('pid', value.get('process_id')))
+                if type(pid) is not int or pid <= 0:
+                    raise UIFailure('preexisting-process-identity-invalid')
+                try:
+                    probe(pid, 0)
+                except ProcessLookupError:
+                    return
+                except PermissionError:
+                    pass
+                found.append(pid)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+    visit(apps)
+    return sorted(set(found))
 
 
 def frame(element):

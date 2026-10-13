@@ -33,12 +33,12 @@ struct ConnectionForm: View {
     @FocusState private var clientIDFocused: Bool
     @FocusState private var usernameFocused: Bool
     let resultURL: URL?
-    let reference: (Bool) -> Void
+    let reference: (AccountReferenceIntent) -> Void
     let dismiss: () -> Void
 
     init(
         session: AppSession, resultURL: URL?, initialAccount: AccountConnectionSummary? = nil,
-        reference: @escaping (Bool) -> Void, dismiss: @escaping () -> Void,
+        reference: @escaping (AccountReferenceIntent) -> Void, dismiss: @escaping () -> Void,
     ) {
         self.session = session
         self.resultURL = resultURL
@@ -150,7 +150,10 @@ struct ConnectionForm: View {
                     SecureField("Password", text: self.$fields.password)
                         .accessibilityIdentifier("vikingbar.connect.password")
                 }
-                Text("VikingBar uses your password once to sign in. The saved connection is kept in Keychain.")
+                Toggle("Remember password on this Mac", isOn: self.$fields.rememberPassword)
+                    .accessibilityIdentifier("vikingbar.connect.remember-password")
+                Text("Your connection is kept in Keychain. Remembering your password lets you sign in again " +
+                    "without retyping it.")
                     .font(.caption).foregroundStyle(.secondary)
                 if let error = self.fields.error ?? self.session.connectionError ?? self.session.bridgeError {
                     Text(error)
@@ -164,7 +167,8 @@ struct ConnectionForm: View {
 
     private func submit() {
         guard let credentials = self.fields.takeCredentials(
-            isFixture: self.session.isFixtureLaunch, provider: self.provider,
+            isFixture: self.session.isFixtureLaunch && !self.session.signInFixtureEnabled, provider: self.provider,
+            expected: self.session.addingAccount ? nil : self.session.liveState.signIn?.fence,
         ) else { return }
         let attempt = self.session.connect(input: .credentials(credentials), resultURL: self.resultURL)
         self.attempt.recordSubmission(attempt)
@@ -181,8 +185,8 @@ struct ConnectionForm: View {
 
     func connectReference() {
         guard self.fields.useReference(isFixture: self.session.isFixtureLaunch) else { return }
-        let adding = self.session.addingAccount
+        let intent = self.session.referenceIntent(rememberPassword: self.fields.rememberPassword)
         self.dismiss()
-        self.reference(adding)
+        self.reference(intent)
     }
 }

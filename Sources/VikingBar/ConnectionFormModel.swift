@@ -8,6 +8,7 @@ final class ConnectionFormModel {
     var clientID = ""
     var username = ""
     var password = ""
+    var rememberPassword = false
     private(set) var error: String?
 
     init(account: AccountConnectionSummary? = nil) {
@@ -15,11 +16,15 @@ final class ConnectionFormModel {
         self.username = account?.username ?? ""
     }
 
-    func takeCredentials(isFixture: Bool, provider: ProviderID = .mobileVikings) -> ConnectionCredentials? {
+    func takeCredentials(
+        isFixture: Bool, provider: ProviderID = .mobileVikings,
+        expected: AccountMutationFence? = nil,
+    ) -> ConnectionCredentials? {
         defer { self.password = "" }
         do {
             let credentials = try ConnectionCredentials(
                 provider: provider, clientID: self.clientID, username: self.username, password: self.password,
+                rememberPassword: self.rememberPassword, expected: expected,
             )
             guard !isFixture else {
                 credentials.discard()

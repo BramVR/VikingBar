@@ -13,6 +13,14 @@ public enum FixtureAccounts {
     public static let failing = AccountKey(
         provider: .fixtureHome, slot: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
     )
+    public static let telenet = AccountKey(provider: .telenet,
+                                           slot: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
+    public static var signInCatalog: CatalogSnapshot {
+        var result = self.catalog
+        result.accounts.append(AccountEntry(key: self.telenet, label: "Demo · Telenet"))
+        return result
+    }
+
     public static var catalog: CatalogSnapshot {
         CatalogSnapshot(accounts: [
             AccountEntry(key: self.mobile, label: "Demo · Mobile Vikings"),
@@ -25,6 +33,8 @@ public enum FixtureAccounts {
     public static func registry(at date: Date) -> ProviderRegistry {
         ProviderRegistry(providers: [
             ProviderRegistration(id: .mobileVikings, displayName: "Mobile Vikings",
+                                 makeSession: { FixtureProviderAccount(key: $0.key, date: date) }),
+            ProviderRegistration(id: .telenet, displayName: "Telenet",
                                  makeSession: { FixtureProviderAccount(key: $0.key, date: date) }),
             ProviderRegistration(id: .fixtureHome, displayName: "Home fixture",
                                  makeSession: { FixtureProviderAccount(key: $0.key, date: date) }),
@@ -69,7 +79,8 @@ public actor FixtureProviderAccount: ProviderAccountSession {
                 throw LiveFailure.invalidSelection
             }
             self.selected = service.providerID
-        case .refreshPoints, .refreshInvoices, .refreshHistory, .selectBundle,
+        case .savedSignIn, .disableRememberedSignIn, .logout, .refreshPoints, .refreshInvoices, .refreshHistory,
+             .selectBundle,
              .downloadInvoice, .reviewInvoicePayment, .clearPaymentReview:
             throw LiveFailure.requestDenied
         }
@@ -78,7 +89,8 @@ public actor FixtureProviderAccount: ProviderAccountSession {
                            name: self.kind == .home ? "Example home \(index + 1)" : "Example SIM \(index + 1)")
         }
         self.current.account = AccountContext(
-            key: self.key, providerName: self.kind == .home ? "Home fixture" : "Mobile Vikings",
+            key: self.key, providerName: self.key.provider == .telenet ? "Telenet"
+                : self.kind == .home ? "Home fixture" : "Mobile Vikings",
             services: services, selectedService: ServiceKey(
                 account: self.key,
                 kind: self.kind,
@@ -151,6 +163,6 @@ public actor FixtureProviderAccount: ProviderAccountSession {
     }
 
     private var kind: ServiceKind {
-        self.key.provider == .fixtureHome ? .home : .mobile
+        self.key.provider == .mobileVikings ? .mobile : .home
     }
 }

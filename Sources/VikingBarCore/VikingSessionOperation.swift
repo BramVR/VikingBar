@@ -20,6 +20,7 @@ extension VikingSession {
         kind: OperationKind,
         operation: @escaping @Sendable (UInt64) async throws -> LiveSessionState,
     ) async throws -> LiveSessionState {
+        let previousState = self.current
         let previous = self.flight
         if previous != nil {
             self.cancel()
@@ -42,6 +43,7 @@ extension VikingSession {
             do {
                 _ = try? await previous?.task.value
                 try self.checkGeneration(generation)
+                self.renewalAttempted = false
                 _ = try await operation(generation)
                 try self.checkGeneration(generation)
                 if !kind.isOptional {
@@ -50,11 +52,14 @@ extension VikingSession {
                 return self.current
             } catch {
                 if self.generation == generation, !kind.isOptional {
+                    let requestFailure = error as? LiveRequestFailure
                     let failure = error is CancellationError ? self.current.failure
-                        : ((error as? BootstrapFailure)?.liveFailure ?? error as? LiveFailure ?? .transport)
-                    self.recordFailure(failure)
+                        : ((error as? BootstrapFailure)?.liveFailure ?? requestFailure?.failure
+                            ?? error as? LiveFailure ?? .transport)
+                    self.recordOperationFailure(failure, kind: kind, previous: previousState,
+                                                retryAfter: requestFailure?.retryAfter)
                 }
-                throw error
+                throw (error as? LiveRequestFailure)?.failure ?? error
             }
         }
         self.flight = InFlight(id: id, kind: kind, task: task)
@@ -63,6 +68,17 @@ extension VikingSession {
         } onCancel: { task.cancel() }
         try Task.checkCancellation()
         return state
+    }
+
+    private func recordOperationFailure(
+        _ failure: LiveFailure?, kind: OperationKind, previous: LiveSessionState, retryAfter: Date?,
+    ) {
+        let unchanged = previous.connectionID != nil && self.current.connectionID == previous.connectionID
+        if kind == .bootstrap, unchanged {
+            self.current.markStaleSnapshot(failure: previous.failure, at: self.api.now())
+        } else {
+            self.recordFailure(failure, retryAfter: retryAfter)
+        }
     }
 }
 

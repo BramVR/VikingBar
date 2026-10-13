@@ -28,7 +28,7 @@ struct PointsAppTests {
         await model.stop()
     }
 
-    @Test func `new connection ignores delayed optional points response`() async throws {
+    @Test func `failed replacement retains prior points and ignores delayed optional response`() async throws {
         let client = ModelTestClient(state: AppSessionTests.connected())
         client.state.points = FixtureState.finite.points(referenceDate: LiveModelsTests.now)
         client.holdPoints = true
@@ -42,9 +42,9 @@ struct PointsAppTests {
         for _ in 0 ..< 20 {
             await Task.yield()
         }
-        #expect(model.liveState.connectionID == nil)
-        #expect(model.liveState.points == nil)
-        #expect(model.points.availableText == "Available: unavailable")
+        #expect(model.liveState.connectionID == client.state.connectionID)
+        #expect(model.liveState.points == client.state.points)
+        #expect(model.points.availableText == "Available: 12.75")
         await model.stop()
     }
 
