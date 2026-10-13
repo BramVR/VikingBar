@@ -6,11 +6,11 @@ Provider and retained account selection; selected mobile SIM/bundle or home serv
 
 ## How to get to it
 
-Launch the fixture app and click the helmet. The balance opens directly without tabs. Use **Back** from Settings or Points. Settings contains Remaining/Used, refresh interval, login status, GB/GiB, the menu bar preference, fixture selection, Account, and Quit. Normal live mobile cards also include history; explicit fixtures omit that section.
+Launch the fixture app and click the helmet. The balance opens directly without tabs. Use **Back** from Settings or Points. Settings contains Remaining/Used, refresh interval, login status, GB/GiB, the menu bar preference, fixture selection, Account, and Quit. Normal live mobile cards also include history. Mobile fixtures omit that section; home fixtures with daily rows include the daily overview.
 
 ## Native proof
 
-Run `make smoke-app-fixture` with the exclusive Mac UI slot. Require a fresh bundle, visible helmet, correctly ordered unclipped controls, one Settings entry, and no fixture/unit picker in the primary balance. Inspect `card.png`, named state captures, Settings, bundle-details, Points, refresh, selection, and action-hover captures. Require `result.json` and four real Quit exits in `cleanup.json`.
+Run the [maintained fixture gate](../SKILL.md#launch) with the exclusive Mac UI slot. Require a fresh bundle, visible helmet, correctly ordered unclipped controls, one Settings entry, and no fixture/unit picker in the primary balance. Inspect `card.png`, named state captures, Settings, bundle-details, Points, refresh, selection, and action-hover captures. Require `result.json` and four real Quit exits in `cleanup.json`.
 
 Start on the first Mobile Vikings fixture account with Example SIM / Monthly data, Remaining display, and GB units. The expected amounts below assume that state.
 

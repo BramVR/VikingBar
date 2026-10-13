@@ -17,3 +17,5 @@ Run `.build/debug/vikingbar --fixture finite --unit GiB --time-zone Europe/Bruss
 ## Gotchas
 
 Separate launches can use different fixture reference times. Compare deterministic model tests for exact timestamps, and compare stable amount/provenance labels across separate CLI and app launches. Fixture commands need no credentials. The separate [auth/balance proof](auth-balance-proof.md) is intentionally networked; it receives credentials through stdin via the approved wrapper. Running the CLI without arguments remains a fixture-required negative check.
+
+`live --account ACCOUNT` selects only that invocation. Mobile Vikings `proof balance-api`, `history-api`, `points-api`, and `invoices` accept no account selector; they resolve a Mobile Vikings slot from the real catalog. Adding `--account` rejects the command before account access. The separate `proof telenet-home-api --account ACCOUNT` supports an explicit Telenet selector. Never change the catalog selection merely to work around argument rejection during credential-free checks.

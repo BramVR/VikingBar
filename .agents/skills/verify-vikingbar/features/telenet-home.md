@@ -2,11 +2,13 @@
 
 Read [home setup and semantics](../../../../docs/telenet-home.md) before testing. The separate [feasibility gate](../../../../docs/telenet-proof.md) does not prove native integration.
 
-Run `make check` and `make smoke-app-fixture` without credentials. They must preserve Mobile Vikings and synthetic provider isolation. Home fixtures must keep the policy counter distinct from peak/off-peak traffic, retain billing dates, and distinguish finite quota, policy threshold, and provider-reported unlimited service. Unknown speed is not normal speed.
+Run `make check` and the [maintained fixture gate](../SKILL.md#launch) without credentials. They must preserve Mobile Vikings and synthetic provider isolation. Home fixtures must keep the policy counter distinct from peak/off-peak traffic, retain billing dates from the launch month in Brussels, and distinguish finite quota, policy threshold, and provider-reported unlimited service. Unknown speed is not normal speed.
 
 The authorized native gate is `make proof-live CHECK=telenet-home-ui`. Use the approved Telenet two-field credential reference via `VIKINGBAR_TELENET_CREDENTIAL_REFERENCE`, the configured `PEEKABOO_BIN`, and exclusive account/UI ownership. State the exact item plus `username` and `password` fields before execution. The native helper owns its one targeted 1Password read in one named tmux session. Do not perform a separate lookup.
 
 Require an existing usable Mobile Vikings account and a real home service. The runner builds the bundle, records app/worker identity, connects natively, compares the independent API oracle with the home card and status, refreshes after the manual request floor, switches providers and returns to the selected home service, then quits and relaunches from Keychain without another lookup. It restores the original catalog selection conditionally and cleans up only verified task processes.
+
+Automatic polling is hourly. Requests respect a persisted 60-second floor, failure backoff, and provider Retry-After deadlines. Authentication failures require explicit reconnect; cached values remain visibly stale. Do not force repeated Refresh actions around these limits.
 
 Keep `.build/proof/` private. Require `result.json` with `passed: true` and `cleanup_passed: true`, plus `cleanup.json` with `exited: true`. Inspect the card PNGs and verify their exact process/window capture receipts. Missing daily-usage, unsupported schema, Keychain approval, offscreen UI, or failed cleanup is a blocker, not skipped success. Expiry, renewal, and MFA stay unobserved unless actually exercised.
 
@@ -16,7 +18,7 @@ The visual card uses a large allowance value, a quota bar for finite plans, and 
 
 The daily overview reuses the Mobile Vikings chart and companion identifiers. Hover `vikingbar.historyMainPlot` and require the selected date, amount, and status without a detail panel. Click the same day and require `vikingbar.historyPanel` with the same selection. Compare every chart value, the cycle total, estimate, scope, and billing-period marker against `historyPresentation`. Hover another day, close the panel, and repeat after Refresh and stored-session relaunch. Require exact attached-window group captures using the shared history geometry checks. Keep future placeholders out of the observations and distinguish missing, reported zero, partial, and stale days.
 
-The independent API receipt includes `daily_row_count`, `daily_history_matches`, and `forecast_matches`. The count covers retained dates through the fetch day. A successful forecast comparison requires enough live evidence to calculate the estimate. Raw daily responses remain in memory and never become fixtures or public proof.
+The independent API receipt includes `daily_row_count`, `daily_history_matches`, and `forecast_matches`. The count covers retained dates through the fetch day. A successful forecast comparison requires at least three complete, continuous days from the current billing start, a fetch on the current Brussels day, and today within the active billing period. An early-cycle or incomplete-history account cannot pass that comparison. Raw daily responses remain in memory and never become fixtures or public proof.
 
 If the restored cache predates daily history, is stale, or was fetched on a previous Brussels day, the runner presses native Refresh once after the manual request floor. It requires a newer report before chart proof. A fresh response without valid daily evidence still fails.
 

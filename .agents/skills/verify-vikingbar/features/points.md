@@ -9,11 +9,11 @@
 
 ## How to get to it (user POV)
 
-Open the helmet and choose **Points**. Expand **Recent transactions**. Use **Back**, then **Refresh** on the balance to update usage and points. Fixture launches label their points as synthetic.
+Select a connected Mobile Vikings account, open the helmet, and choose **Points**. Points belong to that account's customer; Telenet home services do not expose this destination. Expand **Recent transactions**. Use **Back**, then **Refresh** on the balance to update usage and points. Mobile fixture launches label their points as synthetic.
 
 ## Driving it with native AX and the CLI
 
-Read the parent [verification skill](../SKILL.md). Hold fresh coordinator slots for the Mac UI and account access. Run `make proof-live CHECK=points` with `PEEKABOO_BIN` pointing to the configured executable. This stored-session gate requires an already connected account. It never bootstraps credentials.
+Read the parent [verification skill](../SKILL.md). Hold fresh coordinator slots for the Mac UI and account access. Run `make proof-live CHECK=points` with `PEEKABOO_BIN` pointing to the configured executable. This stored-session native gate requires an already connected Mobile Vikings account selected in the catalog. It never bootstraps credentials.
 
 The gate builds and identifies its own bundle and worker, compares raw loyalty responses through `vikingbar proof points-api`, and opens the native Points destination. It compares available, pending, blocked, freshness, and history summary with the shared CLI presentation. It expands the transaction list and proves the first complete visible row's amount, state, date, and description when a row exists. The receipt's `visible_transaction_count` is 0 or 1: it records whether the first complete row was proved, not the total number of visible rows. The API comparison covers all fetched rows; it does not establish that every row was visible onscreen.
 

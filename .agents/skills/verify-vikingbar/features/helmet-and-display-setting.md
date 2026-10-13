@@ -6,11 +6,11 @@ Fixed native helmet geometry, remaining-fraction inset, exceptional states, deci
 
 ## How to get to it
 
-Click the helmet and open **Settings**. The default-off toggle is **Show remaining GB in menu bar**. Its help text is **Display the data left in GB beside the helmet.** Turning it on adds a compact decimal GB amount; turning it off removes all adjacent text. The inset remains in both modes.
+Click the helmet and open **Settings**. The default-off toggle is **Show remaining GB in menu bar**. Its help text is **Display the data left in GB beside the helmet.** Turning it on adds a compact decimal GB amount for finite quotas. Home FUP/TURBO plans show their category with the threshold inset; unlimited and unavailable states retain their honest labels. Turning it off removes all adjacent text. The inset remains in both modes.
 
 ## Automatic native proof
 
-Run `make smoke-app-fixture` under the [launch and isolation contract](../SKILL.md). The command supplies a new task-local settings file and checks:
+Run the [maintained fixture gate](../SKILL.md#launch) under the launch and isolation contract. The command supplies a new task-local settings file and checks:
 
 - Empty default status title and fixed icon-only width through allowance changes.
 - Exact Settings copy, fixture marker, toggle value, and immediate status change.
