@@ -44,14 +44,14 @@ struct DirectConnectionSessionTests {
         await model.stop()
     }
 
-    @Test func `failed direct sign in releases input and does not start a session worker`() async throws {
+    @Test func `failed direct sign in releases input and restores without refreshing`() async throws {
         let client = ModelTestClient()
         let connector = ModelTestConnector(fails: true)
         let model = try AppSessionTests.model(client: client, connector: connector)
         let credentials = try Self.credentials()
         #expect(model.connect(input: .credentials(credentials), resultURL: nil) != nil)
         try await AppSessionTests.until { model.activity == .idle }
-        #expect(client.requests.isEmpty)
+        #expect(client.requests == ["restore"])
         #expect(model.bridgeError == LiveBridgeFailure.connectFailed.message)
         #expect(throws: LiveBridgeFailure.self) { try credentials.takePayload() }
         await model.stop()

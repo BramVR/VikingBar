@@ -80,7 +80,10 @@ struct OwnedProcess: Sendable {
                 if self.process.isRunning {
                     Darwin.kill(self.identity.pid, SIGKILL)
                 }
-                self.process.waitUntilExit()
+                // Foundation observes and reaps exit without a blocking run-loop wait on Swift's executor.
+                while self.process.isRunning {
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
             }
             task = stopping
             return stopping

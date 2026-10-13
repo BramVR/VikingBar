@@ -44,6 +44,8 @@ The app has no Dock icon. Click its helmet menu bar item to inspect the data car
 
 Explicit fixture launches keep the display preference in memory. To verify persistence, pass the app-only `--settings-file` option with an absolute path inside a task-owned temporary directory. It requires an explicit `--fixture`. Reuse that file for the task-owned relaunch; never pass a real settings file. The automatic smoke command supplies its own isolated file.
 
+For synthetic sign-in controls, add `--sign-in-fixture` with both `--fixture` and an isolated `--settings-file`. It saves only synthetic setup and remembered-state flags beside that file. No password, Keychain record, provider request, or production catalog is used. Ordinary fixtures continue to reject sign-in. The smoke runs four ordinary launches and three separate sign-in launches, requiring seven successful native Quit exits.
+
 Generate deterministic native icon renders without launching the app:
 
 ```sh

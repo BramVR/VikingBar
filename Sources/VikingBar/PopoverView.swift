@@ -26,7 +26,7 @@ struct PopoverView: View {
     @State private var detailsExpanded = false
     @State private var pointsExpanded = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var connect: (Bool) -> Void = { _ in }
+    var connect: (AccountReferenceIntent) -> Void = { _ in }
     var connectResultURL: URL?
     var fixtureReduceTransparency = false
 
@@ -67,7 +67,7 @@ struct PopoverView: View {
             ConnectionForm(
                 session: self.session,
                 resultURL: self.connectResultURL,
-                initialAccount: returnTo == .account && !self.session.addingAccount
+                initialAccount: !self.session.addingAccount
                     ? self.session.accountPresentation.summary : nil,
                 reference: self.connect,
                 dismiss: { self.session.addingAccount = false; self.destination = returnTo.destination },
@@ -139,14 +139,18 @@ struct PopoverView: View {
             case .settings:
                 self.settings
             case .account:
-                AccountView(account: self.session.accountPresentation, changeAccount: {
-                    self.session.addingAccount = false
-                    self.destination = .connection(.account)
-                }, addAccount: {
-                    self.session.addingAccount = true
-                    self.session.addingProvider = .mobileVikings
-                    self.destination = .connection(.account)
-                })
+                AccountView(account: self.session.accountPresentation,
+                            signIn: self.session.liveState.signIn,
+                            savedSignIn: { self.session.performSignInAction(.savedSignIn) },
+                            disableRememberedSignIn: { self.session.performSignInAction(.disableRememberedSignIn) },
+                            logout: { self.session.performSignInAction(.logout) }, changeAccount: {
+                                self.session.addingAccount = false
+                                self.destination = .connection(.account)
+                            }, addAccount: {
+                                self.session.addingAccount = true
+                                self.session.addingProvider = .mobileVikings
+                                self.destination = .connection(.account)
+                            })
             case .points:
                 PointsCard(session: self.session, expanded: self.$pointsExpanded)
             case .bills:

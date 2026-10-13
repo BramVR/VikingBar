@@ -36,7 +36,7 @@ public enum BootstrapFailure: String, Codable, Error, CaseIterable, Sendable, Cu
         switch error as? LiveFailure {
         case .transport: return .tokenNetwork
         case .unauthorized: return .tokenRejected
-        case .malformedResponse: return .tokenResponse
+        case .malformedResponse, .oauthRequestRejected, .permissionDenied: return .tokenResponse
         case .rateLimited: return .tokenRateLimited
         case .serverUnavailable: return .tokenServer
         default: return .connectFailed

@@ -6,6 +6,24 @@ private actor SyntheticSession {
 
     func execute(_ command: SessionCommand) async throws {
         switch command.command {
+        case .savedSignIn, .disableRememberedSignIn, .logout:
+            let operation = try command.operation(account: .legacy)
+            let fence: AccountMutationFence
+            let remembered: RememberedSignInStatus
+            switch operation {
+            case let .savedSignIn(value):
+                fence = value; remembered = .available
+                self.current.selectedSubscriptionID = "saved-sign-in"
+            case let .disableRememberedSignIn(value):
+                fence = value; remembered = .disabled
+                self.current.selectedSubscriptionID = "remembered-disabled"
+            case let .logout(value):
+                fence = value; remembered = .disabled
+                self.current.selectedSubscriptionID = "logged-out"
+            default: throw ProofFailure.invalidInput
+            }
+            self.current.signIn = AccountSignInPresentation(fence: fence, remembered: remembered,
+                nextPasswordAttemptAt: nil, attemptPending: false, failure: nil)
         case .configure:
             self.current.nextRefreshAt = Date(timeIntervalSince1970: Double(command.refreshInterval!.rawValue))
         case .refresh, .refreshHistory:

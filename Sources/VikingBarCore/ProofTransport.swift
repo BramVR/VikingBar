@@ -14,11 +14,13 @@ public struct ProofHTTPResponse: Sendable {
     public let statusCode: Int
     public let data: Data
     public let contentType: String?
+    public let retryAfter: String?
 
-    public init(statusCode: Int, data: Data, contentType: String? = nil) {
+    public init(statusCode: Int, data: Data, contentType: String? = nil, retryAfter: String? = nil) {
         self.statusCode = statusCode
         self.data = data
         self.contentType = contentType
+        self.retryAfter = retryAfter
     }
 }
 
@@ -216,6 +218,7 @@ public final class EphemeralProofTransport: NSObject, ProofHTTPTransport, URLSes
             return ProofHTTPResponse(
                 statusCode: response.statusCode, data: data,
                 contentType: response.value(forHTTPHeaderField: "Content-Type"),
+                retryAfter: response.value(forHTTPHeaderField: "Retry-After"),
             )
         } catch is CancellationError {
             throw CancellationError()

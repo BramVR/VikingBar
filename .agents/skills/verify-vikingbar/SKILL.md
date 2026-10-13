@@ -17,9 +17,9 @@ The [website](features/website.md) has a separate synthetic browser preview. Ver
 
 Native gates refuse a pre-existing `be.bram.vikingbar` instance. Arrange its exit under user authorization before starting; proof cleanup owns only the processes launched by the run. Check Peekaboo permissions before launch. A macOS Touch ID or password sheet requires the user to authenticate; task authorization alone cannot complete it.
 
-Run `.agents/skills/verify-vikingbar/fixture-proof.py` from the repo root with the exclusive Mac UI slot. It drives the repository smoke gate, builds `.build/app/VikingBar.app`, launches four task-owned fixture processes in sequence, and uses one new `.build/proof/<run>/settings.json` file for persistence proof. Require exit 0, `result.json` with `passed: true`, and `cleanup.json` with `exited: true` and four verified Quit exits of 0.
+Run `.agents/skills/verify-vikingbar/fixture-proof.py` from the repo root with the exclusive Mac UI slot. It drives the repository smoke gate, builds `.build/app/VikingBar.app`, and launches seven task-owned fixture processes in sequence. Four ordinary launches use a new `.build/proof/<run>/settings.json`; three sign-in launches use separate `sign-in-settings.json` and `sign-in-fixture-v1.json`. Require exit 0, `result.json` with `passed: true`, and `cleanup.json` with `exited: true` and seven verified Quit exits of 0.
 
-The maintained helper waits boundedly for a missing popover AX role before pointer geometry checks; it keeps the original exact window and display checks and never repeats an action. Home billing dates come from the launch month in Brussels. The direct `make smoke-app-fixture` target still has a September 2026 expectation; use the maintained helper for this pass.
+The maintained helper waits boundedly for a missing popover AX role before pointer geometry checks; it keeps the original exact window and display checks and never repeats an action. Home billing dates come from the launch month in Brussels. `make smoke-app-fixture` runs the same seven-launch contract without the helper's additional geometry settling.
 
 For interactive coverage, run `make package-app` and `swiftc Scripts/inspect-ui.swift -o .build/inspect-ui`, then launch `.build/app/VikingBar.app/Contents/MacOS/VikingBarApp --fixture finite` in a task-owned terminal session. Record PID, parent, start time, full executable path, and SHA256 before driving. Explicit fixture launches use memory for the display preference. For relaunch proof, add `--settings-file` with an absolute path inside a new task-owned directory and reuse that file. This app-only option requires `--fixture`. Never read or migrate real settings for fixture proof. Selecting **Not connected** inside that fixture launch must remain isolated and must not start a live worker.
 
@@ -61,7 +61,7 @@ Verify fixture isolation by tracing app and CLI entry points through their selec
 
 ## Cleanup
 
-The smoke's four launches must each exit through `vikingbar.quit` with code 0. Failure cleanup terminates only its recorded child process and waits for exit; that fallback is not Quit-button proof. Require `cleanup.json` to report all task processes exited and confirm screenshots survive cleanup. Interactive runs use `.build/inspect-ui <pid> press vikingbar.quit` and retain the receipt plus original process exit status. Never drive or stop a pre-existing app as proof cleanup.
+The smoke's seven launches must each exit through `vikingbar.quit` with code 0. Failure cleanup terminates only its recorded child process and waits for exit; that fallback is not Quit-button proof. Require `cleanup.json` to report all task processes exited and confirm screenshots survive cleanup. Interactive runs use `.build/inspect-ui <pid> press vikingbar.quit` and retain the receipt plus original process exit status. Never drive or stop a pre-existing app.
 
 Close only the website tab created for the run and stop only its recorded Vite process/session. Verify its PID and port are gone while task-local evidence remains.
 

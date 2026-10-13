@@ -69,6 +69,7 @@ struct RefreshIntervalTests {
         let restarted = rig.newSession()
         #expect(try await restarted.restore().selectedSubscriptionID == "sim-b")
         #expect(try await restarted.refresh().selectedSubscriptionID == "sim-b")
+        rig.clock.advance(61)
         _ = try await restarted.bootstrap(credentials: LiveSessionTests.credentials)
         let fresh = try await rig.newSession().restore()
         #expect(fresh.selectedSubscriptionID == nil)

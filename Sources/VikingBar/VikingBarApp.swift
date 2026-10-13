@@ -14,24 +14,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var terminationPending = false
     private var terminationReplySent = false
 
-    init(options: AppLaunchOptions, preferences: MenuBarPreferences) {
+    init(options: AppLaunchOptions, preferences: MenuBarPreferences) throws {
         let paymentFixtureRenderer = options.paymentFixture
             ? try? PaymentQRHelper(executableURL: Self.bundledURL("Resources/payment-qr")) : nil
+        let directory: (any AccountDirectoryClient)? = if let account = options.proofAccount {
+            ProofAccountDirectory(key: account)
+        } else {
+            options.shared.fixture == nil
+                ? try? ProcessAccountDirectory(executableURL: Self.bundledURL("MacOS/vikingbar")) : nil
+        }
+        let signInFixtureStore: SignInFixtureStore? = if options.signInFixture, let settings = options.settingsFile {
+            try SignInFixtureStore(url:
+                settings.deletingLastPathComponent().appending(path: "sign-in-fixture-v1.json"))
+        } else {
+            nil
+        }
         self.session = AppSession(
             options: options.shared, preferences: preferences,
-            loginItems: options.shared.fixture == nil || options.allowLoginItem
+            loginItems: (options.shared.fixture == nil && options.proofAccount == nil) || options.allowLoginItem
                 ? SystemLoginItemManager() : DisabledLoginItemManager(),
             clientFactory: { account in
-                try SessionProcessClient(executableURL: Self.bundledURL("MacOS/vikingbar"), account: account)
+                try SessionProcessClient(executableURL: Self.bundledURL("MacOS/vikingbar"), account: account,
+                                         accountRoot: options.proofAccountRoot)
             },
             connectorFactory: { account in
                 try AccountConnector(
                     cliURL: Self.bundledURL("MacOS/vikingbar"),
                     helperURL: Self.bundledURL("Resources/connect-account.py"), account: account,
+                    accountRoot: options.proofAccountRoot,
                 )
             },
-            accountDirectory: options.shared.fixture == nil
-                ? try? ProcessAccountDirectory(executableURL: Self.bundledURL("MacOS/vikingbar")) : nil,
+            accountDirectory: directory,
+            signInFixtureStore: signInFixtureStore,
             paymentFixtureRenderer: paymentFixtureRenderer,
         )
         self.options = options
@@ -82,10 +96,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         return bundle.appending(path: "Contents/" + path)
     }
 
-    private func connect(adding: Bool) {
+    private func connect(intent: AccountReferenceIntent) {
         guard !self.session.isFixtureLaunch else { return }
         if let reference = self.options.credentialReference {
-            self.connect(reference: reference, adding: adding)
+            self.connect(reference: reference, intent: intent)
             return
         }
         let panel = NSOpenPanel()
@@ -95,15 +109,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         panel.allowsMultipleSelection = false
         panel.begin { [weak self] result in
             guard result == .OK, let url = panel.url else { return }
-            self?.connect(reference: url, adding: adding)
+            self?.connect(reference: url, intent: intent)
         }
     }
 
-    private func connect(reference: URL, adding: Bool) {
-        self.session.connect(
-            input: .reference(reference),
-            resultURL: self.options.proofDirectory?.appending(path: "connect-result.json"), adding: adding,
-        )
+    private func connect(reference: URL, intent: AccountReferenceIntent) {
+        self.session.connect(reference: reference, intent: intent,
+                             resultURL: self.options.proofDirectory?.appending(path: "connect-result.json"))
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -203,9 +215,10 @@ struct VikingBarApp {
         let application = NSApplication.shared
         application.mainMenu = AppEditingMenu.make()
         let settingsFile = options.fixture == nil
-            ? URL.applicationSupportDirectory.appending(path: "VikingBar/menu-bar-preferences.json")
+            ? (appOptions.proofAccountRoot?.appending(path: "menu-bar-preferences.json")
+                ?? URL.applicationSupportDirectory.appending(path: "VikingBar/menu-bar-preferences.json"))
             : appOptions.settingsFile
-        let delegate = AppDelegate(options: appOptions, preferences: MenuBarPreferences(fileURL: settingsFile))
+        let delegate = try AppDelegate(options: appOptions, preferences: MenuBarPreferences(fileURL: settingsFile))
         application.delegate = delegate
         withExtendedLifetime(delegate) { application.run() }
     }

@@ -75,6 +75,7 @@ struct AppSessionExpiryTests {
         model.start()
         try await AppSessionTests
             .until { model.activity == .idle && model.activeOptional == nil && !sleeper.deadlines.isEmpty }
+        let supersededTimers = Array(sleeper.deadlines.indices)
         if action == "replacement" {
             client.state.snapshot = UsageSnapshot(
                 source: .live, subscriptionName: "Replacement SIM", allowance: .unlimited(usedBytes: 1),
@@ -84,13 +85,16 @@ struct AppSessionExpiryTests {
             try await AppSessionTests.until { model.activity == .idle && model.activeOptional == nil }
         } else if action == "connect" {
             model.connect(input: .reference(URL(fileURLWithPath: "/synthetic/reference")), resultURL: nil)
-            try await AppSessionTests.until { model.activity == .idle && model.activeOptional == nil }
+            try await AppSessionTests.until {
+                model.activity == .idle && model.activeOptional == nil
+                    && sleeper.deadlines.count > supersededTimers.count
+            }
         } else {
             await model.stop()
         }
         let snapshot = model.snapshot
         let beforeWake = updates
-        sleeper.wakeAll()
+        sleeper.wake(ids: supersededTimers)
         for _ in 0 ..< 20 {
             await Task.yield()
         }

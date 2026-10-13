@@ -35,11 +35,11 @@ def comparator():
 
 class GeometryTests(unittest.TestCase):
     def test_october_fixture_does_not_expect_september(self):
-        self.assertEqual(HELPER.billing_period_text("2026-10-13T09:05:23+00:00"),
+        self.assertEqual(UI.fixture_home_period("2026-10-13T09:05:23+00:00"),
                          "Billing period 2026-10-01 to 2026-10-31")
 
     def test_month_uses_brussels_at_the_utc_boundary(self):
-        self.assertEqual(HELPER.billing_period_text("2026-09-30T22:30:00+00:00"),
+        self.assertEqual(UI.fixture_home_period("2026-09-30T22:30:00+00:00"),
                          "Billing period 2026-10-01 to 2026-10-31")
 
     def test_missing_role_settles_against_actual_comparator(self):

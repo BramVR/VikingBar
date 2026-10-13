@@ -174,3 +174,36 @@ Before writing credentials to that stdin, the app publishes a private connection
 The helper suppresses form text in accessibility output. Before each direct live stage, the runner writes a private readiness receipt and allows up to ten minutes, capped by the coordinator slot expiry, for a human to approve a Keychain prompt. It suppresses screenshots from launch until a valid live card replaces the credential form. Helper commands, API calls, process checks, Refresh, Quit, and rebuild all share the active readiness deadline. All child errors remain fixed diagnostics. Credentials remain briefly in process memory; clearing references does not guarantee erasure of immutable runtime strings. No password belongs in arguments, environment, settings, files, logs, clipboard, or proof receipts.
 
 The gate requires a real API comparison, native refresh, stored-session relaunch, release rebuild and another stored-session relaunch. It preserves the balance proof's identity and cleanup checks. The optional method still requires a separate `make proof-live CHECK=balance-ui` result under its existing authorization policy. Missing or skipped proof fails the gate and blocks website availability claims.
+
+## Session recovery proof
+
+The account recovery gates are independent of the setup checks:
+
+```sh
+make proof-live CHECK=mobile-session-recovery
+make proof-live CHECK=mobile-remembered-sign-in
+make proof-live CHECK=telenet-remembered-sign-in
+```
+
+`Scripts/session-recovery-proof.py` builds the current bundle and checks native permissions before reading credentials. It uses one targeted 1Password read for bootstrap, an unused task-owned account slot, an isolated storage root, and noninteractive Keychain access. Relaunch and recovery use the stored session or remembered credential. No background stage reads 1Password. Logout and cleanup delete only records created for that proof account.
+
+Before credential dispatch, the runner verifies both Keychain addresses are absent and publishes a private ownership marker. Exercise and cleanup require that marker to match the account and storage root. An interrupted exercise still cleans the prepared account; an unowned target cannot enter the credential stage.
+
+Supply an external mode-0600 JSON file through `VIKINGBAR_SESSION_RECOVERY_CONFIG`. Bind its SHA-256 through `VIKINGBAR_SESSION_RECOVERY_CONFIG_SHA256`. The file has exactly these fields:
+
+- `schema_version` equals 1. `check` names one gate.
+- `source_sha256` matches `source_digest()` in `Scripts/balance-ui-proof.py`. `credential_reference_sha256` matches the approved provider reference file.
+- `expires_at` is a UTC ISO timestamp within the next hour. `tmux_session` names the existing credential session.
+- `credential_slot` and `mac_ui_slot` match the active coordinator bindings. `VIKINGBAR_SLOT_BINDINGS_EXPIRES_AT` matches the expiry.
+- `evidence_root` names an existing private directory outside the checkout, mode 0700.
+- `account` contains the provider and a new lowercase UUID. It cannot name the legacy slot.
+- `account_root` is an absent absolute path named `session-recovery-UUID` inside an existing private directory outside the checkout.
+- `timeout_seconds` is an integer from 60 through 3300. It leaves at least 120 seconds before slot expiry.
+
+Set the matching Mobile Vikings or Telenet credential-reference variable from the setup sections above. Run inside the named tmux session with tracing disabled and the service token already loaded. Set `PEEKABOO_BIN` to the approved current runtime. These bindings record authorization; they do not grant it.
+
+The runner retains provider, native, relaunch, independent usage, option-off, logout, and cleanup stages in private receipts. Successful Mobile Vikings token recovery keeps the original account and connection. Fresh saved sign-in keeps the account slot and changes connection identity. Native evidence must match the built executable and expected connection, and all task-owned processes must exit.
+
+Real server rejection or expiry evidence is required. A local clock change, fabricated 401, or fixture cookie expiry cannot satisfy the provider-loss stage. A generic Telenet rejection does not identify natural authenticated-cookie expiry. Unobserved or unclassified expiry fails the gate; it does not authorize automatic password login. Synthetic checks exercise the recovery machinery separately.
+
+Publish only stage results and build identities. Keep credential references, account output, screenshots, and Keychain records private. The new recovery gates have no recorded complete live pass yet.

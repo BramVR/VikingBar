@@ -68,9 +68,9 @@ To stop automatic launch, turn the control off and confirm **Off**. A successful
 
 ## Log out of the account
 
-Quit VikingBar and finish any standalone VikingBar CLI command. Open **Keychain Access** and locate the generic password with service `be.bram.vikingbar.oauth`. The original account uses Keychain account `mobile-vikings`; added accounts use the opaque `mobile-vikings/UUID` key from `vikingbar accounts list`. Delete only the intended account item. To erase its saved display data, remove `~/Library/Application Support/VikingBar/balance-v1.json` for the original slot or `~/Library/Application Support/VikingBar/accounts/mobile-vikings/UUID/balance-v1.json` for an added slot. Telenet accounts use service `be.bram.vikingbar.telenet.session`, the `telenet/UUID` key, and `~/Library/Application Support/VikingBar/accounts/telenet/UUID/balance-v1.json`. Retained catalog slots remain selectable for reconnect.
+Select the intended account, then open **Settings**, **Account**, and choose **Log out**. VikingBar first persists logout intent, then deletes only that account's session, remembered password, and cached usage. An older worker cannot restore the deleted connection. Failed cleanup remains disabled and can be retried without signing in.
 
-The next normal launch shows account setup. This removes the local connection. It does not change your Mobile Vikings account or revoke sessions on other devices. Display preferences and launch-at-login registration remain separate.
+The next normal launch shows account setup with the last accepted username and applicable public client ID. The password is empty. The account slot remains selectable. Logout removes the local connection; it does not revoke provider sessions on other devices. Display preferences and launch-at-login registration remain separate.
 
 ## Uninstall
 

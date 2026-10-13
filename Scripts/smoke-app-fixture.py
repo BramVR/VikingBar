@@ -19,6 +19,10 @@ UI_SPEC.loader.exec_module(UI)
 PROOF = ROOT / '.build/proof' / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 PROOF.mkdir(parents=True)
 SETTINGS = PROOF / 'settings.json'
+SIGN_IN_SETTINGS = PROOF / 'sign-in-settings.json'
+SIGN_IN_STORE = PROOF / 'sign-in-fixture-v1.json'
+SIGN_IN_ACCOUNTS = {'Mobile Vikings': 'mobile-vikings/00000000-0000-0000-0000-000000000001',
+                    'Telenet': 'telenet/00000000-0000-0000-0000-000000000005'}
 PB = os.environ.get('PEEKABOO_BIN') or shutil.which('peekaboo')
 if not PB:
     raise SystemExit('Peekaboo 4 is required. See docs/development.md.')
@@ -277,6 +281,7 @@ def connected_account_summary():
     assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
     assert element(data, 'vikingbar.connect.client-id').get('valueEmpty') is False
     assert element(data, 'vikingbar.connect.username').get('valueEmpty') is False
+    assert_remembered_form(data)
     press('vikingbar.connect.cancel', 'account-change-cancel')
     wait_for(lambda: inspect('account-returned.json'),
              lambda d: bool(element(d, 'vikingbar.account.status')) and not element(d, 'vikingbar.connect.password'))
@@ -293,11 +298,13 @@ def direct_connection_choices():
         assert element(data, 'vikingbar.connect.' + identifier), 'Direct form control missing.'
     assert element(data, 'vikingbar.connect.password').get('AXSubrole') == 'AXSecureTextField'
     assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    assert_remembered_form(data)
     capture_card('direct-form-empty', fixture=False)
     press('vikingbar.connect.submit', 'direct-empty-submit')
     data = wait_for(lambda: inspect('direct-validation.json'), lambda d:
                     element(d, 'vikingbar.connect.error').get('messageCode') == 'required-fields')
     assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True
+    assert_remembered_form(data)
     payload = json.dumps({'client_id': 'synthetic-public-client', 'username': 'synthetic@example.invalid',
                           'password': 'synthetic-only'}).encode()
     result = subprocess.run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'fill-direct'],
@@ -324,6 +331,13 @@ def direct_connection_choices():
     children = subprocess.run(['pgrep', '-P', str(process.pid)], capture_output=True, timeout=5, check=False)
     assert children.returncode == 1 and not children.stdout.strip(), 'Fixture connection launched a child process.'
     select_state('Finite', False, 'direct-return-finite')
+
+
+def assert_remembered_form(data):
+    assert element(data, 'vikingbar.connect.password').get('valueEmpty') is True, 'Password must start blank.'
+    toggle = element(data, 'vikingbar.connect.remember-password')
+    assert toggle, 'Remember password control missing.'
+    assert str(toggle.get('AXValue')) in ('0', 'false', 'False'), 'Remember password must default off.'
 
 
 def open_settings(name):
@@ -436,7 +450,7 @@ def provider_account_switching():
     for suffix, expected in (
             ('headline', '980 GB Data remaining'), ('quota-progress', 'Data remaining, 98% remaining'),
             ('traffic-progress', 'Downloaded traffic, Peak 25%, off-peak 75%'),
-            ('period', 'Billing period 2026-09-01 to 2026-09-30'),
+            ('period', UI.fixture_home_period(launches[-1]['startedAt'])),
             ('category', 'Policy CAP'), ('policy-counter', 'Policy counter 20 GB'),
             ('allocation', 'Allowance 1000 GB'), ('downloaded', 'Downloaded 60 GB'),
             ('peak', 'Peak 15 GB'), ('off-peak', 'Off-peak 45 GB'), ('speed', 'Speed state unknown')):
@@ -508,12 +522,169 @@ def selection_and_refresh():
     coverage.append({'scenario': 'SIM and bundle selection, Settings return, refresh, details, Points'})
 
 
-def launch(name, appearance=None, reduce_transparency=False):
+def sign_in_record(provider):
+    records = json.loads(SIGN_IN_STORE.read_bytes())
+    assert records['version'] == 1, 'Unexpected fixture sign-in schema.'
+    assert b'synthetic-proof-password' not in SIGN_IN_STORE.read_bytes(), 'Fixture persisted its password.'
+    return records['accounts'][SIGN_IN_ACCOUNTS[provider]]
+
+
+def sign_in_provider(provider, name):
+    choose_popup('vikingbar.providerPicker', provider, name)
+    wait_for(lambda: inspect(f'{name}-selected.json'),
+             lambda d: provider in json.dumps(element(d, 'vikingbar.providerPicker'))
+             and enabled_state(element(d, 'vikingbar.providerPicker')))
+
+
+def sign_in_account(name):
+    open_settings(name)
+    press('vikingbar.connect.direct', f'{name}-account')
+    return wait_for(lambda: inspect(f'{name}-account.json'),
+                    lambda d: bool(element(d, 'vikingbar.account.status')))
+
+
+def verify_sign_in_prefill(provider, empty=False):
+    records = json.loads(SIGN_IN_STORE.read_bytes())['accounts'] if SIGN_IN_STORE.exists() else {}
+    summary = records.get(SIGN_IN_ACCOUNTS[provider], {}).get('summary',
+                  {'username': 'alex@example.invalid', 'clientID': 'demo-public-client'})
+    expected = {'username': '' if empty else summary['username']}
+    if provider == 'Mobile Vikings':
+        expected['client_id'] = '' if empty else summary['clientID']
+    result = subprocess.run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'verify-direct'],
+                            input=json.dumps(expected).encode(), capture_output=True, timeout=10, check=False)
+    assert result.returncode == 0 and result.stdout.strip() == b'{"matched":true}', 'Reconnect prefilled another setup.'
+
+
+def sign_in_form(provider, name, account=False, empty=False):
+    press('vikingbar.account.change' if account else 'vikingbar.connect.direct', f'{name}-open')
+    data = wait_for(lambda: inspect(f'{name}-form.json'),
+                    lambda d: bool(element(d, 'vikingbar.connect.password')))
+    assert_remembered_form(data)
+    assert element(data, 'vikingbar.connect.username').get('valueEmpty') is empty
+    if provider == 'Telenet':
+        assert not element(data, 'vikingbar.connect.client-id'), 'Telenet requested a public client ID.'
+    else:
+        assert element(data, 'vikingbar.connect.client-id').get('valueEmpty') is empty
+    verify_sign_in_prefill(provider, empty=empty)
+    capture_card(f'{name}-form', fixture=False)
+    return data
+
+
+def sign_in_submit(provider, name):
+    fields = {'username': provider.lower().replace(' ', '-') + '@example.invalid',
+              'password': 'synthetic-proof-password'}
+    if provider == 'Mobile Vikings':
+        fields['client_id'] = 'synthetic-public-client'
+    result = subprocess.run([str(ROOT / '.build/inspect-ui'), str(process.pid), 'fill-direct'],
+                            input=json.dumps(fields).encode(), capture_output=True, timeout=10, check=False)
+    assert result.returncode == 0 and result.stdout.strip() == b'{"filled":true}', 'Synthetic form fill failed.'
+    press('vikingbar.connect.remember-password', f'{name}-remember')
+    data = inspect(f'{name}-remember.json')
+    assert str(element(data, 'vikingbar.connect.remember-password').get('AXValue')) in ('1', 'true', 'True')
+    press('vikingbar.connect.submit', f'{name}-submit')
+    wait_for(lambda: inspect(f'{name}-submitted.json'),
+             lambda d: not element(d, 'vikingbar.connect.password'))
+    record = sign_in_record(provider)
+    assert record['remembered'] is True and record['connectionID'], 'Accepted fixture sign-in was not remembered.'
+    assert record['summary'] == {'username': fields['username'], 'clientID': fields.get('client_id', '')}
+    return record
+
+
+def sign_in_back_from_account(name):
+    press('vikingbar.back', f'{name}-account-back')
+    wait_for(lambda: inspect(f'{name}-settings.json'), lambda d: bool(element(d, 'vikingbar.showRemainingGB')))
+    back_to_balance(name)
+
+
+def sign_in_add_defaults(provider, name):
+    sign_in_account(name)
+    press('vikingbar.account.add', f'{name}-add')
+    wait_for(lambda: inspect(f'{name}-add-ready.json'), lambda d: bool(element(d, 'vikingbar.connect.provider')))
+    choose_popup('vikingbar.connect.provider', provider, f'{name}-add-provider')
+    data = wait_for(lambda: inspect(f'{name}-add-form.json'), lambda d:
+                    bool(element(d, 'vikingbar.connect.password'))
+                    and bool(element(d, 'vikingbar.connect.client-id')) == (provider == 'Mobile Vikings'))
+    assert_remembered_form(data)
+    assert element(data, 'vikingbar.connect.username').get('valueEmpty') is True
+    if provider == 'Telenet':
+        assert not element(data, 'vikingbar.connect.client-id')
+    else:
+        assert element(data, 'vikingbar.connect.client-id').get('valueEmpty') is True
+    verify_sign_in_prefill(provider, empty=True)
+    press('vikingbar.connect.cancel', f'{name}-add-cancel')
+    wait_for(lambda: inspect(f'{name}-add-cancelled.json'), lambda d: bool(element(d, 'vikingbar.account.status')))
+    sign_in_back_from_account(name)
+
+
+def sign_in_opt_in(provider, name):
+    sign_in_provider(provider, name)
+    sign_in_add_defaults(provider, name)
+    sign_in_account(name)
+    sign_in_form(provider, name, account=True)
+    sign_in_submit(provider, name)
+    data = wait_for(lambda: inspect(f'{name}-remembered.json'),
+                    lambda d: bool(element(d, 'vikingbar.account.saved-sign-in')))
+    assert element(data, 'vikingbar.account.disable-remembered-sign-in') and element(data, 'vikingbar.account.logout')
+    capture_card(f'{name}-remembered', fixture=False)
+    sign_in_back_from_account(name)
+
+
+def sign_in_lifecycle(provider, name):
+    sign_in_provider(provider, name)
+    before = sign_in_record(provider)
+    sign_in_account(name)
+    data = inspect(f'{name}-restored.json')
+    assert element(data, 'vikingbar.account.saved-sign-in'), 'Remembered sign-in did not survive relaunch.'
+    sign_in_form(provider, f'{name}-reconnect', account=True)
+    press('vikingbar.connect.cancel', f'{name}-reconnect-cancel')
+    assert sign_in_record(provider) == before, 'Cancelled reconnect changed accepted setup.'
+    press('vikingbar.account.saved-sign-in', f'{name}-saved-sign-in')
+    wait_for(lambda: sign_in_record(provider), lambda r: r['connectionID'] != before['connectionID'])
+    press('vikingbar.account.disable-remembered-sign-in', f'{name}-disable')
+    data = wait_for(lambda: inspect(f'{name}-disabled.json'),
+                    lambda d: not element(d, 'vikingbar.account.saved-sign-in'))
+    disabled = sign_in_record(provider)
+    assert disabled['remembered'] is False and disabled['connectionID'], 'Disable removed the usable session.'
+    assert element(data, 'vikingbar.account.logout')
+    sign_in_form(provider, f'{name}-opt-in-again', account=True)
+    sign_in_submit(provider, f'{name}-opt-in-again')
+    wait_for(lambda: inspect(f'{name}-before-logout.json'), lambda d: bool(element(d, 'vikingbar.account.logout')))
+    press('vikingbar.account.logout', f'{name}-logout')
+    wait_for(lambda: inspect(f'{name}-logged-out.json'), lambda d: not element(d, 'vikingbar.account.logout'))
+    logged_out = sign_in_record(provider)
+    assert logged_out['remembered'] is False and logged_out.get('connectionID') is None
+    sign_in_form(provider, f'{name}-account-logout-reconnect', account=True)
+    press('vikingbar.connect.cancel', f'{name}-account-logout-cancel')
+    sign_in_back_from_account(name)
+    sign_in_form(provider, f'{name}-main-logout-reconnect')
+    press('vikingbar.connect.cancel', f'{name}-main-logout-cancel')
+    assert sign_in_record(provider) == logged_out, 'Cancelled main reconnect changed the logged-out account.'
+    coverage.append({'scenario': 'remembered sign-in lifecycle', 'provider': provider,
+                     'savedSignIn': True, 'disableRetainsSession': True, 'logout': True,
+                     'reconnectEntryPoints': ['Account', 'main card'], 'passwordBlank': True, 'defaultOff': True})
+
+
+def sign_in_logged_out(provider, name):
+    sign_in_provider(provider, name)
+    record = sign_in_record(provider)
+    assert record['remembered'] is False and record.get('connectionID') is None
+    sign_in_form(provider, name)
+    press('vikingbar.connect.cancel', f'{name}-cancel')
+    open_settings(name)
+    sign_in_form(provider, f'{name}-settings')
+    press('vikingbar.connect.cancel', f'{name}-settings-cancel')
+    back_to_balance(name)
+    assert sign_in_record(provider) == record, 'Relaunch restored a logged-out session.'
+
+
+def launch(name, appearance=None, reduce_transparency=False, sign_in=False):
     global process, app_log
     assert process is None or process.poll() is not None, 'Previous task-owned app is still running.'
     process = None
     executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
-    arguments = ['--fixture', 'finite', '--settings-file', str(SETTINGS)]
+    arguments = ['--fixture', 'finite', '--settings-file', str(SIGN_IN_SETTINGS if sign_in else SETTINGS)]
+    if sign_in:
+        arguments.append('--sign-in-fixture')
     if appearance is not None:
         arguments.extend(['--fixture-appearance', appearance])
     if reduce_transparency:
@@ -530,6 +701,13 @@ def launch(name, appearance=None, reduce_transparency=False):
         (PROOF / 'process.json').write_text(json.dumps(receipt, indent=2))
     identity = run(['ps', '-p', str(process.pid), '-o', 'pid=,ppid=,lstart=,command='], f'{name}-process.txt')
     assert str(executable) in identity and identity.split()[:2] == [str(process.pid), str(os.getpid())]
+    if sign_in:
+        observed = wait_for(lambda: inspect(f'{name}-before.json'), visible_status)
+        capture_status(observed, f'{name}-before')
+        press('vikingbar.status', f'{name}-click')
+        wait_for(lambda: inspect(f'{name}-card.json'), lambda d: popover_window(d) is not None)
+        capture_card(f'{name}-balance', fixture=False)
+        return
     check_status('Finite', name == 'persist-on', name)
     open_card(name)
     check_layout(name)
@@ -554,7 +732,7 @@ try:
         raise RuntimeError('Peekaboo 4 is required.')
     peek(['permissions', 'status', '--all-sources'], 'permissions.json')
     existing = peek(['app', 'list', '--include-hidden', '--include-background'], 'apps-before.json')
-    if 'be.bram.vikingbar' in json.dumps(existing):
+    if UI.live_bundle_processes(existing, 'be.bram.vikingbar'):
         raise RuntimeError('A VikingBar instance is already running. Quit it before fixture proof.')
     run(['./Scripts/package-app.sh'], 'build.log')
     bundle = ROOT / '.build/app/VikingBar.app'
@@ -610,6 +788,19 @@ try:
     select_state('Error', False, 'contrast-dark-error')
     select_state('Finite', False, 'contrast-dark-finite')
     quit_app('contrast-dark')
+    assert not SIGN_IN_STORE.exists() and not SIGN_IN_SETTINGS.exists(), 'Sign-in proof requires new isolated stores.'
+    launch('sign-in-opt-in', sign_in=True)
+    for provider in SIGN_IN_ACCOUNTS:
+        sign_in_opt_in(provider, provider.lower().replace(' ', '-') + '-opt-in')
+    quit_app('sign-in-opt-in')
+    launch('sign-in-lifecycle', sign_in=True)
+    for provider in SIGN_IN_ACCOUNTS:
+        sign_in_lifecycle(provider, provider.lower().replace(' ', '-') + '-lifecycle')
+    quit_app('sign-in-lifecycle')
+    launch('sign-in-logout-relaunch', sign_in=True)
+    for provider in SIGN_IN_ACCOUNTS:
+        sign_in_logged_out(provider, provider.lower().replace(' ', '-') + '-logout-restored')
+    quit_app('sign-in-logout-relaunch')
 finally:
     if process is not None:
         if process.poll() is None:
@@ -628,10 +819,12 @@ finally:
                                                    'processes': launches}, indent=2))
     print(f'Proof retained at {PROOF}')
 
-assert len(launches) == 4 and all(p.get('quitVerified') for p in launches)
+assert len(launches) == 7 and all(p.get('quitVerified') for p in launches)
 (PROOF / 'result.json').write_text(json.dumps({
     'passed': True, 'features': ['data card', 'five fixture states', 'Not connected', 'Settings toggle',
                                'GB/GiB units', 'Quit', 'isolated persistence', 'status captures',
+                               'both providers remembered sign-in, disable, logout and relaunch',
+                               'both reconnect entrypoints and Add account defaults',
                                'connected account summary and change cancellation', 'direct form validation and cancellation', 'optional 1Password fixture rejection',
                                'SIM and bundle selection', 'refresh', 'details', 'Points navigation',
                                'menu action hover and pointer activation', 'disabled Bills action',

@@ -77,7 +77,9 @@ import VikingBarCore
 
 // The command compiles against this local actor; it cannot construct the production session.
 actor VikingSession {
-    static func production(transport: any ProofHTTPTransport = EphemeralProofTransport()) throws -> VikingSession {
+    static func production(storage: AccountStorage? = nil,
+                           transport: any ProofHTTPTransport = EphemeralProofTransport(),
+                           allowInteraction: Bool = true) throws -> VikingSession {
         if ["must-not-construct", "bad-arguments"].contains(CommandLine.arguments[1]) {
             fatalError("Synthetic factory must remain unreachable")
         }
@@ -111,9 +113,13 @@ actor VikingSession {
     }
 }
 
-struct SyntheticProvider: ProviderAccountSession {
-    let key = AccountKey.legacy
+struct MobileVikingsAccount: ProviderAccountSession {
+    let key: AccountKey
     let session: VikingSession
+    init(key: AccountKey = .legacy, session: VikingSession) {
+        self.key = key
+        self.session = session
+    }
     func connect(credentials: ProviderCredentials) async throws -> ConnectionID {
         guard case let .mobileVikings(input) = credentials else { throw BootstrapFailure.credentialInput }
         let state = try await session.bootstrapWithDiagnostics(credentials: input)
@@ -129,7 +135,7 @@ struct SyntheticProvider: ProviderAccountSession {
         let arguments = CommandLine.arguments[1] == "bad-arguments" ? ["connect", "extra"]
             : ["connect", "--account", "mobile-vikings/00000000-0000-0000-0000-000000000001"]
         await self.connect(arguments: arguments, makeSession: { _ in
-            try SyntheticProvider(session: VikingSession.production())
+            try MobileVikingsAccount(session: VikingSession.production())
         })
     }
 }

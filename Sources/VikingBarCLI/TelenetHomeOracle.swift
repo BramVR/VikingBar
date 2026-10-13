@@ -306,13 +306,14 @@ extension VikingBarCLI {
         do {
             let options = try AccountOptions(arguments: arguments)
             guard options.remaining.isEmpty else { throw ProofFailure.invalidInput }
-            let catalog = try AccountCatalog.production()
+            let root = try options.accountRoot ?? AccountCatalog.production().root
+            let catalog = AccountCatalog(root: root)
             let key = try options.resolve(in: catalog)
             guard key.provider == .telenet else { throw ProofFailure.invalidInput }
             let transport = TelenetOracleTransport(base: EphemeralTelenetTransport())
             let account = try TelenetHomeAccount.production(
                 storage: AccountStorage(root: catalog.root, key: key),
-                transport: transport,
+                transport: transport, allowInteraction: options.accountRoot == nil,
             )
             try await account.perform(.restore)
             guard let connection = await account.state().connectionID else { throw LiveFailure.notConnected }

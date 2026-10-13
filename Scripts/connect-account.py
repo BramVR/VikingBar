@@ -31,6 +31,7 @@ FAILURE_CODES = CLI_FAILURE_CODES | {
     "credential-read-failed", "credential-read-timeout", "invalid-credential-fields",
     "connect-command-timeout", "invalid-connect-receipt", "tmux-start-failed", "tmux-start-timeout",
     "tmux-ownership-invalid", "tmux-cleanup-failed", "connect-timeout", "connect-helper-failed", "receipt-write-failed",
+    "invalid-connection-options",
 }
 
 
@@ -104,7 +105,31 @@ def write_receipt(path, receipt):
         json.dump(receipt, stream, sort_keys=True)
 
 
-def inside(cli, reference, environment, execute=subprocess.run, account=None):
+def connection_options(value):
+    if value is None:
+        return {}
+    try:
+        options = json.loads(value) if isinstance(value, str) else value
+        if (not isinstance(options, dict) or not set(options) <= {"remember_password", "expected_fence"}
+                or type(options.get("remember_password", False)) is not bool):
+            raise ValueError()
+        if "expected_fence" in options:
+            fence = options["expected_fence"]
+            if (not isinstance(fence, dict) or set(fence) != {"revision", "connectionID"}
+                    or type(fence["revision"]) is not int or not 0 <= fence["revision"] <= 2**64 - 1):
+                raise ValueError()
+            connection = fence["connectionID"]
+            if connection is not None:
+                if not isinstance(connection, dict) or set(connection) != {"rawValue"}:
+                    raise ValueError()
+                uuid.UUID(connection["rawValue"])
+        return options
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise ConnectFailure("invalid-connection-options") from None
+
+
+def inside(cli, reference, environment, execute=subprocess.run, account=None, options=None):
+    options = connection_options(options)
     if not environment.get("TMUX") or not environment.get("BRAM_OP_SERVICE_ACCOUNT_TOKEN"):
         raise ConnectFailure("credential-context-required")
     selector = reference_at(reference, account)
@@ -124,6 +149,7 @@ def inside(cli, reference, environment, execute=subprocess.run, account=None):
     if item.returncode:
         raise ConnectFailure("credential-read-failed")
     credentials = credentials_from(item.stdout, account)
+    credentials.update(options)
     del item
     payload = json.dumps(credentials).encode()
     del credentials
@@ -145,7 +171,8 @@ def inside(cli, reference, environment, execute=subprocess.run, account=None):
 
 
 def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sleep, clock=time.monotonic,
-              ownership=None, account=None):
+              ownership=None, account=None, options=None):
+    options = connection_options(options)
     reference_at(reference, account)
     tmux = shutil.which("tmux", path=environment.get("PATH"))
     if not tmux or not Path(cli).is_file():
@@ -163,6 +190,8 @@ def supervise(cli, reference, environment, execute=subprocess.run, sleep=time.sl
                  "--reference", str(Path(reference).resolve()), "--result", str(result_path)]
         if account:
             child += ["--account", account]
+        if options:
+            child += ["--connection-options", json.dumps(options)]
         command = 'set +x; source "$HOME/.profile" >/dev/null 2>&1; set +x; exec ' + shlex.join(child)
         clean = child_environment(environment)
         # The approved profile uses USER to select the service-account Keychain item.
@@ -227,6 +256,7 @@ def main(arguments=None, environment=None):
     parser.add_argument("--reference", required=True)
     parser.add_argument("--result")
     parser.add_argument("--account")
+    parser.add_argument("--connection-options")
     parser.add_argument("--inside-tmux", action="store_true")
     args = parser.parse_args(arguments)
     try:
@@ -242,8 +272,10 @@ def main(arguments=None, environment=None):
         for signum in (signal.SIGTERM, signal.SIGINT):
             previous_handlers[signum] = signal.signal(signum, interrupted)
     try:
-        receipt = (inside(args.cli, args.reference, environment, account=args.account) if args.inside_tmux
-                   else supervise(args.cli, args.reference, environment, ownership=ownership, account=args.account))
+        options = connection_options(args.connection_options)
+        receipt = (inside(args.cli, args.reference, environment, account=args.account, options=options) if args.inside_tmux
+                   else supervise(args.cli, args.reference, environment, ownership=ownership,
+                                  account=args.account, options=options))
     except ConnectFailure as error:
         code = str(error)
         receipt = {"passed": False, "error": code if code in FAILURE_CODES else "connect-helper-failed"}

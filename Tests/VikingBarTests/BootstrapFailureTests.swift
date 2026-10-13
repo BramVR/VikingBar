@@ -6,7 +6,7 @@ struct BootstrapFailureTests {
     @Test(arguments: [200, 400, 401, 403, 429, 500, 503, 404])
     func `token diagnostics retain only an allowlisted code and preserve session failure`(status: Int) async throws {
         let expected: BootstrapFailure = switch status {
-        case 400, 401, 403: .tokenRejected
+        case 400, 401, 403: .tokenResponse
         case 429: .tokenRateLimited
         case 500, 503: .tokenServer
         default: .tokenResponse
@@ -66,7 +66,10 @@ struct BootstrapFailureTests {
     }
 
     @Test func `legacy bootstrap callers still receive LiveFailure and cancellation types`() async throws {
-        let rejected = Self.session(transport: BootstrapTransport(outcome: .response(401, Self.token)))
+        let rejected = Self.session(transport: BootstrapTransport(outcome: .response(
+            401,
+            Data(#"{"error":"invalid_grant"}"#.utf8),
+        )))
         await #expect(throws: LiveFailure.unauthorized) {
             try await rejected.bootstrap(credentials: LiveSessionTests.credentials)
         }
@@ -78,13 +81,14 @@ struct BootstrapFailureTests {
         await #expect(throws: CancellationError.self) {
             try await cancelled.bootstrap(credentials: LiveSessionTests.credentials)
         }
+        let cancelledAgain = Self.session(transport: BootstrapTransport(outcome: .cancel))
         await #expect(throws: BootstrapFailure.connectCancelled) {
-            try await cancelled.bootstrapWithDiagnostics(credentials: LiveSessionTests.credentials)
+            try await cancelledAgain.bootstrapWithDiagnostics(credentials: LiveSessionTests.credentials)
         }
         #expect(await cancelled.state().failure == nil)
     }
 
-    @Test func `bootstrap flight reports busy and cancellation saves received replacement`() async throws {
+    @Test func `bootstrap flight reports busy and cancelled login cannot publish a session`() async throws {
         let rig = Rig()
         await rig.transport.pauseNext()
         let connecting = Task {
@@ -97,8 +101,11 @@ struct BootstrapFailureTests {
         await rig.session.cancel()
         await rig.transport.resume()
         await #expect(throws: BootstrapFailure.connectCancelled) { try await connecting.value }
-        #expect(rig.store.saveCount == 1)
+        #expect(rig.store.load() == nil)
         #expect(await rig.session.state().connectionID == nil)
+        let restored = try await rig.newSession().restore()
+        #expect(restored.signIn?.attemptPending == true)
+        #expect(restored.signIn?.fence == .init(revision: 0, connectionID: nil))
     }
 
     @Test func `failure recovery cannot replace the original bootstrap diagnostic`() async throws {

@@ -11,6 +11,7 @@ struct LiveSessionReviewTests {
         let old = Task { try await rig.session.refresh() }
         await rig.transport.waitUntilPaused()
         let newer = rig.newSession()
+        rig.clock.advance(61)
         _ = try await newer.bootstrap(credentials: LiveSessionTests.credentials)
         let fresh = try await newer.refresh()
         await rig.transport.resume()
@@ -32,6 +33,7 @@ struct LiveSessionReviewTests {
         let old = Task { try await rig.session.refresh() }
         await rig.transport.waitUntilPaused()
         let newer = rig.newSession()
+        rig.clock.advance(61)
         _ = try await newer.bootstrap(credentials: LiveSessionTests.credentials)
         let fresh = try await newer.refresh()
         await rig.transport.failNext(code: 503)
@@ -44,7 +46,7 @@ struct LiveSessionReviewTests {
     }
 
     @Test func `known refresh failures remain stale with diagnostics after process restart`() async throws {
-        for (code, failure) in [(429, LiveFailure.rateLimited), (503, .serverUnavailable), (401, .unauthorized)] {
+        for (code, failure) in [(429, LiveFailure.rateLimited), (503, .serverUnavailable), (403, .permissionDenied)] {
             let rig = Rig()
             _ = try await rig.session.bootstrap(credentials: LiveSessionTests.credentials)
             let fresh = try await rig.session.refresh()
@@ -85,12 +87,12 @@ struct LiveSessionReviewTests {
         let rig = Rig()
         _ = try await rig.session.bootstrap(credentials: LiveSessionTests.credentials)
         _ = try await rig.session.refresh()
-        await rig.transport.failNext(code: 401)
+        await rig.transport.failBalance(code: 401, count: 2)
         await #expect(throws: LiveFailure.unauthorized) { try await rig.session.refresh() }
         let restarted = rig.newSession()
         _ = try await restarted.restore()
         await #expect(throws: LiveFailure.reconnectRequired) { try await restarted.refresh() }
-        #expect(await rig.transport.refreshInputs().isEmpty)
+        #expect(await rig.transport.refreshInputs() == ["refresh-1"])
     }
 
     @Test func `requested subscription is selected before any balance request`() async throws {
@@ -114,7 +116,7 @@ struct LiveSessionReviewTests {
     }
 
     @Test func `selected bundle expiry updates success timing but preserves failure backoff`() async throws {
-        for failureCode in [0, 429, 401] {
+        for failureCode in [0, 429, 403] {
             let rig = Rig()
             _ = try await rig.session.bootstrap(credentials: LiveSessionTests.credentials)
             let expires = LiveModelsTests.now.addingTimeInterval(60)

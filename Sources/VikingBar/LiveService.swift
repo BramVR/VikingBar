@@ -2,6 +2,7 @@ import Foundation
 import VikingBarCore
 
 enum SessionRequest: Encodable, Sendable {
+    case savedSignIn(AccountMutationFence), disableRememberedSignIn(AccountMutationFence), logout(AccountMutationFence)
     case restore, refresh, refreshPoints, refreshInvoices, refreshHistory, clearPaymentReview, cancel, shutdown
     case downloadInvoice(String)
     case reviewInvoicePayment(String?)
@@ -10,11 +11,14 @@ enum SessionRequest: Encodable, Sendable {
     case selectBundle(Int)
     case configure(RefreshInterval)
 
-    private enum CodingKeys: String, CodingKey { case command, id, index, refreshInterval, service }
+    private enum CodingKeys: String, CodingKey { case command, id, index, refreshInterval, service, fence }
 
     func encode(to encoder: any Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case let .savedSignIn(fence), let .disableRememberedSignIn(fence), let .logout(fence):
+            try values.encode(self.signInCommand, forKey: .command)
+            try values.encode(fence, forKey: .fence)
         case let .configure(interval):
             try values.encode("configure", forKey: .command)
             try values.encode(interval, forKey: .refreshInterval)
@@ -39,6 +43,14 @@ enum SessionRequest: Encodable, Sendable {
         }
     }
 
+    private var signInCommand: String {
+        switch self {
+        case .savedSignIn: "savedSignIn"
+        case .disableRememberedSignIn: "disableRememberedSignIn"
+        default: "logout"
+        }
+    }
+
     private var simpleCommand: String {
         switch self {
         case .restore: "restore"
@@ -49,7 +61,8 @@ enum SessionRequest: Encodable, Sendable {
         case .clearPaymentReview: "clearPaymentReview"
         case .cancel: "cancel"
         case .shutdown: "shutdown"
-        case .downloadInvoice, .reviewInvoicePayment, .selectSubscription, .selectService, .selectBundle, .configure:
+        case .savedSignIn, .disableRememberedSignIn, .logout, .downloadInvoice, .reviewInvoicePayment,
+             .selectSubscription, .selectService, .selectBundle, .configure:
             preconditionFailure("Payload commands encode their names directly")
         }
     }
@@ -62,7 +75,15 @@ protocol SessionClient: Sendable {
 
 enum AccountConnectionInput: Sendable {
     case credentials(ConnectionCredentials)
-    case reference(URL)
+    case reference(URL, rememberPassword: Bool = false, expected: AccountMutationFence? = nil)
+}
+
+struct AccountReferenceIntent {
+    let account: AccountKey
+    let provider: ProviderID
+    let adding: Bool
+    let rememberPassword: Bool
+    let expected: AccountMutationFence?
 }
 
 protocol AccountConnecting: Sendable {

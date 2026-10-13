@@ -24,9 +24,11 @@ extension VikingSession {
         return self.current
     }
 
-    private func fetchPointsBalance(token: LiveToken, connectionID: ConnectionID?, generation: UInt64) async throws {
+    private func fetchPointsBalance(token _: LiveToken, connectionID: ConnectionID?, generation: UInt64) async throws {
         do {
-            let balance = try await self.api.pointsBalance(token: token)
+            let balance = try await self.readWithRecovery(generation: generation, connection: connectionID) {
+                try await self.api.pointsBalance(token: $0)
+            }
             try self.withConnectionLease(expected: connectionID) { _ in
                 try self.checkGeneration(generation)
                 var points = self.current.points ?? CustomerPoints()
@@ -48,9 +50,11 @@ extension VikingSession {
         }
     }
 
-    private func fetchPointsHistory(token: LiveToken, connectionID: ConnectionID?, generation: UInt64) async throws {
+    private func fetchPointsHistory(token _: LiveToken, connectionID: ConnectionID?, generation: UInt64) async throws {
         do {
-            let history = try await self.api.pointsHistory(token: token)
+            let history = try await self.readWithRecovery(generation: generation, connection: connectionID) {
+                try await self.api.pointsHistory(token: $0)
+            }
             try self.withConnectionLease(expected: connectionID) { _ in
                 try self.checkGeneration(generation)
                 var points = self.current.points ?? CustomerPoints()

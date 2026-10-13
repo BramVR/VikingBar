@@ -8,6 +8,7 @@ final class ModelTestClient: SessionClient {
     var state: LiveSessionState
     var requests: [String] = []
     var shutdowns = 0
+    var signInFences: [AccountMutationFence?] = []
     var holdRestore = false
     var pendingRestore: CheckedContinuation<LiveSessionState, any Error>?
     var holdRefresh = false
@@ -39,6 +40,9 @@ final class ModelTestClient: SessionClient {
             if self.holdRefresh {
                 return try await withCheckedThrowingContinuation { self.pendingRefresh = $0 }
             }
+        case let .logout(fence):
+            self.requests.append("logout")
+            self.signInFences.append(fence)
         default: self.requests.append("other")
         }
         return self.state
@@ -78,7 +82,7 @@ final class ModelTestConnector: AccountConnecting {
         self.connects += 1
         self.input = input
         switch input {
-        case let .reference(reference): self.reference = reference
+        case let .reference(reference, _, _): self.reference = reference
         case let .credentials(credentials): _ = try credentials.takePayload()
         }
         self.resultURL = resultURL
@@ -127,6 +131,12 @@ final class ModelTestSleeper {
         self.pending.removeAll()
         for (_, continuation) in pending.values {
             continuation.resume()
+        }
+    }
+
+    func wake(ids: [Int]) {
+        for id in ids {
+            self.pending.removeValue(forKey: id)?.1.resume()
         }
     }
 }

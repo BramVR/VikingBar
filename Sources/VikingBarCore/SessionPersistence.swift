@@ -1,10 +1,18 @@
 import Darwin
 import Foundation
+import LocalAuthentication
 import Security
 
 public protocol SessionStore: Sendable {
     func load() throws -> Data?
     func save(_ data: Data) throws
+    func delete() throws
+}
+
+public extension SessionStore {
+    func delete() throws {
+        throw LiveFailure.storage
+    }
 }
 
 public protocol SessionLease: Sendable {
@@ -18,21 +26,39 @@ public protocol SessionLeaseHandle: Sendable {
 public protocol BalanceCache: Sendable {
     func load(connectionID: ConnectionID) throws -> LiveSessionState?
     func save(_ state: LiveSessionState) throws
+    func delete() throws
+}
+
+public extension BalanceCache {
+    func delete() throws {
+        throw LiveFailure.storage
+    }
 }
 
 public struct KeychainSessionStore: SessionStore {
     private let account: String
     private let service: String
+    private let allowInteraction: Bool
 
-    public init(account: String = "mobile-vikings", service: String = "be.bram.vikingbar.oauth") {
+    public init(
+        account: String = "mobile-vikings", service: String = "be.bram.vikingbar.oauth",
+        allowInteraction: Bool = true,
+    ) {
         self.account = account
         self.service = service
+        self.allowInteraction = allowInteraction
     }
 
     private var query: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: self.service,
-         kSecAttrAccount as String: self.account]
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: self.service,
+                                    kSecAttrAccount as String: self.account]
+        if !self.allowInteraction {
+            let context = LAContext()
+            context.interactionNotAllowed = true
+            query[kSecUseAuthenticationContext as String] = context
+        }
+        return query
     }
 
     public func load() throws -> Data? {
@@ -46,6 +72,11 @@ public struct KeychainSessionStore: SessionStore {
         }
         guard code == errSecSuccess, let data = result as? Data else { throw LiveFailure.storage }
         return data
+    }
+
+    public func delete() throws {
+        let code = SecItemDelete(self.query as CFDictionary)
+        guard code == errSecSuccess || code == errSecItemNotFound else { throw LiveFailure.storage }
     }
 
     public func save(_ data: Data) throws {
@@ -121,6 +152,10 @@ public struct FileBalanceCache: BalanceCache {
         } catch { throw LiveFailure.storage }
     }
 
+    public func delete() throws {
+        guard unlink(self.url.path) == 0 || errno == ENOENT else { throw LiveFailure.storage }
+    }
+
     public func save(_ state: LiveSessionState) throws {
         do {
             var cached = state
@@ -153,6 +188,7 @@ struct StoredSession: Codable {
     var version = 1
     let clientID: String
     let username: String?
+    var signInRevision: UInt64?
     let connectionID: ConnectionID
     var refreshToken: String
     var generation: UInt64

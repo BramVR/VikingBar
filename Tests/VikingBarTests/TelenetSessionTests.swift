@@ -180,6 +180,8 @@ struct HomeRig {
     let key = AccountKey(provider: .telenet)
     let store = MemorySessionStore()
     let cache = MemoryBalanceCache()
+    let metadata = MemorySessionStore()
+    let secrets = MemorySessionStore()
     let lease = MemoryLease()
     let transport = HomeTransport()
     let clock = HomeClock()
@@ -189,7 +191,8 @@ struct HomeRig {
 
     func account() -> TelenetHomeAccount {
         TelenetHomeAccount(key: self.key, transport: self.transport, store: self.store, lease: self.lease,
-                           cache: self.cache, now: { self.clock.now })
+                           cache: self.cache, signInStore: self.metadata, rememberedStore: self.secrets,
+                           now: { self.clock.now })
     }
 
     func seed(connection: ConnectionID) throws {

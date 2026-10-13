@@ -48,6 +48,47 @@ struct LiveModelsTests {
         }
     }
 
+    @Test(arguments: [false, true])
+    func `failed connection reading preserves only matching SIM and home selection`(home: Bool) {
+        let key = AccountKey(provider: home ? .telenet : .mobileVikings)
+        let first = ServiceKey(account: key, kind: home ? .home : .mobile, providerID: "first")
+        let second = ServiceKey(account: key, kind: home ? .home : .mobile, providerID: "second")
+        var previous = LiveSessionState()
+        previous.connectionID = ConnectionID()
+        previous.selectedSubscriptionID = home ? nil : "first"
+        previous.account = AccountContext(key: key, providerName: "Synthetic", services: [],
+                                          selectedService: first, capabilities: .usageOnly)
+        previous.snapshot = UsageSnapshot(
+            source: .live,
+            subscriptionName: "Synthetic",
+            allowance: .finite(totalBytes: 100, usedBytes: 25,
+                               remainingBytes: 75),
+            expiresAt: Self.now.addingTimeInterval(1000),
+            freshness: .current(lastUpdated: Self.now),
+        )
+        var restored = previous
+        restored.snapshot = .notConnected
+        restored.markConnectionAttemptFailure(at: Self.now, preservingReadingFrom: previous)
+        #expect(restored.snapshot.allowance == .finite(totalBytes: 100, usedBytes: 25, remainingBytes: 75))
+        restored.snapshot = .notConnected
+        restored.selectedSubscriptionID = home ? nil : "second"
+        restored.account = AccountContext(key: key, providerName: "Synthetic", services: [],
+                                          selectedService: second, capabilities: .usageOnly)
+        restored.markConnectionAttemptFailure(at: Self.now, preservingReadingFrom: previous)
+        #expect(restored.snapshot.allowance == .unavailable)
+        restored = previous
+        restored.snapshot = UsageSnapshot(
+            source: .live,
+            subscriptionName: "Synthetic",
+            allowance: .finite(totalBytes: 100, usedBytes: 50,
+                               remainingBytes: 50),
+            expiresAt: Self.now.addingTimeInterval(1000),
+            freshness: .current(lastUpdated: Self.now),
+        )
+        restored.markConnectionAttemptFailure(at: Self.now, preservingReadingFrom: previous)
+        #expect(restored.snapshot.allowance == .finite(totalBytes: 100, usedBytes: 50, remainingBytes: 50))
+    }
+
     static let now = Date(timeIntervalSince1970: 1_788_768_000)
     static let subscriptions = """
     [{"id":"sim-a","type":"postpaid","sim":{"alias":"First"}},

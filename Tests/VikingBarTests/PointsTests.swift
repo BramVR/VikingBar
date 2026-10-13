@@ -129,6 +129,7 @@ struct PointsTests {
     @Test func `new connection clears points and cancelled fetch cannot publish them`() async throws {
         let rig = try await Self.rig()
         _ = try await rig.session.refreshPoints()
+        rig.clock.advance(61)
         _ = try await rig.session.bootstrap(credentials: LiveSessionTests.credentials)
         #expect(await rig.session.state().points == nil)
         await rig.transport.pauseNext(path: Self.balancePath)
@@ -147,6 +148,7 @@ struct PointsTests {
         await rig.transport.pauseNext(path: Self.historyPath)
         let fetch = Task { try await rig.session.refreshPoints() }
         await rig.transport.waitUntilPaused()
+        rig.clock.advance(61)
         let replacement = try await rig.newSession().bootstrap(credentials: LiveSessionTests.credentials)
         await rig.transport.resume()
         await #expect(throws: LiveFailure.connectionChanged) { try await fetch.value }

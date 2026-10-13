@@ -35,11 +35,11 @@ struct HistorySessionTests {
         clock.advance(301)
         await rig.transport.failNext(code: 503)
         let failed = try await rig.session.refreshHistory()
-        #expect(failed.history?.failure == .tokenExpired)
+        #expect(failed.history?.failure == .reconnectRequired)
         #expect(failed.history?.observations.allSatisfy { $0.bytes == 1 && $0.isStale } == true)
         #expect(failed.snapshot == initial.snapshot)
-        #expect(await rig.transport.paths().count == 35)
-        #expect(rig.store.saveCount == 1)
+        #expect(await rig.transport.paths().count == 36)
+        #expect(rig.store.saveCount == 2)
     }
 
     @Test func `history fetches thirty chart days while keeping exact cycle evidence separate`() async throws {

@@ -50,6 +50,9 @@ struct VikingBarCLI {
     }
 
     private static func proof(arguments: [String]) async {
+        if await self.sessionRecoveryProof(arguments: arguments) {
+            return
+        }
         if arguments.count >= 2, arguments[1] == "telenet-home-api" {
             await self.telenetHomeProof(arguments: Array(arguments.dropFirst(2)))
             return
@@ -70,8 +73,8 @@ struct VikingBarCLI {
             await self.pointsProof()
             return
         }
-        if arguments == ["proof", "balance-api"] {
-            await self.balanceProof()
+        if arguments.count >= 2, arguments[1] == "balance-api" {
+            await self.balanceProof(arguments: Array(arguments.dropFirst(2)))
             return
         }
         guard arguments == ["proof", "auth-balance"] else {
@@ -90,6 +93,26 @@ struct VikingBarCLI {
         if !receipt.passed {
             exit(1)
         }
+    }
+
+    private static func sessionRecoveryProof(arguments: [String]) async -> Bool {
+        let checks = ["mobile-session-recovery", "mobile-remembered-sign-in", "telenet-remembered-sign-in"]
+        if arguments.count == 2, checks.contains(arguments[1]) {
+            do {
+                let input = try self.readConnectionInput()
+                guard input.count <= 32768 else { throw ProofFailure.invalidInput }
+                let receipt = try await SessionRecoveryProof.run(check: arguments[1], credentials: input)
+                self.writeJSON(receipt)
+                if !receipt.passed {
+                    exit(1)
+                }
+            } catch {
+                self.writeJSON(CommandFailure(error: "invalid-session-recovery-proof"))
+                exit(2)
+            }
+            return true
+        }
+        return false
     }
 
     private static func writeProof(_ receipt: ProofReceipt) {

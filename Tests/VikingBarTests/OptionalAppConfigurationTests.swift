@@ -40,7 +40,7 @@ extension OptionalAppTests {
             try await AppSessionTests.until { model.activity == .idle }
             #expect(model.bridgeError == (reconnect ? LiveBridgeFailure.connectFailed : .unavailable).message)
             if reconnect {
-                #expect(model.liveState.connectionID == nil)
+                #expect(model.liveState.connectionID == client.state.connectionID)
             }
             await model.stop()
         }

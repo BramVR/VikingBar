@@ -14,7 +14,9 @@ Source builds support Telenet residential home internet beside Mobile Vikings. T
 
 Open the helmet, then **Settings**, **Account**, and **Add account**. Choose **Telenet** and enter your username and password. Telenet does not need a Mobile Vikings public client ID. You can also use **Connect with 1Password** with an approved two-field reference. The helper reads that item once in its own named tmux session.
 
-The password is discarded after login. VikingBar saves the cookie session in a separate Keychain item for that account. Background refresh never reads 1Password or retries the password. If Telenet requires another sign-in or interactive authentication, reconnect explicitly. MFA, natural expiry, and automatic renewal are not claimed as verified.
+VikingBar saves the cookie session in a separate Keychain item for that account. **Remember password on this Mac** defaults off. If enabled, an accepted sign-in saves the password in a separate account-bound Keychain item. Background refresh never reads 1Password or retries the password. If another sign-in is required, use **Sign in again with saved password** or reconnect manually. MFA, natural expiry, and automatic renewal are not claimed as verified.
+
+Reconnect prefills the last accepted username and leaves the password empty. Account settings can disable remembered sign-in without deleting usable cookies, or log out locally to delete this account's session, saved password, and usage cache. The retained account slot and username survive logout. See [connection recovery](live-account.md#recover-a-connection).
 
 Choose **Telenet** in the provider picker and select a home service. Switch back to **Mobile Vikings** to read your mobile balance. Each account caches its selected service with that service's identity. A Telenet error does not replace Mobile Vikings data.
 
@@ -47,7 +49,7 @@ The chart uses daily observations returned with the home usage reading. Daily ev
 
 Automatic Telenet polling runs no more often than hourly. Manual requests have a one-minute minimum interval. Both limits survive relaunch and apply across the app and CLI for the same account.
 
-A failed request keeps the previous reading marked stale. Transient failures back off without immediate retry. A server `Retry-After` deadline remains authoritative even when longer than the normal backoff. Cached reads and service selection do not bypass that deadline. Authentication failures require reconnect; they do not trigger background password use.
+A failed request keeps the previous reading marked stale. Transient failures back off without immediate retry. A server `Retry-After` deadline remains authoritative even when longer than the normal backoff. Cached reads, service selection, and saved sign-in do not bypass that deadline or the one-minute request floor. Authentication failures require explicit sign-in; they do not trigger background password use. An interrupted saved-password attempt remains pending after relaunch and cannot repeat automatically.
 
 ## Use the CLI
 

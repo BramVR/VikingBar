@@ -19,6 +19,9 @@ public struct AccountConnectionSummary: Codable, Equatable, Sendable {
 }
 
 public enum LiveFailure: String, Codable, Error, Sendable {
+    case savedSignInUnavailable = "saved_sign_in_unavailable"
+    case permissionDenied = "permission_denied"
+    case oauthRequestRejected = "oauth_request_rejected"
     case notConnected = "not_connected"
     case reconnectRequired = "reconnect_required"
     case busy
@@ -26,6 +29,7 @@ public enum LiveFailure: String, Codable, Error, Sendable {
     case transport
     case malformedResponse = "malformed_response"
     case unauthorized
+    case accessRejected = "access_rejected"
     case tokenExpired = "token_expired"
     case connectionChanged = "connection_changed"
     case rateLimited = "rate_limited"
@@ -36,11 +40,15 @@ public enum LiveFailure: String, Codable, Error, Sendable {
 
     public var message: String {
         switch self {
+        case .savedSignInUnavailable: "Saved sign-in is unavailable. Enter your password to reconnect."
+        case .permissionDenied: "The provider denied access to this data."
+        case .oauthRequestRejected: "The provider rejected the sign-in request. Check API access and try again."
         case .notConnected: "Connect your Mobile Vikings account."
         case .reconnectRequired, .unauthorized: "Reconnect your Mobile Vikings account."
         case .busy: "Another VikingBar session is updating. Try again shortly."
         case .storage: "VikingBar could not save the account session."
         case .transport: "Could not reach Mobile Vikings."
+        case .accessRejected: "The provider rejected the access token. Try refreshing again."
         case .tokenExpired: "The access token expired. Try refreshing again."
         case .connectionChanged: "The account connection changed. Refresh again."
         case .malformedResponse: "Mobile Vikings returned an unsupported response."
@@ -99,6 +107,7 @@ public struct LiveBalance: Codable, Equatable, Sendable {
 }
 
 public struct LiveSessionState: Codable, Equatable, Sendable {
+    public internal(set) var signIn: AccountSignInPresentation?
     public internal(set) var account: AccountContext?
     public internal(set) var homeUsage: HomeUsage?
     public internal(set) var homeFailure: LiveFailure?
@@ -125,6 +134,16 @@ public struct LiveSessionState: Codable, Equatable, Sendable {
 }
 
 public extension LiveSessionState {
+    mutating func markConnectionAttemptFailure(at date: Date, preservingReadingFrom previous: LiveSessionState? = nil) {
+        defer { self.markStaleSnapshot(failure: self.failure, at: date) }
+        guard let previous, self.snapshot.allowance == .unavailable,
+              self.connectionID == previous.connectionID, self.account?.key == previous.account?.key,
+              self.account?.selectedService == previous.account?.selectedService,
+              self.selectedSubscriptionID == previous.selectedSubscriptionID,
+              self.selectedBundleIndex == previous.selectedBundleIndex else { return }
+        self.snapshot = previous.snapshot
+    }
+
     mutating func mergePoints(from state: LiveSessionState) {
         guard self.account?.key == state.account?.key, self.connectionID == state.connectionID else { return }
         self.points = state.points
@@ -141,6 +160,40 @@ public extension LiveSessionState {
 
     mutating func setPaymentReview(_ review: PaymentReview?) {
         self.paymentReview = review
+    }
+
+    mutating func installSignInFixture(
+        summary: AccountConnectionSummary, revision: UInt64,
+        connection: ConnectionID?, remembered: Bool,
+    ) {
+        self.connectionSummary = summary
+        self.connectionID = connection
+        self.signIn = AccountSignInPresentation(fence: AccountMutationFence(revision: revision,
+                                                                            connectionID: connection),
+                                                remembered: remembered ? .available : .disabled,
+                                                nextPasswordAttemptAt: nil, attemptPending: false, failure: nil)
+        if connection == nil {
+            self.balance = nil
+            self.homeUsage = nil
+            self.points = nil
+            self.invoices = nil
+            self.failure = .notConnected
+            self.snapshot = UsageSnapshot(
+                source: .fixture(.error), subscriptionName: "Demo account", allowance: .unavailable,
+                expiresAt: nil, freshness: .unavailable, errorMessage: "The demo account is logged out.",
+                providerName: self.account?.providerName,
+            )
+        } else if self.failure == .notConnected {
+            self.failure = nil
+        }
+        if let usage = self.homeUsage, let connection {
+            self.homeUsage = try? HomeUsage(
+                key: usage.key, connectionID: connection, period: usage.period, category: usage.category,
+                policyCounterGB: usage.policyCounterGB, reportedAllocationGB: usage.reportedAllocationGB,
+                downloaded: usage.downloaded, dailyHistory: usage.dailyHistory,
+                providerUpdatedAt: usage.providerUpdatedAt, fetchedAt: usage.fetchedAt, speed: usage.speed,
+            )
+        }
     }
 
     mutating func installPaymentFixture(at now: Date) {

@@ -15,14 +15,25 @@ private struct AccountConnectReceipt: Decodable {
     }
 }
 
+private struct AccountReferenceOptions: Encodable {
+    let rememberPassword: Bool
+    let expected: AccountMutationFence?
+    enum CodingKeys: String, CodingKey {
+        case rememberPassword = "remember_password"
+        case expected = "expected_fence"
+    }
+}
+
 actor AccountConnector: AccountConnecting {
     private let cliURL: URL
     private let account: AccountKey
+    private let accountRoot: URL?
     private let helperURL: URL
     private var child: OwnedProcess?
 
-    init(cliURL: URL, helperURL: URL, account: AccountKey = .legacy) {
+    init(cliURL: URL, helperURL: URL, account: AccountKey = .legacy, accountRoot: URL? = nil) {
         self.account = account
+        self.accountRoot = accountRoot
         self.cliURL = cliURL
         self.helperURL = helperURL
     }
@@ -125,11 +136,19 @@ actor AccountConnector: AccountConnecting {
         case .credentials:
             return try OwnedProcess.launch(
                 executable: self.cliURL,
-                arguments: ["connect", "--account", self.account.id],
+                arguments: ["connect", "--account", self.account.id]
+                    + (self.accountRoot.map { ["--account-root", $0.path] } ?? []),
             )
-        case let .reference(reference):
+        case let .reference(reference, rememberPassword, expected):
+            guard self.accountRoot == nil else { throw LiveBridgeFailure.connectFailed }
             var arguments = ["-I", self.helperURL.path, "--cli", self.cliURL.path, "--reference", reference.path,
                              "--account", self.account.id]
+            let options = try JSONEncoder().encode(AccountReferenceOptions(
+                rememberPassword: rememberPassword,
+                expected: expected,
+            ))
+            guard let encoded = String(data: options, encoding: .utf8) else { throw LiveBridgeFailure.connectFailed }
+            arguments += ["--connection-options", encoded]
             if let resultURL {
                 arguments += ["--result", resultURL.path]
             }

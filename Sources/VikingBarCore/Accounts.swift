@@ -94,6 +94,10 @@ public struct AccountStorage: Sendable {
         self.directory.appendingPathComponent("session.lock")
     }
 
+    public var signInURL: URL {
+        self.directory.appendingPathComponent("sign-in-v1.json")
+    }
+
     public var cacheURL: URL {
         self.directory.appendingPathComponent("balance-v1.json")
     }

@@ -3,6 +3,7 @@ import VikingBarCore
 
 struct SessionCommand: Decodable, Sendable {
     enum Name: String, Decodable, Sendable {
+        case savedSignIn, disableRememberedSignIn, logout
         case restore, refresh, refreshHistory, refreshPoints, refreshInvoices, downloadInvoice
         case reviewInvoicePayment, clearPaymentReview
         case selectSubscription, selectService, selectBundle, configure, cancel, shutdown
@@ -13,10 +14,14 @@ struct SessionCommand: Decodable, Sendable {
     let index: Int?
     let refreshInterval: RefreshInterval?
     let service: ServiceKey?
+    let fence: AccountMutationFence?
 
     // swiftlint:disable:next cyclomatic_complexity
     func operation(account: AccountKey) throws -> AccountOperation {
         switch self.command {
+        case .savedSignIn: .savedSignIn(self.fence!)
+        case .disableRememberedSignIn: .disableRememberedSignIn(self.fence!)
+        case .logout: .logout(self.fence!)
         case .configure: .configure(self.refreshInterval!)
         case .restore: .restore
         case .refresh: .refresh
@@ -63,6 +68,10 @@ struct SessionCommand: Decodable, Sendable {
     private func validateStandard(object: [String: Any]) throws {
         let keys: Set<String>
         switch self.command {
+        case .savedSignIn, .disableRememberedSignIn, .logout:
+            keys = ["command", "fence"]
+            guard let value = object["fence"] else { throw ProofFailure.invalidInput }
+            _ = try AccountConnectionRequest.decodeFence(value)
         case .configure:
             keys = ["command", "refreshInterval"]
             guard self.refreshInterval != nil else { throw ProofFailure.invalidInput }
@@ -178,8 +187,11 @@ extension VikingBarCLI {
         let passed = await self.runSession(
             input: .standardInput,
             makeSession: {
-                let catalog = try AccountCatalog.production()
-                return try .production(key: catalog.resolve(key, provider: options.provider), catalog: catalog)
+                let session = try options.openSession()
+                return SessionCommandHandler(
+                    execute: { try await session.perform($0.operation(account: key)) },
+                    state: { await session.state() }, cancel: { await session.cancel() },
+                )
             },
             report: { self.writeJSON($0) },
         )

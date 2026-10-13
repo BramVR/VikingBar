@@ -12,6 +12,11 @@ final class AppSession {
 
     struct ConnectionAttempt: Equatable, Sendable { fileprivate let id: UUID }
 
+    @ObservationIgnored let signInFixtureStore: SignInFixtureStore?
+    var signInFixtureEnabled: Bool {
+        self.signInFixtureStore != nil
+    }
+
     let isFixtureLaunch: Bool
     var fixture: FixtureState? {
         didSet { self.onPresentationChange?() }
@@ -116,6 +121,7 @@ final class AppSession {
             throw LiveBridgeFailure.connectFailed
         },
         accountDirectory: (any AccountDirectoryClient)? = nil,
+        signInFixtureStore: SignInFixtureStore? = nil,
         now: @escaping () -> Date = Date.init,
         openDocument: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) },
         paymentFixtureRenderer: (any PaymentQRRendering)? = nil,
@@ -127,6 +133,7 @@ final class AppSession {
             try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
         },
     ) {
+        self.signInFixtureStore = options.fixture == nil ? nil : signInFixtureStore
         self.isFixtureLaunch = options.fixture != nil
         self.fixture = options.fixture
         self.unit = options.unit
@@ -139,9 +146,14 @@ final class AppSession {
         self.loginItems = loginItems
         self.loginItemStatus = loginItems.status
         self.settingsError = preferences.errorMessage
-        self.accountDirectory = options.fixture == nil ? accountDirectory : FixtureAccountDirectory()
+        self.accountDirectory = options.fixture == nil ? accountDirectory
+            :
+            FixtureAccountDirectory(catalog: signInFixtureStore == nil ? FixtureAccounts.catalog : FixtureAccounts
+                .signInCatalog)
         if options.fixture != nil {
-            self.accounts = FixtureAccounts.catalog.accounts
+            self.accounts = (signInFixtureStore == nil ? FixtureAccounts.catalog : FixtureAccounts.signInCatalog)
+                .accounts
+            self.selectedAccount = signInFixtureStore?.selected ?? FixtureAccounts.mobile
         }
         self.clientFactory = clientFactory
         self.connectorFactory = connectorFactory
@@ -154,6 +166,7 @@ final class AppSession {
         if self.paymentFixtureEnabled {
             self.liveState.installPaymentFixture(at: referenceDate)
         }
+        self.applySignInFixture()
     }
 }
 
@@ -188,7 +201,7 @@ extension AppSession {
     var snapshot: UsageSnapshot {
         if self.usesMobileFixture {
             return self.fixture.map { self.fixtureAccount.snapshot(state: $0, referenceDate: self.referenceDate) }
-                ?? .notConnected
+                ?? (self.signInFixtureEnabled ? self.liveState.snapshot : .notConnected)
         }
         let previous = self.liveState.snapshot
         let expired = !self.isFixtureLaunch
@@ -208,6 +221,12 @@ extension AppSession {
     }
 
     func start() {
+        if self.signInFixtureEnabled, !self.usesMobileFixture, !self.hasStarted {
+            self.hasStarted = true
+            let intent = self.begin(.restoring)
+            self.operation = Task { await self.restoreAndPerform(.refresh, intent: intent) }
+            return
+        }
         guard !self.isFixtureLaunch, !self.hasStarted, self.activity != .stopped else { return }
         self.hasStarted = true
         let intent = self.begin(.restoring)
@@ -248,6 +267,30 @@ extension AppSession {
                 await self.restoreAndPerform(.refresh, intent: intent, manualRefresh: manual)
             } else {
                 await self.perform(.refresh, intent: intent)
+            }
+        }
+    }
+
+    enum SignInAction { case savedSignIn, disableRememberedSignIn, logout }
+
+    func performSignInAction(_ action: SignInAction) {
+        if self.signInFixtureEnabled {
+            self.performSignInFixture(action); return
+        }
+        guard self.activity != .stopped, self.activity != .connecting, let fence = self.liveState.signIn?.fence else {
+            return
+        }
+        let request: SessionRequest = switch action {
+        case .savedSignIn: .savedSignIn(fence)
+        case .disableRememberedSignIn: .disableRememberedSignIn(fence)
+        case .logout: .logout(fence)
+        }
+        let intent = self.begin(.selecting)
+        self.operation = Task {
+            if self.client == nil {
+                await self.restoreAndPerform(request, intent: intent)
+            } else {
+                await self.perform(request, intent: intent)
             }
         }
     }
@@ -369,6 +412,7 @@ extension AppSession {
             self.pendingOptional.removeAll()
         }
         self.liveState = state
+        self.applySignInFixture()
         self.savedAccounts[self.selectedAccount] = state
         self.bridgeFailure = nil
         self.scheduleExpiry()
@@ -438,8 +482,28 @@ extension AppSession {
 }
 
 extension AppSession {
+    func referenceIntent(rememberPassword: Bool) -> AccountReferenceIntent {
+        AccountReferenceIntent(account: self.selectedAccount,
+                               provider: self.addingAccount ? self.addingProvider : self.selectedAccount.provider,
+                               adding: self.addingAccount, rememberPassword: rememberPassword,
+                               expected: self.addingAccount ? nil : self.liveState.signIn?.fence)
+    }
+
+    @discardableResult
+    func connect(reference: URL, intent: AccountReferenceIntent, resultURL: URL?) -> ConnectionAttempt? {
+        let provider = intent.adding ? self.addingProvider : self.selectedAccount.provider
+        guard !self.addingAccount, self.selectedAccount == intent.account, provider == intent.provider,
+              intent.adding || self.liveState.signIn?.fence == intent.expected else { return nil }
+        return self.connect(input: .reference(reference, rememberPassword: intent.rememberPassword,
+                                              expected: intent.expected),
+                            resultURL: resultURL, adding: intent.adding)
+    }
+
     @discardableResult
     func connect(input: AccountConnectionInput, resultURL: URL?, adding: Bool? = nil) -> ConnectionAttempt? {
+        if self.signInFixtureEnabled {
+            return self.connectSignInFixture(input)
+        }
         guard !self.isFixtureLaunch, self.activity != .stopped, self.activity != .connecting,
               self.activity != .switching
         else {
@@ -475,6 +539,20 @@ extension AppSession {
         )
         self.pendingConnection = context
         self.operation = Task { await self.performConnection(input: input, resultURL: resultURL, context: context) }
+        return attempt
+    }
+
+    func newFixtureConnectionAttempt() -> ConnectionAttempt {
+        let intent = self.begin(.connecting)
+        let attempt = ConnectionAttempt(id: UUID())
+        self.connectionAttempt = attempt
+        self.operation = Task {
+            if self.usesMobileFixture {
+                self.finish()
+            } else {
+                await self.restoreAndPerform(.refresh, intent: intent)
+            }
+        }
         return attempt
     }
 
@@ -544,13 +622,20 @@ extension AppSession {
         guard self.isCurrent(context.intent) else { return }
         self.connector = nil
         self.pendingConnection = nil
-        self.liveState = context.adding ? context.state : LiveSessionState()
+        self.liveState = context.state
+        self.liveState.markConnectionAttemptFailure(at: self.now())
         self.selectedAccount = context.account
         let failure = error as? LiveBridgeFailure ?? .connectFailed
         if context.adding {
             self.connectionError = "Could not add account. " + failure.message
             guard await self.restorePreviousWorker(context, intent: context.intent) else { return }
         } else {
+            let restored = await self.restorePreviousWorker(context, intent: context.intent)
+            guard self.isCurrent(context.intent) else { return }
+            self.liveState.markConnectionAttemptFailure(
+                at: self.now(),
+                preservingReadingFrom: restored ? context.state : nil,
+            )
             self.bridgeFailure = failure
         }
         self.finish()
@@ -670,7 +755,11 @@ extension AppSession {
             let restored = try await client.request(.restore)
             guard self.isCurrent(intent) else { return }
             self.publish(restored)
-            guard self.isConnected else { self.finish(); return }
+            let requiresConnection = switch request {
+            case .savedSignIn, .disableRememberedSignIn, .logout: false
+            default: true
+            }
+            guard self.isConnected || !requiresConnection else { self.finish(); return }
             if case .refresh = request {
                 let shouldWait = self.selectedAccount.provider == .telenet ? !manualRefresh : restored.failure != nil
                 if let deadline = restored.nextRefreshAt, deadline > self.now(), shouldWait {
@@ -758,6 +847,7 @@ extension AppSession {
         let previous = self.client
         self.client = nil
         self.selectedAccount = key
+        try? self.signInFixtureStore?.select(key)
         self.liveState = self.savedAccounts[key] ?? LiveSessionState()
         self.liveState.setPaymentReview(nil)
         self.bridgeFailure = self.savedFailures[key]
@@ -776,6 +866,7 @@ extension AppSession {
                 }
                 guard self.isCurrent(intent) else { return }
                 if self.usesMobileFixture {
+                    self.applySignInFixture()
                     self.finish()
                 } else {
                     await self.restoreAndPerform(.refresh, intent: intent)

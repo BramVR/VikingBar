@@ -246,7 +246,13 @@ def account_worker_command(launch, command):
     if not isinstance(selector, str) or not re.fullmatch(
             r"(?:mobile-vikings|telenet)/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", selector):
         raise UIFailure("runtime-worker-identity-mismatch")
-    return launch["cli"] + " " + command + " --account " + selector
+    result = launch["cli"] + " " + command + " --account " + selector
+    root = launch.get("accountRoot")
+    if root is not None:
+        if not isinstance(root, str) or not re.fullmatch(r"/[A-Za-z0-9._/-]+", root):
+            raise UIFailure("runtime-worker-identity-mismatch")
+        result += " --account-root " + root
+    return result
 
 
 class NativeProof:

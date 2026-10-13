@@ -6,6 +6,7 @@ struct HistoryReader: Sendable {
     let context: HistoryContext
     let previous: UsageHistory?
     let force: Bool
+    var readUsage: (@Sendable (HistoryInterval, TimeInterval) async throws -> UInt64?)?
 
     func read(validate: @Sendable () async throws -> Void) async throws -> UsageHistory {
         let started = Date(timeIntervalSince1970: floor(self.api.now().timeIntervalSince1970))
@@ -116,12 +117,12 @@ struct HistoryReader: Sendable {
         guard timing.clock.now < timing.deadline else { throw LiveFailure.transport }
         let remaining = timing.clock.now.duration(to: timing.deadline).components
         let timeout = min(10, Double(remaining.seconds) + Double(remaining.attoseconds) / 1e18)
-        let bytes = try await self.api.usageSummary(
-            subscriptionID: self.context.subscriptionID,
-            interval: interval,
-            token: self.token,
-            timeout: timeout,
-        )
+        let bytes: UInt64? = if let readUsage {
+            try await readUsage(interval, timeout)
+        } else {
+            try await self.api.usageSummary(subscriptionID: self.context.subscriptionID,
+                                            interval: interval, token: self.token, timeout: timeout)
+        }
         try Task.checkCancellation()
         try await validate()
         return HistoryObservation(interval: interval, bytes: bytes, fetchedAt: self.api.now())

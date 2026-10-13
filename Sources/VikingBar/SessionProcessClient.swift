@@ -11,15 +11,17 @@ actor SessionProcessClient: SessionClient {
 
     private let executableURL: URL
     private let account: AccountKey
+    private let accountRoot: URL?
     private var lifecycle = Lifecycle.idle
     private var child: OwnedProcess?
     private var reader: Task<Void, Never>?
     private var pending: [CheckedContinuation<LiveSessionState, any Error>] = []
     private var buffer = Data()
 
-    init(executableURL: URL, account: AccountKey = .legacy) {
+    init(executableURL: URL, account: AccountKey = .legacy, accountRoot: URL? = nil) {
         self.executableURL = executableURL
         self.account = account
+        self.accountRoot = accountRoot
     }
 
     func request(_ request: SessionRequest) async throws -> LiveSessionState {
@@ -61,7 +63,8 @@ actor SessionProcessClient: SessionClient {
         let child: OwnedProcess
         do { child = try OwnedProcess.launch(
             executable: self.executableURL,
-            arguments: ["session", "--account", self.account.id],
+            arguments: ["session", "--account", self.account.id]
+                + (self.accountRoot.map { ["--account-root", $0.path] } ?? []),
         ) } catch {
             throw LiveBridgeFailure.unavailable
         }

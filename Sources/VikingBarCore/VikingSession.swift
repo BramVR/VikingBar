@@ -2,26 +2,31 @@ import Foundation
 
 public actor VikingSession {
     let api: LiveAPI
-    private let store: any SessionStore
+    let signIn: AccountSignInPersistence
+    let store: any SessionStore
     let lease: any SessionLease
     let cache: any BalanceCache
     let paymentQRRenderer: any PaymentQRRendering
     var current = LiveSessionState()
     var token: LiveToken?
+    var renewalAttempted = false
     var tokenGeneration: UInt64?
     var generation: UInt64 = 0
     var flight: InFlight?
-    private var failures = 0
-    private var refreshInterval: RefreshInterval = .fiveMinutes
+    var failures = 0
+    var refreshInterval: RefreshInterval = .fiveMinutes
 
     public init(
         transport: any ProofHTTPTransport, store: any SessionStore,
         lease: any SessionLease, cache: any BalanceCache,
+        key: AccountKey = .legacy, signInStore: any SessionStore = EphemeralSessionStore(),
+        rememberedStore: any SessionStore = EphemeralSessionStore(),
         paymentQRRenderer: any PaymentQRRendering = UnavailablePaymentQRRenderer(),
         now: @escaping @Sendable () -> Date = { Date() },
     ) {
         self.api = LiveAPI(transport: transport, now: now)
         self.store = store
+        self.signIn = AccountSignInPersistence(key: key, store: signInStore, secrets: rememberedStore)
         self.lease = lease
         self.cache = cache
         self.paymentQRRenderer = paymentQRRenderer
@@ -31,14 +36,20 @@ public actor VikingSession {
         self.current
     }
 
-    public func bootstrapWithDiagnostics(credentials: ProofCredentials) async throws -> LiveSessionState {
+    public func bootstrapWithDiagnostics(
+        credentials: ProofCredentials, rememberPassword: Bool = false,
+        expected: AccountMutationFence? = nil,
+    ) async throws -> LiveSessionState {
         do {
             guard self.flight == nil else { throw BootstrapFailure.sessionBusy }
             self.generation &+= 1
-            self.token = nil
-            self.current = LiveSessionState()
             return try await self.run(kind: .bootstrap) { generation in
-                try await self.connect(credentials: credentials, generation: generation)
+                try await self.connect(
+                    credentials: credentials,
+                    rememberPassword: rememberPassword,
+                    expected: expected,
+                    generation: generation,
+                )
             }
         } catch is CancellationError {
             throw BootstrapFailure.connectCancelled
@@ -57,9 +68,15 @@ public actor VikingSession {
             guard let record = try self.loadRecord() else {
                 self.token = nil
                 self.current = LiveSessionState()
+                let metadata = try self.signIn.load()
+                self.applySignIn(metadata)
+                if metadata.disposition == .loggedOut {
+                    try? self.cleanupLogout()
+                }
                 return self.current
             }
             self.adopt(record)
+            let signIn = self.current.signIn
             let cached = try? self.cache.load(connectionID: record.connectionID)
             if let cached, cached.canRestore(connectionID: self.current.connectionID) {
                 self.current = cached
@@ -79,7 +96,11 @@ public actor VikingSession {
                 self.current.points?.revalidate(at: self.api.now())
             }
             self.current.connectionSummary = record.connectionSummary
+            self.current.signIn = signIn
             guard !record.rotationPending else { throw LiveFailure.reconnectRequired }
+            if let deadline = try self.signIn.load().nextRenewalAt, deadline > self.api.now() {
+                self.current.nextRefreshAt = max(self.current.nextRefreshAt ?? deadline, deadline)
+            }
             return self.current
         } catch {
             let failure = (error as? LiveFailure ?? .transport)
@@ -145,7 +166,10 @@ public actor VikingSession {
 }
 
 extension VikingSession {
-    private func connect(credentials: ProofCredentials, generation: UInt64) async throws -> LiveSessionState {
+    func connect(
+        credentials: ProofCredentials, rememberPassword: Bool, expected: AccountMutationFence?,
+        generation: UInt64, reservation: PasswordAttemptReservation? = nil,
+    ) async throws -> LiveSessionState {
         do { try credentials.validate() } catch { throw BootstrapFailure.credentialInput }
         let handle: any SessionLeaseHandle
         do { handle = try self.lease.acquire() } catch {
@@ -153,6 +177,9 @@ extension VikingSession {
         }
         defer { handle.release() }
         try Task.checkCancellation()
+        let attempted = try reservation.map { try self.signIn.checked($0, now: self.api.now()) }
+            ?? self.signIn.reservePasswordAttempt(expected: expected, now: self.api.now())
+        self.applySignIn(attempted)
         let received: LiveToken
         do {
             received = try await self.api.token(fields: [
@@ -160,14 +187,32 @@ extension VikingSession {
                 "grant_type": "password", "scope": "read",
             ])
         } catch is CancellationError { throw CancellationError() } catch {
-            throw BootstrapFailure.tokenFailure(error)
+            var failed = attempted
+            let requestFailure = error as? LiveRequestFailure
+            failed.nextPasswordAttemptAt = max(failed.nextPasswordAttemptAt ?? .distantPast,
+                                               requestFailure?.retryAfter ?? .distantPast)
+            failed.rememberedFailure = requestFailure?.failure ?? error as? LiveFailure ?? .transport
+            try? self.signIn.save(failed)
+            self.applySignIn(failed)
+            throw BootstrapFailure.tokenFailure(requestFailure?.failure ?? error)
         }
+        try self.checkGeneration(generation)
+        let connection = ConnectionID()
+        var metadata = try self.signIn.accept(
+            setup: AccountConnectionSummary(clientID: credentials.clientID, username: credentials.username),
+            connection: connection, expected: attempted.fence,
+        )
         let record = StoredSession(
             clientID: credentials.clientID, username: credentials.username,
-            connectionID: ConnectionID(), refreshToken: received.refreshToken, generation: 0, rotationPending: false,
+            signInRevision: metadata.revision, connectionID: connection, refreshToken: received.refreshToken,
+            generation: 0, rotationPending: false,
         )
         do { try self.saveRecord(record) } catch { throw BootstrapFailure.keychainWrite }
+        metadata = self.signIn.finishAccepted(metadata, password: credentials.password,
+                                              rememberPassword: rememberPassword)
         try self.checkGeneration(generation)
+        self.current = LiveSessionState()
+        self.applySignIn(metadata)
         self.current.connectionID = record.connectionID
         self.current.connectionSummary = record.connectionSummary
         self.current.scopeMismatch = received.scopeMismatch
@@ -177,7 +222,7 @@ extension VikingSession {
         return self.current
     }
 
-    private func fetch(
+    func fetch(
         subscriptionID: String?, generation: UInt64, forceTokenRefresh: Bool,
     ) async throws -> LiveSessionState {
         let token = try await self.authorize(force: forceTokenRefresh, generation: generation)
@@ -186,13 +231,15 @@ extension VikingSession {
             return try await self.fetchBalance(
                 subscriptionID: subscriptionID, token: token, connectionID: connectionID, generation: generation,
             )
-        } catch LiveFailure.tokenExpired {
+        } catch let failure as LiveFailure where [.tokenExpired, .accessRejected].contains(failure) {
             let renewed = try await self.authorize(
                 force: true, generation: generation, expectedConnectionID: connectionID,
             )
-            return try await self.fetchBalance(
-                subscriptionID: subscriptionID, token: renewed, connectionID: connectionID, generation: generation,
-            )
+            do {
+                return try await self.fetchBalance(
+                    subscriptionID: subscriptionID, token: renewed, connectionID: connectionID, generation: generation,
+                )
+            } catch LiveFailure.accessRejected { throw LiveFailure.unauthorized }
         }
     }
 
@@ -250,6 +297,10 @@ extension VikingSession {
         guard !record.rotationPending,
               self.current.failure != .reconnectRequired, self.current.failure != .unauthorized
         else { throw LiveFailure.reconnectRequired }
+        let metadata = try self.signIn.load()
+        if let deadline = metadata.nextRenewalAt, self.api.now() < deadline {
+            throw LiveFailure.rateLimited
+        }
         let canReuse = sameConnection && self.tokenGeneration == record.generation && !force
         if canReuse, let token, self.api.now() < token.expiresAt {
             return token
@@ -265,14 +316,7 @@ extension VikingSession {
             let exchange = Task { try await self.api.token(fields: fields) }
             received = try await exchange.value
         } catch {
-            self.token = nil
-            if !preserveUsage {
-                self.markStale(failure: .reconnectRequired)
-            }
-            if error is CancellationError {
-                throw CancellationError()
-            }
-            throw LiveFailure.reconnectRequired
+            try self.finishRenewalFailure(error, record: &record, preserveUsage: preserveUsage)
         }
         record.refreshToken = received.refreshToken
         record.rotationPending = false
@@ -288,80 +332,33 @@ extension VikingSession {
         try self.checkGeneration(generation)
         return received
     }
-}
 
-extension VikingSession {
-    func withConnectionLease<Value>(
-        expected: ConnectionID?, operation: (StoredSession) throws -> Value,
-    ) throws -> Value {
-        let handle = try self.lease.acquire()
-        defer { handle.release() }
-        guard let record = try self.loadRecord() else {
-            self.token = nil
-            self.current = LiveSessionState()
-            throw LiveFailure.notConnected
+    private func finishRenewalFailure(
+        _ error: any Error, record: inout StoredSession, preserveUsage: Bool,
+    ) throws -> Never {
+        self.token = nil
+        var metadata = try self.signIn.load()
+        let requestFailure = error as? LiveRequestFailure
+        metadata.nextRenewalAt = max(self.api.now().addingTimeInterval(60),
+                                     requestFailure?.retryAfter ?? .distantPast)
+        metadata.nextPasswordAttemptAt = max(metadata.nextPasswordAttemptAt ?? .distantPast,
+                                             requestFailure?.retryAfter ?? .distantPast)
+        metadata.rememberedFailure = requestFailure?.failure ?? error as? LiveFailure ?? .transport
+        if requestFailure?.dispatched == false {
+            record.rotationPending = false
+            try self.saveRecord(record)
         }
-        guard record.connectionID == expected else {
-            self.adopt(record)
-            throw LiveFailure.connectionChanged
+        try self.signIn.save(metadata)
+        self.applySignIn(metadata)
+        if !preserveUsage {
+            self.markStale(failure: .reconnectRequired)
         }
-        return try operation(record)
-    }
-
-    func recordFailure(_ failure: LiveFailure?) {
-        guard failure != .connectionChanged else {
-            self.markStale(failure: failure)
-            return
+        if error is CancellationError {
+            throw CancellationError()
         }
-        do {
-            try self.withConnectionLease(expected: self.current.connectionID) { _ in
-                self.markStale(failure: failure)
-                try? self.cache.save(self.current)
-            }
-        } catch LiveFailure.connectionChanged {
-            self.markStale(failure: .connectionChanged)
-        } catch {
-            self.markStale(failure: failure)
+        if let requestFailure, !requestFailure.dispatched {
+            throw requestFailure.failure
         }
-    }
-
-    private func adopt(_ record: StoredSession) {
-        if self.current.connectionID != record.connectionID {
-            self.token = nil
-            self.current = LiveSessionState()
-            self.current.connectionID = record.connectionID
-            self.current.snapshot = self.current.emptySnapshot
-        }
-        self.current.connectionSummary = record.connectionSummary
-    }
-
-    private func markStale(failure: LiveFailure?) {
-        self.current.failure = failure
-        if let failure {
-            self.failures = min(self.failures + 1, 7)
-            self.current.nextRefreshAt = [.reconnectRequired, .unauthorized, .notConnected].contains(failure)
-                ? nil : self.api.now().addingTimeInterval(min(1800, 30 * pow(2, Double(self.failures - 1))))
-        }
-        self.current.markStaleSnapshot(failure: failure, at: self.api.now())
-    }
-
-    func checkGeneration(_ generation: UInt64) throws {
-        try Task.checkCancellation()
-        guard generation == self.generation else { throw CancellationError() }
-    }
-
-    func loadRecord() throws -> StoredSession? {
-        do {
-            guard let data = try self.store.load() else { return nil }
-            let record = try JSONDecoder().decode(StoredSession.self, from: data)
-            guard record.version == 1, !record.clientID.isEmpty, !record.refreshToken.isEmpty else {
-                throw LiveFailure.reconnectRequired
-            }
-            return record
-        } catch let failure as LiveFailure { throw failure } catch { throw LiveFailure.reconnectRequired }
-    }
-
-    private func saveRecord(_ record: StoredSession) throws {
-        do { try self.store.save(JSONEncoder().encode(record)) } catch { throw LiveFailure.storage }
+        throw LiveFailure.reconnectRequired
     }
 }

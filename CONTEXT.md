@@ -11,10 +11,12 @@ Mobile Vikings support confirmed a public OAuth application with no client secre
 - API base: `https://uwa.mobilevikings.be/mv`.
 - Token endpoint: `POST /oauth2/token/`, form-encoded password or refresh grant.
 - Public client ID and login fields are held in the configured 1Password item. The client ID is not a secret; keep account-specific setup out of source defaults.
-- Initial connection accepts direct native credential entry or retrieves the approved username/password through optional 1Password. Discard the password after the exchange; do not repeatedly read it during background refresh.
+- Initial connection accepts direct native credential entry or retrieves the approved username/password through optional 1Password. Password retention defaults off. Explicit opt-in saves a separate account-bound Keychain credential after accepted sign-in; background refresh never reads 1Password.
 - Refresh tokens persist in macOS Keychain; a file lease serializes rotation across the app and CLI. The token exchange and Keychain write cannot be atomic; an interrupted rotation requires reconnect. The auth/balance probe persists no tokens.
 - The observed access-token lifetime was 599 seconds. Always honor `expires_in`.
 - MFA behavior remains unverified. Never disable MFA to make the integration work.
+
+Account setup survives session loss independently of tokens and cookies. Reconnect prefills the last accepted username and applicable public client ID, with an empty password. Saved sign-in is explicit for unknown or revoked sessions. Telenet automatic password login remains disabled while authenticated-cookie expiry is unverified. Local logout persists a tombstone before deleting this account's session, remembered password, and cached usage; it retains setup and the account slot.
 
 ### Scope discrepancy
 

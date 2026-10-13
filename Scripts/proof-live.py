@@ -120,6 +120,24 @@ def run_telenet(environment, execute):
 
 
 def run(check, environment, execute=subprocess.run):
+    if check in {"direct-connect-ui", "telenet-home-ui"} and environment.get("VIKINGBAR_SESSION_RECOVERY_CONFIG"):
+        spec = importlib.util.spec_from_file_location("isolated_setup_proof",
+                                                    Path(__file__).with_name("session-recovery-proof.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        try:
+            return module.run_setup(check, environment, execute)
+        except module.UIFailure as error:
+            raise ProofFailure(str(error)) from None
+    if check in {"mobile-session-recovery", "mobile-remembered-sign-in", "telenet-remembered-sign-in"}:
+        spec = importlib.util.spec_from_file_location("session_recovery_proof",
+                                                    Path(__file__).with_name("session-recovery-proof.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        try:
+            return module.run(check, environment, execute)
+        except module.UIFailure as error:
+            raise ProofFailure(str(error)) from None
     if check == "telenet-auth-usage":
         return run_telenet(environment, execute)
     if check == "telenet-home-ui":
@@ -295,7 +313,7 @@ def main(arguments=None, environment=None):
             raise ProofFailure("one-check-required")
         receipt = run(args[0], os.environ if environment is None else environment)
         print(json.dumps(receipt, sort_keys=True))
-        return 0
+        return 0 if receipt.get("passed") is True else 1
     except ProofFailure as error:
         print(json.dumps({"passed": False, "error": str(error)}))
     except (OSError, subprocess.SubprocessError):

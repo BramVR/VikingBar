@@ -92,18 +92,50 @@ struct LiveAPI: Sendable {
     }
 
     func send(_ request: URLRequest, tokenExchange: Bool = false) async throws -> Data {
-        do { try ProofEndpoint.validate(request) } catch { throw LiveFailure.requestDenied }
+        do { try ProofEndpoint.validate(request) } catch {
+            throw LiveRequestFailure(failure: .requestDenied, retryAfter: nil, dispatched: false)
+        }
         let response: ProofHTTPResponse
         do { response = try await self.transport.send(request) } catch is CancellationError {
             throw CancellationError()
         } catch { throw LiveFailure.transport }
         switch response.statusCode {
         case 200: return response.data
-        case 400 where tokenExchange, 401, 403: throw LiveFailure.unauthorized
-        case 429: throw LiveFailure.rateLimited
-        case 500 ... 599: throw LiveFailure.serverUnavailable
+        case 400 where tokenExchange, 401 where tokenExchange:
+            throw Self.oauthFailure(response.data)
+        case 401: throw LiveFailure.accessRejected
+        case 403: throw LiveFailure.permissionDenied
+        case 429:
+            throw self.httpFailure(.rateLimited, retryAfter: response.retryAfter)
+        case 500 ... 599:
+            throw self.httpFailure(.serverUnavailable, retryAfter: response.retryAfter)
         default: throw LiveFailure.malformedResponse
         }
+    }
+
+    private static func oauthFailure(_ data: Data) -> LiveFailure {
+        struct OAuthFailure: Decodable { let error: String }
+        return switch (try? JSONDecoder().decode(OAuthFailure.self, from: data))?.error {
+        case "invalid_grant", "access_denied": .unauthorized
+        case "temporarily_unavailable", "server_error": .serverUnavailable
+        case "slow_down": .rateLimited
+        default: .oauthRequestRejected
+        }
+    }
+
+    private func httpFailure(_ failure: LiveFailure, retryAfter: String?) -> any Error {
+        guard let retryAfter else { return failure }
+        let deadline: Date?
+        if let seconds = TimeInterval(retryAfter), seconds.isFinite, seconds >= 0 {
+            deadline = self.now().addingTimeInterval(seconds)
+        } else {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+            deadline = formatter.date(from: retryAfter)
+        }
+        return LiveRequestFailure(failure: failure, retryAfter: deadline, dispatched: true)
     }
 
     static func decodeSubscriptions(_ data: Data) throws -> [MobileSubscription] {
@@ -271,4 +303,10 @@ private struct UsageSummaryGroupedTotals: Decodable {
         case totalQuantity = "total_quantity"
         case totalPrice = "total_price"
     }
+}
+
+struct LiveRequestFailure: Error, Sendable {
+    let failure: LiveFailure
+    let retryAfter: Date?
+    let dispatched: Bool
 }

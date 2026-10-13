@@ -99,7 +99,7 @@ struct AppSessionTests {
         }
     }
 
-    @Test func `failed reconnect clears the old account and ignores its delayed refresh`() async throws {
+    @Test func `failed reconnect preserves the old reading and ignores its delayed refresh`() async throws {
         let client = ModelTestClient(state: Self.connected())
         client.holdRefresh = true
         let connector = ModelTestConnector(fails: true)
@@ -117,11 +117,11 @@ struct AppSessionTests {
         for _ in 0 ..< 20 {
             await Task.yield()
         }
-        #expect(model.liveState.connectionID == nil)
-        #expect(model.snapshot.allowance == .unavailable)
-        #expect(client.requests == ["restore", "refresh"])
-        model.refresh()
-        #expect(!model.canRefresh)
+        #expect(model.liveState.connectionID == client.state.connectionID)
+        #expect(model.snapshot.allowance == .finite(totalBytes: 100, usedBytes: 25, remainingBytes: 75))
+        #expect(model.snapshot.freshness == .stale(lastUpdated: LiveModelsTests.now))
+        #expect(client.requests == ["restore", "refresh", "restore"])
+        #expect(model.canRefresh)
         await model.stop()
     }
 
@@ -243,6 +243,57 @@ struct AppSessionTests {
 }
 
 extension AppSessionTests {
+    @Test(arguments: [false, true])
+    func `failed reconnect restores durable setup and fences without mixing prior usage`(
+        successorCommitted: Bool,
+    ) async throws {
+        var prior = Self.connected()
+        prior.connectionSummary = .init(clientID: "", username: "reader")
+        prior.signIn = AccountSignInPresentation(
+            fence: .init(revision: 2, connectionID: prior.connectionID), remembered: .available,
+            nextPasswordAttemptAt: nil, attemptPending: false, failure: nil,
+        )
+        let first = ModelTestClient(state: prior)
+        var durable = LiveSessionState()
+        durable.connectionID = successorCommitted ? ConnectionID() : prior.connectionID
+        durable.connectionSummary = .init(clientID: "", username: successorCommitted ? "successor" : "reader")
+        durable.signIn = AccountSignInPresentation(
+            fence: .init(revision: successorCommitted ? 4 : 2, connectionID: durable.connectionID),
+            remembered: .disabled, nextPasswordAttemptAt: nil, attemptPending: false, failure: nil,
+        )
+        let second = ModelTestClient(state: durable)
+        let connector = ModelTestConnector(fails: true)
+        var creations = 0
+        let model = try AppSession(
+            options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
+            clientFactory: { _ in creations += 1; return creations == 1 ? first : second },
+            connectorFactory: { _ in connector }, now: { LiveModelsTests.now },
+        )
+        model.start()
+        try await Self.until { model.activity == .idle }
+        let reference = URL(fileURLWithPath: "/synthetic/reference")
+        model.connect(input: .reference(reference), resultURL: nil)
+        try await Self.until { model.activity == .idle }
+        #expect(creations == 2)
+        #expect(second.requests == ["restore"])
+        #expect(model.liveState.connectionID == durable.connectionID)
+        #expect(model.liveState.signIn?.fence == durable.signIn?.fence)
+        #expect(model.liveState.connectionSummary?.username == (successorCommitted ? "successor" : "reader"))
+        #expect(model.snapshot.allowance == (successorCommitted ? .unavailable : prior.snapshot.allowance))
+        #expect(model.bridgeError == LiveBridgeFailure.connectFailed.message)
+        model.connect(input: .reference(reference, expected: model.liveState.signIn?.fence), resultURL: nil)
+        try await Self.until { model.activity == .idle }
+        if case let .reference(_, _, expected) = connector.input {
+            #expect(expected == durable.signIn?.fence)
+        } else {
+            Issue.record("Reconnect did not reach connector")
+        }
+        model.performSignInAction(.logout)
+        try await Self.until { model.activity == .idle }
+        #expect(second.signInFences == [durable.signIn?.fence])
+        await model.stop()
+    }
+
     @Test func `failed worker allowance expires locally and notifies presentation without another request`(
     ) async throws {
         let client = ModelTestClient(state: Self.connected())

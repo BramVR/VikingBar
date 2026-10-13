@@ -53,7 +53,11 @@ struct ProcessAccountDirectory: AccountDirectoryClient {
 }
 
 actor FixtureAccountDirectory: AccountDirectoryClient {
-    private var catalog = FixtureAccounts.catalog
+    private var catalog: CatalogSnapshot
+    init(catalog: CatalogSnapshot = FixtureAccounts.catalog) {
+        self.catalog = catalog
+    }
+
     func snapshot() -> CatalogSnapshot {
         self.catalog
     }
@@ -75,6 +79,9 @@ struct FixtureSessionClient: SessionClient {
     // swiftlint:disable:next cyclomatic_complexity
     func request(_ request: SessionRequest) async throws -> LiveSessionState {
         let operation: AccountOperation = switch request {
+        case let .savedSignIn(fence): .savedSignIn(fence)
+        case let .disableRememberedSignIn(fence): .disableRememberedSignIn(fence)
+        case let .logout(fence): .logout(fence)
         case .restore: .restore
         case .refresh: .refresh
         case .refreshPoints: .refreshPoints
@@ -100,5 +107,21 @@ struct FixtureSessionClient: SessionClient {
 
     func shutdown() async {
         await self.session.cancel()
+    }
+}
+
+struct ProofAccountDirectory: AccountDirectoryClient {
+    let key: AccountKey
+    func snapshot() async throws -> CatalogSnapshot {
+        let name = self.key.provider == .telenet ? "Telenet" : "Mobile Vikings"
+        return CatalogSnapshot(accounts: [AccountEntry(key: self.key, label: name)], selected: self.key)
+    }
+
+    func reserve(provider _: ProviderID) async throws -> AccountEntry {
+        throw LiveFailure.requestDenied
+    }
+
+    func select(_ key: AccountKey, replacing _: AccountKey?) async throws {
+        guard key == self.key else { throw LiveFailure.invalidSelection }
     }
 }

@@ -27,8 +27,10 @@ extension VikingSession {
         let connectionID = self.current.connectionID
         let snapshot: InvoiceSnapshot
         do {
-            guard let token = self.token, self.api.now() < token.expiresAt else { throw LiveFailure.tokenExpired }
-            snapshot = try await self.api.invoices(token: token)
+            guard self.token != nil else { throw LiveFailure.tokenExpired }
+            snapshot = try await self.readWithRecovery(generation: generation, connection: connectionID) {
+                try await self.api.invoices(token: $0)
+            }
             try self.checkGeneration(generation)
             try self.withConnectionLease(expected: connectionID) { _ in
                 self.current.invoices = snapshot
@@ -95,8 +97,10 @@ extension VikingSession {
         self.current.paymentReview = nil
         let connectionID = self.current.connectionID
         do {
-            guard let token = self.token, self.api.now() < token.expiresAt else { throw LiveFailure.tokenExpired }
-            let snapshot = try await self.api.invoices(token: token)
+            guard self.token != nil else { throw LiveFailure.tokenExpired }
+            let snapshot = try await self.readWithRecovery(generation: generation, connection: connectionID) {
+                try await self.api.invoices(token: $0)
+            }
             try self.withConnectionLease(expected: connectionID) { _ in
                 try self.checkGeneration(generation)
                 self.current.invoices = snapshot
@@ -124,8 +128,10 @@ extension VikingSession {
         guard self.current.invoices?.invoices.contains(where: { $0.id == id }) == true
         else { throw LiveFailure.invalidSelection }
         let connectionID = self.current.connectionID
-        guard let token = self.token, self.api.now() < token.expiresAt else { throw LiveFailure.tokenExpired }
-        let data = try await self.api.invoicePDF(id: id, token: token)
+        guard self.token != nil else { throw LiveFailure.tokenExpired }
+        let data = try await self.readWithRecovery(generation: generation, connection: connectionID) {
+            try await self.api.invoicePDF(id: id, token: $0)
+        }
         return try self.withConnectionLease(expected: connectionID) { _ in
             try self.checkGeneration(generation)
             self.current.invoiceDocument = try InvoiceDocument.write(data, invoiceID: id)

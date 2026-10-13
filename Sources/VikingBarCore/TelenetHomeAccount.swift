@@ -3,22 +3,27 @@ import Foundation
 public actor TelenetHomeAccount: ProviderAccountSession {
     public nonisolated let key: AccountKey
     private let transport: any TelenetTransport
-    private let store: any SessionStore
-    private let lease: any SessionLease
-    private let cache: any BalanceCache
-    private let now: @Sendable () -> Date
-    private var current = LiveSessionState()
-    private var busy = false
-    private var generation: UInt64 = 0
+    let signIn: AccountSignInPersistence
+    let store: any SessionStore
+    let lease: any SessionLease
+    let cache: any BalanceCache
+    let now: @Sendable () -> Date
+    var current = LiveSessionState()
+    var busy = false
+    var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    var generation: UInt64 = 0
 
     public init(
         key: AccountKey, transport: any TelenetTransport, store: any SessionStore,
         lease: any SessionLease, cache: any BalanceCache,
+        signInStore: any SessionStore = EphemeralSessionStore(),
+        rememberedStore: any SessionStore = EphemeralSessionStore(),
         now: @escaping @Sendable () -> Date = { Date() },
     ) {
         self.key = key
         self.transport = transport
         self.store = store
+        self.signIn = AccountSignInPersistence(key: key, store: signInStore, secrets: rememberedStore)
         self.lease = lease
         self.cache = cache
         self.now = now
@@ -28,13 +33,19 @@ public actor TelenetHomeAccount: ProviderAccountSession {
 
     public static func production(
         storage: AccountStorage, transport: any TelenetTransport = EphemeralTelenetTransport(),
+        allowInteraction: Bool = true,
     ) throws -> TelenetHomeAccount {
         guard storage.key.provider == .telenet else { throw LiveFailure.invalidSelection }
         try storage.prepare()
         return Self(
             key: storage.key, transport: transport,
-            store: KeychainSessionStore(account: storage.keychainAccount, service: "be.bram.vikingbar.telenet.session"),
+            store: KeychainSessionStore(account: storage.keychainAccount, service: "be.bram.vikingbar.telenet.session",
+                                        allowInteraction: allowInteraction),
             lease: FileSessionLease(url: storage.leaseURL), cache: FileBalanceCache(url: storage.cacheURL),
+            signInStore: FileAccountSignInStore(url: storage.signInURL),
+            rememberedStore: KeychainSessionStore(account: storage.keychainAccount,
+                                                  service: "be.bram.vikingbar.remembered-sign-in",
+                                                  allowInteraction: allowInteraction),
         )
     }
 
@@ -47,33 +58,50 @@ public actor TelenetHomeAccount: ProviderAccountSession {
     }
 
     public func connect(credentials: ProviderCredentials) async throws -> ConnectionID {
+        try await self.connect(credentials: credentials, rememberPassword: false, expected: nil)
+    }
+
+    public func connect(
+        credentials: ProviderCredentials, rememberPassword: Bool,
+        expected: AccountMutationFence?,
+    ) async throws -> ConnectionID {
+        try await self.connect(credentials: credentials, rememberPassword: rememberPassword,
+                               expected: expected, reservation: nil)
+    }
+
+    func connect(
+        credentials: ProviderCredentials, rememberPassword: Bool,
+        expected: AccountMutationFence?, reservation: PasswordAttemptReservation?,
+    ) async throws -> ConnectionID {
         guard case let .telenet(input) = credentials else { throw ProofFailure.invalidInput }
         try input.validate()
         guard !self.busy else { throw LiveFailure.busy }
         let handle = try self.lease.acquire()
         defer { handle.release() }
         self.busy = true
-        defer { self.busy = false; self.current.isRefreshing = false }
+        defer { self.finishOperation() }
         let generation = self.generation
-        var record = try self.loadRecord(replacingInvalid: true) ?? Record(account: self.key)
+        var record = try self.loadRecord(replacingInvalid: true) ?? TelenetSessionRecord(account: self.key)
         if record.established {
             try self.adopt(record)
         }
+        let metadata = try reservation.map { try self.signIn.checked($0, now: self.now()) }
+            ?? self.signIn.reservePasswordAttempt(expected: expected, now: self.now())
+        self.applySignIn(metadata)
+        let priorService = try self.retainedService(connection: metadata.fence.connectionID)
         let priorConnection = record.connectionID
         let priorNeedsReconnect = record.rotationPending
         let priorFailure = self.current.failure
-        try self.reserveAttempt(&record, reconnecting: true)
+        try self.reserveAttempt(&record, reconnecting: reservation == nil)
         let api = TelenetAPI(transport: self.transport, now: self.now)
         do {
             try await api.login(credentials: input)
             try self.check(generation)
-            record = await Record(account: self.key, connectionID: ConnectionID(), cookies: api.cookies,
-                                  established: true, nextAttemptAt: record.nextAttemptAt,
-                                  serverRetryAfter: record.serverRetryAfter, rotationPending: true)
-            try self.saveRecord(record)
-            self.current = self.emptyState(connectionID: record.connectionID)
+            record = try await self.acceptLogin(api: api, credentials: input, previous: record,
+                                                metadata: metadata, rememberPassword: rememberPassword)
             let services = try await api.discover()
-            guard let selected = services.first else { throw LiveFailure.invalidSelection }
+            let rememberedService = priorService.flatMap { services.contains($0) ? $0 : nil }
+            guard let selected = rememberedService ?? services.first else { throw LiveFailure.invalidSelection }
             try await self.read(
                 api: api,
                 services: services,
@@ -94,32 +122,17 @@ public actor TelenetHomeAccount: ProviderAccountSession {
         }
     }
 
-    public func perform(_ operation: AccountOperation) async throws {
-        switch operation {
-        case .restore: try self.restore()
-        case .refresh: try await self.refresh(serviceID: nil)
-        case let .refreshService(id): try await self.refresh(serviceID: id)
-        case let .selectService(service):
-            guard service.account == self.key, service.kind == .home,
-                  self.current.account?.services.contains(where: { $0.key == service }) == true
-            else {
-                throw LiveFailure.invalidSelection
-            }
-            try await self.refresh(serviceID: service.providerID)
-        case .configure: break
-        case .cancel: self.cancel()
-        case .refreshHistory, .refreshPoints, .refreshInvoices, .clearPaymentReview,
-             .downloadInvoice, .reviewInvoicePayment, .selectBundle:
-            throw LiveFailure.requestDenied
-        }
-    }
-
-    private func restore() throws {
+    func restore() throws {
         guard !self.busy else { throw LiveFailure.busy }
         let handle = try self.lease.acquire()
         defer { handle.release() }
         guard let record = try self.loadRecord(), record.established else {
             self.current = self.emptyState(connectionID: nil)
+            let metadata = try self.signIn.load()
+            self.applySignIn(metadata)
+            if metadata.disposition == .loggedOut {
+                try? self.cleanupLogout()
+            }
             return
         }
         try self.adopt(record)
@@ -136,15 +149,15 @@ public actor TelenetHomeAccount: ProviderAccountSession {
         }
     }
 
-    private func refresh(serviceID: String?) async throws {
+    func refresh(serviceID: String?) async throws {
         guard !self.busy else { throw LiveFailure.busy }
         let handle = try self.lease.acquire()
         defer { handle.release() }
         self.busy = true
-        defer { self.busy = false; self.current.isRefreshing = false }
+        defer { self.finishOperation() }
         let generation = self.generation
-        guard var record = try self.loadRecord(), record.established else { throw LiveFailure.notConnected }
         let previousConnection = self.current.connectionID
+        guard var record = try self.loadRecord(), record.established else { throw LiveFailure.notConnected }
         try self.adopt(record)
         if let previousConnection, previousConnection != record.connectionID {
             throw LiveFailure.connectionChanged
@@ -187,7 +200,7 @@ public actor TelenetHomeAccount: ProviderAccountSession {
     }
 
     private func read(
-        api: TelenetAPI, services: [String], selected: String, record: inout Record, generation: UInt64,
+        api: TelenetAPI, services: [String], selected: String, record: inout TelenetSessionRecord, generation: UInt64,
     ) async throws {
         let selectedKey = ServiceKey(account: self.key, kind: .home, providerID: selected)
         if self.current.account?.selectedService != selectedKey {
@@ -225,7 +238,7 @@ public actor TelenetHomeAccount: ProviderAccountSession {
 }
 
 extension TelenetHomeAccount {
-    private func reserveAttempt(_ record: inout Record, reconnecting: Bool = false) throws {
+    private func reserveAttempt(_ record: inout TelenetSessionRecord, reconnecting: Bool = false) throws {
         let backoff = reconnecting ? Date.distantPast : record.nextAllowedAt ?? .distantPast
         let deadline = max(record.nextAttemptAt ?? .distantPast, max(record.serverRetryAfter ?? .distantPast, backoff))
         guard self.now() >= deadline else {
@@ -238,7 +251,8 @@ extension TelenetHomeAccount {
     }
 
     private func finishFailure(
-        _ error: any Error, record: inout Record, cookies: TelenetCookieJar, context: FailureContext = .currentSession,
+        _ error: any Error, record: inout TelenetSessionRecord, cookies: TelenetCookieJar,
+        context: FailureContext = .currentSession,
     ) throws {
         let requestFailure = error as? TelenetRequestFailure
         let failure = requestFailure?.failure ?? (error as? LiveFailure) ?? .transport
@@ -266,7 +280,7 @@ extension TelenetHomeAccount {
         }
     }
 
-    private func failureDeadline(_ failure: LiveFailure, record: Record, retryAfter: Date?) -> Date {
+    private func failureDeadline(_ failure: LiveFailure, record: TelenetSessionRecord, retryAfter: Date?) -> Date {
         let backoff = min(21600, 1800 * pow(2, Double(max(1, record.failures) - 1)))
         let jitter = TimeInterval(self.key.slot.uuidString.utf8.reduce(0) { ($0 + Int($1)) % 301 })
         let delay = failure == .malformedResponse ? 3600 : backoff + jitter
@@ -274,7 +288,9 @@ extension TelenetHomeAccount {
                    max(self.now().addingTimeInterval(delay), retryAfter ?? .distantPast))
     }
 
-    private func adopt(_ record: Record) throws {
+    private func adopt(_ record: TelenetSessionRecord) throws {
+        let signIn = self.current.signIn
+        let summary = record.summary ?? self.current.connectionSummary
         let cached = try self.cache.load(connectionID: record.connectionID)
         let belongs = cached?.account?.key == self.key && (cached?.homeUsage == nil || cached?.selectedHomeUsage != nil)
         if let cached, belongs {
@@ -283,9 +299,11 @@ extension TelenetHomeAccount {
         } else if self.current.connectionID != record.connectionID {
             self.current = self.emptyState(connectionID: record.connectionID)
         }
+        self.current.connectionSummary = summary
+        self.current.signIn = signIn
     }
 
-    private func check(_ generation: UInt64) throws {
+    func check(_ generation: UInt64) throws {
         try Task.checkCancellation()
         guard self.generation == generation else { throw CancellationError() }
     }
@@ -299,7 +317,7 @@ extension TelenetHomeAccount {
         }
     }
 
-    private func emptyState(connectionID: ConnectionID?) -> LiveSessionState {
+    func emptyState(connectionID: ConnectionID?) -> LiveSessionState {
         var result = LiveSessionState()
         result.connectionID = connectionID
         result.account = self.context(services: [], selected: nil)
@@ -322,21 +340,43 @@ extension TelenetHomeAccount {
         }, selectedService: selected, capabilities: .usageOnly)
     }
 
-    private func loadRecord(replacingInvalid: Bool = false) throws -> Record? {
+    func loadRecord(replacingInvalid: Bool = false) throws -> TelenetSessionRecord? {
+        let metadata = try self.signIn.load()
+        self.applySignIn(metadata)
         guard let data = try self.store.load() else { return nil }
+        let record: TelenetSessionRecord
         do {
-            let record = try JSONDecoder().decode(Record.self, from: data)
-            guard record.version == 1, record.account == self.key else { throw LiveFailure.reconnectRequired }
-            return record
+            record = try JSONDecoder().decode(TelenetSessionRecord.self, from: data)
         } catch {
-            if replacingInvalid {
+            if replacingInvalid || metadata.disposition == .loggedOut {
                 return nil
             }
             throw LiveFailure.reconnectRequired
         }
+        if metadata.disposition == .loggedOut {
+            guard record.established, record.summary != nil,
+                  (record.signInRevision ?? 0) > metadata.revision else { return nil }
+        }
+        guard record.version == 1, record.account == self.key else {
+            if replacingInvalid || metadata.disposition == .loggedOut {
+                return nil
+            }
+            throw LiveFailure.reconnectRequired
+        }
+        if record.established {
+            let summary = record.summary ?? metadata.summary ?? AccountConnectionSummary(
+                clientID: "",
+                username: nil,
+            )
+            let metadata = try self.signIn.reconcile(summary: summary, connection: record.connectionID,
+                                                     revision: record.signInRevision)
+            self.applySignIn(metadata)
+            guard metadata.fence.connectionID == record.connectionID else { throw LiveFailure.connectionChanged }
+        }
+        return record
     }
 
-    private func saveRecord(_ record: Record) throws {
+    func saveRecord(_ record: TelenetSessionRecord) throws {
         try self.store.save(JSONEncoder().encode(record))
     }
 
@@ -351,19 +391,6 @@ extension TelenetHomeAccount {
         default: failure.message
         }
     }
-}
-
-private struct Record: Codable {
-    var version = 1
-    let account: AccountKey
-    var connectionID = ConnectionID()
-    var cookies = TelenetCookieJar()
-    var established = false
-    var nextAttemptAt: Date?
-    var nextAllowedAt: Date?
-    var serverRetryAfter: Date?
-    var failures = 0
-    var rotationPending = false
 }
 
 private enum FailureContext {

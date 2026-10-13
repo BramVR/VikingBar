@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 public struct AccountService: Codable, Equatable, Sendable {
@@ -35,6 +36,7 @@ public struct AccountContext: Codable, Equatable, Sendable {
 }
 
 public enum AccountOperation: Sendable {
+    case savedSignIn(AccountMutationFence), disableRememberedSignIn(AccountMutationFence), logout(AccountMutationFence)
     case restore, refresh, refreshHistory, refreshPoints, refreshInvoices, clearPaymentReview, cancel
     case downloadInvoice(String), reviewInvoicePayment(String?)
     case refreshService(String), selectService(ServiceKey), selectBundle(Int), configure(RefreshInterval)
@@ -67,6 +69,8 @@ public protocol ProviderAccountSession: Sendable {
     func perform(_ operation: AccountOperation) async throws
     func state() async -> LiveSessionState
     func connect(credentials: ProviderCredentials) async throws -> ConnectionID
+    func connect(credentials: ProviderCredentials, rememberPassword: Bool, expected: AccountMutationFence?)
+        async throws -> ConnectionID
     func cancel() async
 }
 
@@ -136,8 +140,17 @@ public struct MobileVikingsAccount: ProviderAccountSession {
     }
 
     public func connect(credentials: ProviderCredentials) async throws -> ConnectionID {
+        try await self.connect(credentials: credentials, rememberPassword: false, expected: nil)
+    }
+
+    public func connect(
+        credentials: ProviderCredentials, rememberPassword: Bool,
+        expected: AccountMutationFence?,
+    ) async throws -> ConnectionID {
         guard case let .mobileVikings(input) = credentials else { throw ProofFailure.invalidInput }
-        let state = try await self.session.bootstrapWithDiagnostics(credentials: input)
+        let state = try await self.session.bootstrapWithDiagnostics(credentials: input,
+                                                                    rememberPassword: rememberPassword,
+                                                                    expected: expected)
         guard let connection = state.connectionID, state.failure == nil else { throw BootstrapFailure.connectFailed }
         return connection
     }
@@ -150,6 +163,10 @@ public struct MobileVikingsAccount: ProviderAccountSession {
     public func perform(_ operation: AccountOperation) async throws {
         await self.session.clearInvoiceDocument()
         switch operation {
+        case let .savedSignIn(fence):
+            _ = try await self.session.savedSignIn(expected: fence)
+        case let .disableRememberedSignIn(fence): _ = try await self.session.disableRememberedSignIn(expected: fence)
+        case let .logout(fence): _ = try await self.session.logout(expected: fence)
         case .restore: _ = try await self.session.restore()
         case .refresh: _ = try await self.session.refresh()
         case let .refreshService(id):
@@ -169,5 +186,59 @@ public struct MobileVikingsAccount: ProviderAccountSession {
             _ = try await self.session.selectSubscription(id: service.providerID)
         case .cancel: await self.cancel()
         }
+    }
+}
+
+public struct AccountConnectionRequest: Sendable {
+    public let credentials: ProviderCredentials
+    public let rememberPassword: Bool
+    public let expected: AccountMutationFence?
+
+    public static func decode(_ data: Data, for provider: ProviderID) throws -> Self {
+        guard data.count <= 65536,
+              var object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            throw ProofFailure.invalidInput
+        }
+        let remember: Bool
+        if let value = object.removeValue(forKey: "remember_password") {
+            guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+                throw ProofFailure.invalidInput
+            }
+            remember = number.boolValue
+        } else {
+            remember = false
+        }
+        let expected: AccountMutationFence? = if let value = object.removeValue(forKey: "expected_fence") {
+            try Self.decodeFence(value)
+        } else {
+            nil
+        }
+        return try Self(credentials: ProviderCredentials.decode(JSONSerialization.data(withJSONObject: object),
+                                                                for: provider),
+                        rememberPassword: remember, expected: expected)
+    }
+
+    public static func decodeFence(_ value: Any) throws -> AccountMutationFence {
+        guard let fields = value as? [String: Any], Set(fields.keys) == ["revision", "connectionID"] else {
+            throw ProofFailure.invalidInput
+        }
+        if let connection = fields["connectionID"] as? [String: Any] {
+            guard Set(connection.keys) == ["rawValue"] else { throw ProofFailure.invalidInput }
+        } else if !(fields["connectionID"] is NSNull) {
+            throw ProofFailure.invalidInput
+        }
+        return try JSONDecoder().decode(AccountMutationFence.self,
+                                        from: JSONSerialization.data(withJSONObject: fields))
+    }
+}
+
+public extension ProviderAccountSession {
+    func connect(
+        credentials: ProviderCredentials, rememberPassword: Bool,
+        expected: AccountMutationFence?,
+    ) async throws -> ConnectionID {
+        guard !rememberPassword, expected == nil else { throw LiveFailure.requestDenied }
+        return try await self.connect(credentials: credentials)
     }
 }
