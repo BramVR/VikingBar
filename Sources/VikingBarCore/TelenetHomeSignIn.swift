@@ -16,6 +16,20 @@ struct TelenetSessionRecord: Codable {
 }
 
 extension TelenetHomeAccount {
+    func retainedService(connection: ConnectionID?) throws -> String? {
+        let priorState: LiveSessionState? = if self.current.connectionID == connection {
+            self.current
+        } else if let connection {
+            try self.cache.load(connectionID: connection)
+        } else {
+            nil
+        }
+        guard let state = priorState, state.connectionID == connection, state.account?.key == self.key,
+              let selected = state.account?.selectedService, selected.account == self.key, selected.kind == .home,
+              state.account?.services.contains(where: { $0.key == selected }) == true else { return nil }
+        return selected.providerID
+    }
+
     func applySignIn(_ record: AccountSignInRecord) {
         if let connection = self.current.connectionID, connection != record.fence.connectionID {
             self.current = self.emptyState(connectionID: nil)
@@ -32,7 +46,7 @@ extension TelenetHomeAccount {
             let handle = try self.lease.acquire()
             defer { handle.release() }
             let metadata = try self.signIn.checked(expected)
-            if let record = try self.loadRecord() {
+            if let record = try self.loadRecord(replacingInvalid: true) {
                 let deadline = max(record.nextAllowedAt ?? .distantPast,
                                    max(record.nextAttemptAt ?? .distantPast, record.serverRetryAfter ?? .distantPast))
                 guard self.now() >= deadline else { throw LiveFailure.rateLimited }

@@ -88,7 +88,7 @@ public actor TelenetHomeAccount: ProviderAccountSession {
         let metadata = try reservation.map { try self.signIn.checked($0, now: self.now()) }
             ?? self.signIn.reservePasswordAttempt(expected: expected, now: self.now())
         self.applySignIn(metadata)
-        let priorService = self.current.account?.selectedService?.providerID
+        let priorService = try self.retainedService(connection: metadata.fence.connectionID)
         let priorConnection = record.connectionID
         let priorNeedsReconnect = record.rotationPending
         let priorFailure = self.current.failure
@@ -344,30 +344,36 @@ extension TelenetHomeAccount {
         let metadata = try self.signIn.load()
         self.applySignIn(metadata)
         guard let data = try self.store.load() else { return nil }
+        let record: TelenetSessionRecord
         do {
-            let record = try JSONDecoder().decode(TelenetSessionRecord.self, from: data)
-            if metadata.disposition == .loggedOut {
-                guard record.established, record.summary != nil,
-                      (record.signInRevision ?? 0) > metadata.revision else { return nil }
-            }
-            guard record.version == 1, record.account == self.key else { throw LiveFailure.reconnectRequired }
-            if record.established {
-                let summary = record.summary ?? metadata.summary ?? AccountConnectionSummary(
-                    clientID: "",
-                    username: nil,
-                )
-                let metadata = try self.signIn.reconcile(summary: summary, connection: record.connectionID,
-                                                         revision: record.signInRevision)
-                self.applySignIn(metadata)
-                guard metadata.fence.connectionID == record.connectionID else { throw LiveFailure.connectionChanged }
-            }
-            return record
+            record = try JSONDecoder().decode(TelenetSessionRecord.self, from: data)
         } catch {
             if replacingInvalid || metadata.disposition == .loggedOut {
                 return nil
             }
             throw LiveFailure.reconnectRequired
         }
+        if metadata.disposition == .loggedOut {
+            guard record.established, record.summary != nil,
+                  (record.signInRevision ?? 0) > metadata.revision else { return nil }
+        }
+        guard record.version == 1, record.account == self.key else {
+            if replacingInvalid || metadata.disposition == .loggedOut {
+                return nil
+            }
+            throw LiveFailure.reconnectRequired
+        }
+        if record.established {
+            let summary = record.summary ?? metadata.summary ?? AccountConnectionSummary(
+                clientID: "",
+                username: nil,
+            )
+            let metadata = try self.signIn.reconcile(summary: summary, connection: record.connectionID,
+                                                     revision: record.signInRevision)
+            self.applySignIn(metadata)
+            guard metadata.fence.connectionID == record.connectionID else { throw LiveFailure.connectionChanged }
+        }
+        return record
     }
 
     func saveRecord(_ record: TelenetSessionRecord) throws {
