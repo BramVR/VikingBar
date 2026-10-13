@@ -29,7 +29,7 @@ Opening the app without `--fixture` restores the stored session and refreshes it
 
 After connection, choose a SIM and data bundle in the card. Different bundles keep their own amounts, applicability, and expiry. Blank or whitespace-only titles display as `Data bundle N`, where N is the bundle's one-based position in the provider array. The picker and card use the same title, and raw provider values remain unchanged. The helmet represents the selected bundle. Extra charges show the selected SIM's out-of-bundle cost in euros; a missing amount stays unavailable. **Refresh** requests an update. **Open My Viking** opens the provider's account website.
 
-The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require an explicit reconnect.
+The app retains the last successful balance when a request fails and marks it stale. An unavailable amount remains unavailable. It never turns a missing response into a zero balance. Revoked credentials and an interrupted token rotation require explicit sign-in.
 
 Expand **Daily SIM data and estimate** to inspect daily usage for the selected bundle period. History loads after balance and has separate failures. The estimate covers SIM traffic, which can differ from the selected bundle's balance. See [daily usage and estimate rules](history.md).
 
@@ -68,7 +68,15 @@ For an automated native connection, pass `--credential-reference /absolute/priva
 
 ## Recover a connection
 
-If the app asks you to reconnect, use direct sign-in or **Connect with 1Password** again. Each successful connection creates a new local connection identity. Cached subscriptions from the previous connection cannot supply the new connection's balance.
+If the app asks you to reconnect, open its sign-in form. Both the balance card and Account settings prefill the last accepted username and public client ID. The password is empty. Failed or cancelled sign-in keeps the previous setup and known reading.
+
+To save a password, enable **Remember password on this Mac** before signing in. The option defaults off. After the provider accepts the credentials, VikingBar stores a separate account-bound Keychain item under service `be.bram.vikingbar.remembered-sign-in`. It never stores the password in settings, metadata, caches, or reports. A failed password save does not undo an accepted connection and does not enable saved sign-in.
+
+If a remembered credential is available, choose **Sign in again with saved password** in Account settings. Unknown rejection, revoked sessions, and ambiguous token rotation require this explicit action. Password attempts use a persisted cooldown that survives relaunch. A changed password, MFA challenge, inaccessible Keychain item, or interrupted attempt stops recovery without a login loop. You can still enter credentials manually.
+
+Choose **Stop remembering password** in Account settings to delete only this account's saved password while keeping its usable session. If deletion fails, use **Retry removing saved password**. Choose **Log out** to remove this account's local session, remembered password, and cached usage. Setup and the retained account slot remain available for reconnect. See [local logout](local-install.md#log-out-of-the-account).
+
+A successful fresh sign-in creates a new local connection identity within the same account slot. Cached subscriptions from the previous connection cannot supply the new connection's balance. Mobile Vikings data requests receiving HTTP 401 get one serialized refresh and one replay. HTTP 403 does not trigger token refresh.
 
 The bundled `vikingbar` executable owns each refresh session in macOS Keychain under service `be.bram.vikingbar.oauth`. The original slot uses account `mobile-vikings`; added slots use their opaque account key. The native app sends commands to that executable over private pipes. It never reads the token directly. Bootstrap and refresh use the same executable identity, and separate CLI processes share a lease around token rotation.
 
@@ -88,7 +96,7 @@ Private account values and screenshots stay in the local proof directory. Publis
 
 Open **Settings → Account** to see connection status and username. **Reconnect account…** opens the sign-in form with the known client ID and username filled in; the password is always empty. Cancel returns to the account summary without submitting a connection.
 
-New connections store the username alongside the refresh session in Keychain. VikingBar never saves the password. Older sessions keep working: their public client ID remains available to the change-account form, while the summary explains when the username is unavailable. Changing the connection records the username on the next successful sign-in. The account summary always belongs to the saved connection, not the selected SIM.
+New connections store accepted setup separately from the refresh session so it survives logout or session deletion. Older Mobile Vikings sessions seed only their known username and public client ID. An unknown username remains unavailable until successful sign-in. Password retention requires explicit opt-in. The account summary belongs to the account slot, not the selected SIM.
 
 Use the **Provider** and **Account** pickers above the balance to select a retained account. Production registers Mobile Vikings and [Telenet](telenet-home.md). Settings → Account → **Add account…** chooses a provider and reserves a separate slot when sign-in is submitted. Successful sign-in selects the new account. Failure or cancellation retains the prior selection and credentials; the reserved slot remains in the picker for a later reconnect. **Reconnect account…** replaces only the selected slot's connection, keeping the others available.
 

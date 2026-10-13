@@ -21,6 +21,8 @@ Use the explicit synthetic CLI path for credential-free checks:
 
 The generic CLI mobile fixture is 60 GB, including its legacy account key; the native original mobile fixture is 36 GB. Keep those fixture expectations separate.
 
+The smoke adds three isolated `--sign-in-fixture` launches. Both provider forms start with an empty password and Remember disabled. Drive both reconnect entry points, opt-in, saved sign-in, password removal while keeping the session, and logout. Require setup and remembered state to survive Quit/relaunch where expected, and logout to remain disconnected. This option requires `--fixture` and an isolated `--settings-file`. It persists only synthetic non-secret state and cannot access Keychain or a provider. Ordinary fixtures still reject account sign-in.
+
 Normal `accounts list` reads the real catalog. `accounts add` and `accounts select` mutate it; do not use them as fixture diagnostics. Authorized `live --account ACCOUNT --cached` targets only that invocation; it does not change the shared selection. Read [live balance](live-balance.md) before opening a stored live session.
 
 ## Evidence and limits

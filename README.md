@@ -46,6 +46,8 @@ Opening the app without `--fixture` restores a live session or shows account set
 
 Direct sign-in passes credentials to the bundled CLI over stdin. The optional connection helper reads the configured 1Password item once. The bundled CLI stores refresh tokens in macOS Keychain and communicates with the app over private pipes. The public OAuth client needs no client secret.
 
+Reconnect retains your username and public client ID, with an empty password field. **Remember password on this Mac** defaults off and stores an account-bound password separately in Keychain when enabled. **Sign in again with saved password** uses that credential without reading 1Password. Account settings let you disable password retention or log out locally. See [connection recovery](docs/live-account.md#recover-a-connection).
+
 VikingBar restricts account requests to authentication and allowlisted data reads. Account changes and payments are outside its scope. Credentials, account responses, and private screenshots stay out of commits and hosted CI. The [live proof guide](docs/live-proof.md) documents request limits and verification coverage.
 
 ## Development and help

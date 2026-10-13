@@ -15,7 +15,7 @@ The [website](features/website.md) has a separate synthetic browser preview. Ver
 
 ## Launch
 
-Run `make smoke-app-fixture` from the repo root with the exclusive Mac UI slot. It builds `.build/app/VikingBar.app`, launches four task-owned fixture processes in sequence, and uses one new `.build/proof/<run>/settings.json` file for persistence proof. Require exit 0, `result.json` with `passed: true`, and `cleanup.json` with `exited: true` and four verified Quit exits of 0.
+Run `make smoke-app-fixture` from the repo root with the exclusive Mac UI slot. It builds `.build/app/VikingBar.app` and launches seven task-owned fixture processes in sequence. Four ordinary launches use a new `.build/proof/<run>/settings.json`; three sign-in launches use separate `sign-in-settings.json` and `sign-in-fixture-v1.json`. Require exit 0, `result.json` with `passed: true`, and `cleanup.json` with `exited: true` and seven verified Quit exits of 0.
 
 For interactive coverage, run `make package-app` and `swiftc Scripts/inspect-ui.swift -o .build/inspect-ui`, then launch `.build/app/VikingBar.app/Contents/MacOS/VikingBarApp --fixture finite` in a task-owned terminal session. Record PID, parent, start time, full executable path, and SHA256 before driving. Explicit fixture launches use memory for the display preference. For relaunch proof, add `--settings-file` with an absolute path inside a new task-owned directory and reuse that file. This app-only option requires `--fixture`. Never read or migrate real settings for fixture proof. Selecting **Not connected** inside that fixture launch must remain isolated and must not start a live worker.
 
@@ -53,7 +53,7 @@ Verify fixture isolation by tracing app and CLI entry points through their selec
 
 ## Cleanup
 
-The smoke's four launches must each exit through `vikingbar.quit` with code 0. Failure cleanup terminates only its recorded child process and waits for exit; that fallback is not Quit-button proof. Require `cleanup.json` to report all task processes exited and confirm screenshots survive cleanup. Interactive runs use `.build/inspect-ui <pid> press vikingbar.quit` and retain the receipt plus original process exit status. Never drive or stop a pre-existing app.
+The smoke's seven launches must each exit through `vikingbar.quit` with code 0. Failure cleanup terminates only its recorded child process and waits for exit; that fallback is not Quit-button proof. Require `cleanup.json` to report all task processes exited and confirm screenshots survive cleanup. Interactive runs use `.build/inspect-ui <pid> press vikingbar.quit` and retain the receipt plus original process exit status. Never drive or stop a pre-existing app.
 
 Close only the website tab created for the run and stop only its recorded Vite process/session. Verify its PID and port are gone while task-local evidence remains.
 

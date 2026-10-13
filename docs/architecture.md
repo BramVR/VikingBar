@@ -30,7 +30,7 @@ CodexBar already demonstrates the desired menu-bar workflow. Sharing the core gi
 
 ## Telenet home provider
 
-`TelenetHomeAccount` implements the existing provider account protocol independently of Mobile Vikings' OAuth session. The Swift client owns the bounded IDX login, explicit authentication/data-read allowlist, and isolated cookie jar. Account-scoped Keychain storage holds the session; the existing account lease serializes requests and persistence across app and CLI workers. No password is retained for background reauthentication.
+`TelenetHomeAccount` implements the existing provider account protocol independently of Mobile Vikings' OAuth session. The Swift client owns the bounded IDX login, explicit authentication/data-read allowlist, and isolated cookie jar. Account-scoped Keychain storage holds the session; the existing account lease serializes requests and persistence across app and CLI workers. Optional remembered credentials occupy a separate Keychain service. Telenet uses them only for explicit saved sign-in; automatic fresh login remains disabled while authenticated-cookie expiry is unverified.
 
 The home domain preserves billing civil dates, provider category, policy counter, reported allocation, peak/off-peak traffic, speed state, and provider update time. The usage endpoint's policy counter is never substituted for downloaded traffic from the separate daily-usage endpoint. Shared home presentation drives the CLI report and native card. Billing dates do not enter the mobile expiry field. Unknown speed stays unknown.
 
@@ -73,6 +73,18 @@ For the optional 1Password method, `AccountConnector` starts the packaged `conne
 Each successful connection receives a new connection ID. Cached subscription state belongs to that connection, and each SIM retains its own bundles. The selected active data bundle supplies the helmet and allowance card. Applicability, expiry, and extra charges remain separate display values. Missing amounts stay unavailable.
 
 A process lease serializes token rotation across CLI processes. The owner records a pending rotation before the refresh request and replaces the whole Keychain record afterward. An interrupted rotation requires reconnect. The server exchange and local write cannot be atomic. Relaunch refresh uses the stored token without another 1Password read. Unsigned rebuilds can require renewed Keychain authorization; the release rebuild proof must verify that boundary.
+
+### Setup, remembered sign-in, and logout
+
+`AccountSignInRecord` stores accepted non-secret setup in `sign-in-v1.json` under the stable account namespace. Its revision, session disposition, remembered-credential binding, and password-attempt deadline are independent of the token/cookie record and usage cache. `LiveSessionState.signIn` exposes a mutation fence and fixed presentation state without secrets or credential generations.
+
+Provider actors own sign-in mutations under the existing account lease. Accepted sign-in commits a new connection and setup before marking a separately saved credential available. Cleanup intent is durable before the password write, so interrupted publication leaves password removal available after relaunch. Failed exchange preserves prior setup and reading. Failed secret persistence leaves an accepted session usable without claiming saved sign-in. Legacy Mobile Vikings sessions seed only known setup; Telenet records without a known username wait for accepted sign-in.
+
+Password retention defaults off. An explicit opt-in stores an envelope in Keychain service `be.bram.vikingbar.remembered-sign-in`, addressed by account and bound to accepted setup, connection, and credential generation. App and CLI commands carry the expected account revision and connection. A stale command cannot use or delete a successor connection's credentials. Persisting a pending attempt and cooldown before secret lookup prevents relaunch from repeating password dispatch.
+
+Mobile Vikings approved GET requests receiving 401 get one serialized refresh and one replay. A 403 gets no refresh. Safe failures and ambiguous refresh rotation remain distinct; the latter cannot replay an old refresh token. Telenet saved sign-in respects its persisted request floor, backoff, and server deadline, and preserves the chosen home service when it remains available.
+
+Disabling remembered sign-in first commits disabled intent, then deletes only the account's remembered secret. Logout commits a higher-revision tombstone before deleting that account's session, secret, and usage cache. Old workers cannot publish past it. Failed deletion stays disabled and can be cleaned up without authentication. Logout retains non-secret setup and the catalog slot.
 
 Fixture isolation is fixed at launch. Selecting **Not connected** in a fixture picker does not create a live worker or read Keychain. Fixture settings remain in memory unless `--settings-file` supplies an isolated path. Live startup uses the app's settings file and exposes no fixture picker.
 
