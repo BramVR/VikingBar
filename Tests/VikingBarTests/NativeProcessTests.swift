@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import VikingBarApp
@@ -111,6 +112,44 @@ struct NativeProcessTests {
         await client.shutdown()
         #expect(started.duration(to: .now) < .seconds(8))
         await #expect(throws: LiveBridgeFailure.self) { try await request.value }
+    }
+
+    @Test(arguments: [false, true])
+    func `owned process cancellation waits for reaping while cooperative work progresses`(
+        ignoresTermination: Bool,
+    ) async throws {
+        let fixture = try NativeProcessFixture(script: """
+        import pathlib, signal, sys, time
+        def terminate(*_args):
+            time.sleep(0.2)
+            sys.exit(7)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN if \(ignoresTermination ? "True" : "False") else terminate)
+        pathlib.Path(__file__ + '.started').touch()
+        time.sleep(60)
+        """)
+        defer { fixture.cleanup() }
+        let child = try OwnedProcess.launch(executable: fixture.executable, arguments: [])
+        try await fixture.waitUntilStarted()
+        let started = ContinuousClock.now
+        let stopping = Task { await child.stop(grace: .milliseconds(500)) }
+        stopping.cancel()
+        let repeated = Task { await child.stop(grace: .milliseconds(500)) }
+        let progress = Task {
+            try await Task.sleep(for: .milliseconds(50))
+            return child.process.isRunning
+        }
+        #expect(try await progress.value)
+        await stopping.value
+        await repeated.value
+        await child.stop()
+        #expect(started.duration(to: .now) < .seconds(3))
+        #expect(!child.process.isRunning)
+        #expect(child.process.terminationReason == (ignoresTermination ? .uncaughtSignal : .exit))
+        #expect(child.process.terminationStatus == (ignoresTermination ? SIGKILL : 7))
+        let existence = Darwin.kill(child.identity.pid, 0)
+        let failure = errno
+        #expect(existence == -1)
+        #expect(failure == ESRCH)
     }
 
     @Test func `connector accepts only the fixed receipt and cancels its own helper`() async throws {

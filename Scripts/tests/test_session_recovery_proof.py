@@ -241,6 +241,103 @@ class RecoveryMatchingTests(unittest.TestCase):
         self.proof.press = Mock(side_effect=AssertionError("busy observation must not press a control"))
         self.proof.verify_worker = Mock()
 
+    def test_closed_popover_reopens_once_then_matches_and_captures_verified_card(self):
+        closed = {"elements": [self.tree["elements"][0]], "windows": []}
+        self.proof.run = Mock(return_value=self.report)
+        self.proof.press = Mock()
+        self.proof.inspect = Mock(side_effect=lambda *_: self.tree if self.proof.press.called else closed)
+        with patch.object(PROOF.UI.time, "monotonic", side_effect=[0, 30, 60, 60]), \
+                patch.object(PROOF.UI.time, "sleep") as sleep, \
+                patch.object(PROOF.UI.UI, "capture_exact_window") as capture:
+            self.assertEqual(self.proof.matched("release-relaunch"), self.report)
+        self.assertEqual(self.proof.press.call_args_list, [call("vikingbar.status")])
+        self.assertEqual(self.proof.inspect.call_args_list,
+                         [call("release-relaunch-card.json")] * 2
+                         + [call("release-relaunch-before-capture.json")]
+                         + [call("release-relaunch-capture.json")] * 2)
+        self.assertEqual(sleep.call_args_list, [call(0.25), call(0.25)])
+        self.proof.verify_worker.assert_called_once_with("release-relaunch")
+        self.assertEqual(capture.call_args.args[:4], (Path("/synthetic/peekaboo"), 12345, 42,
+                                                    self.proof.directory / "release-relaunch-card.png"))
+        self.assertFalse(self.proof.capture_suppressed)
+
+    def test_reopened_popover_still_rejects_changed_connection_or_account_before_capture(self):
+        closed = {"elements": [self.tree["elements"][0]], "windows": []}
+        for mismatch in ("connection", "account"):
+            with self.subTest(mismatch=mismatch), \
+                    patch.object(PROOF.UI.time, "monotonic", side_effect=[0, 30, 60]), \
+                    patch.object(PROOF.UI.time, "sleep"), \
+                    patch.object(PROOF.UI.UI, "capture_exact_window") as capture:
+                report = copy.deepcopy(self.report)
+                if mismatch == "connection":
+                    report["state"]["connectionID"]["rawValue"] = "00000000-0000-0000-0000-000000000004"
+                else:
+                    report["state"]["account"]["key"]["slot"] = "00000000-0000-0000-0000-000000000004"
+                self.proof.run = Mock(return_value=report)
+                self.proof.press = Mock()
+                self.proof.inspect = Mock(side_effect=lambda *_: self.tree if self.proof.press.called else closed)
+                with self.assertRaisesRegex(PROOF.UIFailure, "^recovery-" + mismatch + "-mismatch$"):
+                    self.proof.matched("release-relaunch")
+                self.assertEqual(self.proof.press.call_args_list, [call("vikingbar.status")])
+                self.assertEqual(self.proof.run.call_count, 2)
+                capture.assert_not_called()
+
+    def test_perpetually_closed_popover_times_out_after_one_status_press(self):
+        self.proof.run = Mock(return_value=self.report)
+        self.proof.inspect = Mock(return_value={"elements": [self.tree["elements"][0]], "windows": []})
+        self.proof.press = Mock()
+        with patch.object(PROOF.UI.time, "monotonic", side_effect=[0, 30, 60]), \
+                patch.object(PROOF.UI.time, "sleep") as sleep, \
+                patch.object(PROOF.UI.UI, "capture_exact_window") as capture, \
+                self.assertRaisesRegex(PROOF.UIFailure, "^native-proof-timeout$"):
+            self.proof.matched("release-relaunch")
+        self.assertEqual(self.proof.press.call_args_list, [call("vikingbar.status")])
+        self.assertEqual(self.proof.run.call_count, 2)
+        self.assertEqual(self.proof.inspect.call_count, 2)
+        sleep.assert_called_once_with(0.25)
+        self.proof.verify_worker.assert_not_called()
+        capture.assert_not_called()
+
+    def test_uncertain_closed_state_or_hidden_helmet_never_requests_status_press(self):
+        for condition in ("offscreen", "no-helmet", "missing-windows", "popover-present"):
+            with self.subTest(condition=condition):
+                tree = {"elements": [copy.deepcopy(self.tree["elements"][0])], "windows": []}
+                if condition == "offscreen":
+                    tree["elements"][0]["frame"] = [[1001, 0], [50, 24]]
+                elif condition == "no-helmet":
+                    tree["elements"] = []
+                elif condition == "missing-windows":
+                    del tree["windows"]
+                else:
+                    tree["elements"].append({"AXRole": "AXPopover", "frame": [[100, 24], [500, 700]]})
+                self.proof.run = Mock(return_value=self.report)
+                self.proof.inspect = Mock(return_value=tree)
+                self.proof.press = Mock()
+                with patch.object(PROOF.UI.time, "monotonic", side_effect=[0, 30, 60]), \
+                        patch.object(PROOF.UI.time, "sleep"), \
+                        patch.object(PROOF.UI.UI, "capture_exact_window") as capture, \
+                        self.assertRaisesRegex(PROOF.UIFailure, "^native-proof-timeout$"):
+                    self.proof.matched("release-relaunch")
+                self.proof.press.assert_not_called()
+                self.assertEqual(self.proof.run.call_count, 2)
+                self.assertEqual(self.proof.inspect.call_count, 2)
+                capture.assert_not_called()
+
+    def test_uncertain_status_press_failure_propagates_without_retry(self):
+        self.proof.run = Mock(return_value=self.report)
+        self.proof.inspect = Mock(return_value={"elements": [self.tree["elements"][0]], "windows": []})
+        self.proof.press = Mock(side_effect=PROOF.UIFailure("proof-command-failed"))
+        with patch.object(PROOF.UI.time, "monotonic", side_effect=[0, 30, 60]), \
+                patch.object(PROOF.UI.time, "sleep") as sleep, \
+                patch.object(PROOF.UI.UI, "capture_exact_window") as capture, \
+                self.assertRaisesRegex(PROOF.UIFailure, "^proof-command-failed$"):
+            self.proof.matched("release-relaunch")
+        self.assertEqual(self.proof.press.call_args_list, [call("vikingbar.status")])
+        self.assertEqual(self.proof.run.call_count, 1)
+        self.assertEqual(self.proof.inspect.call_count, 1)
+        sleep.assert_not_called()
+        capture.assert_not_called()
+
     def test_cached_busy_retries_then_matches_identity_and_captures_verified_card(self):
         self.proof.run = Mock(side_effect=[PROOF.UIFailure("session-busy"), self.report])
         with patch.object(PROOF.UI.time, "sleep") as sleep, \

@@ -315,8 +315,9 @@ class RecoveryNative(UI.NativeProof):
 
     def matched(self, label, after=None):
         expanded = False
+        status_requested = False
         def observe():
-            nonlocal expanded
+            nonlocal expanded, status_requested
             try:
                 report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
             except UIFailure as error:
@@ -329,6 +330,13 @@ class RecoveryNative(UI.NativeProof):
                 if timestamp <= after:
                     return None
             tree = self.inspect(label + "-card.json")
+            if (UI.visible_status(tree, self.screens)
+                    and tree.get("windows") == []
+                    and not any(item.get("AXRole") == "AXPopover" for item in tree.get("elements", []))):
+                if not status_requested:
+                    status_requested = True
+                    self.press("vikingbar.status")
+                return None
             if (not expanded and not self.check.startswith("telenet-")
                     and any(item.get("AXIdentifier") == "vikingbar.bundleDetails" for item in tree.get("elements", []))
                     and not any(item.get("AXIdentifier") == "vikingbar.bundleDescription"
