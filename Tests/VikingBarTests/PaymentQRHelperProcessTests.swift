@@ -40,7 +40,8 @@ struct PaymentQRHelperProcessTests {
             try? FileManager.default.removeItem(at: fixture.marker)
         }
         try? FileManager.default.removeItem(at: fixture.marker)
-        let helper = PaymentQRHelper(executableURL: fixture.url, timeout: .seconds(2))
+        // Leave the normal startup budget under concurrent suite load; the child still outlives the timeout.
+        let helper = PaymentQRHelper(executableURL: fixture.url, timeout: .seconds(10))
         await #expect(throws: PaymentQRHelperError.unavailable) {
             try await helper.render(Self.details, now: Date(timeIntervalSince1970: 1000))
         }

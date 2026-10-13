@@ -10,7 +10,7 @@ Launch with `--fixture finite`, open the helmet, then footer **Settings**. Choos
 
 ## Native proof
 
-`make smoke-app-fixture` covers five fixtures and Not connected in icon-only and amount modes. It preserves status crops and settled balance captures for each selection. Read the [data card recipe](data-card.md) for navigation, selectors, and cleanup.
+The [maintained fixture gate](../SKILL.md#launch) covers five fixtures and Not connected in icon-only and amount modes. It preserves status crops and settled balance captures for each selection. Read the [data card recipe](data-card.md) for navigation, selectors, and cleanup.
 
 - Finite shows 36 GB remaining of 50 GB, 14 GB used, and 72% remaining.
 - Unlimited shows usage without a finite percentage and an infinity mark.
