@@ -2,6 +2,7 @@
 
 ## 0.1.1 (Unreleased)
 
+- Preserve provider decimal precision in Telenet API proof comparisons, avoiding false daily-history failures while retaining exact value checks.
 - Add Telenet daily download charts with the same hover and detail panel as Mobile Vikings, with partial-day and missing-data states, separate cycle totals, and labeled estimates.
 - Add Telenet residential home internet beside Mobile Vikings, with a visual allowance card, separate peak/off-peak traffic breakdown, billing periods, account-scoped cookie sessions, conservative polling, and native/CLI proof.
 - Report `session-busy` from CLI live reads when another process is updating the account, so verification can wait without interrupting the refresh.

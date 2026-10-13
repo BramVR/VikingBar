@@ -8,7 +8,7 @@ Source builds expose Mobile Vikings and Telenet home internet. The synthetic hom
 
 ## Drive
 
-Run `make smoke-app-fixture` under the parent skill's launch/doctor/cleanup contract. Inspect the provider/account controls and the named captures. Switch to the home provider: first service has 980 GB remaining, second 960 GB. Bills, Points, mobile bundle details, and My Viking are absent. Visit the failing home account, return to the original mobile account (36 GB), select the second mobile account (60 GB), then return to the original again. Match identity and allowance together; another account's success must not become the failed account's data.
+Run the [maintained fixture gate](../SKILL.md#launch) under the parent skill's launch/doctor/cleanup contract. Inspect the provider/account controls and the named captures. Switch to the home provider: first service has 980 GB remaining, second 960 GB. Its billing period is the launch month in Brussels. Bills, Points, mobile bundle details, and My Viking are absent. Visit the failing home account, return to the original mobile account (36 GB), select the second mobile account (60 GB), then return to the original again. Match identity and allowance together; another account's success must not become the failed account's data.
 
 Use the explicit synthetic CLI path for credential-free checks:
 

@@ -12,7 +12,7 @@
 
 ## How to get to it (user POV)
 
-Connect the live account, open the helmet, and choose **Bills**. The refresh control is icon-only, labeled **Refresh bills**. Use the Billing document picker when several documents exist. Initial selection prefers an eligible payable document, otherwise the first document; do not assume it is the newest. Inspect billing documents and their account or grouped scope. Use **Refresh bills** to retry or refresh. Expand **Bank transfer QR** for an eligible invoice; the app refreshes and revalidates before showing it. **Open PDF** requests and opens that document. The ordinary fixture keeps Refresh bills disabled. The separate `--payment-fixture` path supplies synthetic invoices, an isolated clipboard receipt, and a real bundled QR without account access.
+Select a connected Mobile Vikings account, open the helmet, and choose **Bills**. Telenet home services do not expose this destination. The refresh control is icon-only, labeled **Refresh bills**. Use the Billing document picker when several documents exist. Initial selection prefers an eligible payable document, otherwise the first document; do not assume it is the newest. Inspect billing documents and their account or grouped scope. Use **Refresh bills** to retry or refresh. Expand **Bank transfer QR** for an eligible invoice; the app refreshes and revalidates before showing it. **Open PDF** requests and opens that document. The ordinary fixture keeps Refresh bills disabled. The separate `--payment-fixture` path supplies synthetic invoices, an isolated clipboard receipt, and a real bundled QR without account access.
 
 ## Driving it with the native helper and CLI
 
