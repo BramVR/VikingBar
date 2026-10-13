@@ -20,6 +20,8 @@ The daily overview reuses the Mobile Vikings chart and companion identifiers. Ho
 
 The independent API receipt includes `daily_row_count`, `daily_history_matches`, and `forecast_matches`. The count covers retained dates through the fetch day. A successful forecast comparison requires at least three complete, continuous days from the current billing start, a fetch on the current Brussels day, and today within the active billing period. An early-cycle or incomplete-history account cannot pass that comparison. Raw daily responses remain in memory and never become fixtures or public proof.
 
+The oracle preserves JSON number precision as decimal values before exact comparison. High-precision numeric and quoted quantities must match retained daily rows; changed quantities and boolean-valued amounts still fail.
+
 If the restored cache predates daily history, is stale, or was fetched on a previous Brussels day, the runner presses native Refresh once after the manual request floor. It requires a newer report before chart proof. A fresh response without valid daily evidence still fails.
 
 The live gate passed locally on 2026-09-24. It verified the authorized native bootstrap, independent API comparison, native Refresh, provider switching, service retention, stored-session relaunch, and cleanup. The bootstrap and continuation used matching app and CLI hashes. The account reported unlimited service; finite CAP and policy-threshold behavior have fixture and model coverage. Natural expiry, renewal, and MFA remain unobserved. Private receipts are retained under `.build/proof/`.

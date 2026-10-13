@@ -26,13 +26,15 @@ private struct TelenetHomeReceipt: Encodable {
     }
 }
 
-private actor TelenetOracleTransport: TelenetTransport {
+actor TelenetOracleTransport: TelenetTransport {
     private let base: any TelenetTransport
+    private let now: @Sendable () -> Date
     private var responses: [String: Data] = [:]
     private var passwordRequests = 0
 
-    init(base: any TelenetTransport) {
+    init(base: any TelenetTransport, now: @escaping @Sendable () -> Date = Date.init) {
         self.base = base
+        self.now = now
     }
 
     func send(_ request: URLRequest) async throws -> TelenetResponse {
@@ -93,7 +95,7 @@ private actor TelenetOracleTransport: TelenetTransport {
         guard state.snapshot.allowance == expected, !account.services.isEmpty, account.services.count <= 8 else {
             throw LiveFailure.malformedResponse
         }
-        let dailyCount = try Self.verifyHistory(raw: rows[0], home: home)
+        let dailyCount = try Self.verifyHistory(raw: rows[0], home: home, now: self.now())
         return (account.services.count, dailyCount)
     }
 
@@ -104,7 +106,7 @@ private actor TelenetOracleTransport: TelenetTransport {
         let offPeak: Decimal
     }
 
-    private static func verifyHistory(raw: [String: Any], home: HomeUsage) throws -> Int {
+    private static func verifyHistory(raw: [String: Any], home: HomeUsage, now: Date) throws -> Int {
         guard let retained = home.dailyHistory, retained.period == home.period else {
             throw LiveFailure.malformedResponse
         }
@@ -126,7 +128,6 @@ private actor TelenetOracleTransport: TelenetTransport {
                 throw LiveFailure.malformedResponse
             }
         }
-        let now = Date()
         let presentation = HistoryPresentation(home: home, now: now)
         try Self.verifyPresentation(presentation, rows: expected, home: home, now: now, formatter: formatter)
         try Self.verifyForecast(presentation, rows: expected, home: home, now: now, formatter: formatter)
@@ -239,12 +240,10 @@ private actor TelenetOracleTransport: TelenetTransport {
             }
             return true
         }
-        guard matching.count == 1, let bytes = matching.first?.value,
-              let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any]
-        else {
+        guard matching.count == 1, let bytes = matching.first?.value else {
             throw LiveFailure.malformedResponse
         }
-        return object
+        return try TelenetOracleJSON.object(from: bytes)
     }
 
     private static func number(_ value: Any?) throws -> Decimal {
