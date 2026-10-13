@@ -317,7 +317,12 @@ class RecoveryNative(UI.NativeProof):
         expanded = False
         def observe():
             nonlocal expanded
-            report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
+            try:
+                report = self.run([str(self.cli), "live", "--cached"], label + "-report.json")
+            except UIFailure as error:
+                if str(error) == "session-busy":
+                    return None
+                raise
             if after is not None:
                 timestamp = (HOME.home_timestamp(report, self.account_selector) if self.check.startswith("telenet-")
                              else UI.successful_timestamp(report))
@@ -450,8 +455,16 @@ def run(check, environment, execute=subprocess.run):
             proof.matched("relaunch")
             receipt["stages"]["relaunch"] = True
             oracle = "telenet-home-api" if check == "telenet-remembered-sign-in" else "balance-api"
-            result = json.loads(proof.run([str(proof.cli), "proof", oracle], timeout=180))
-            (HOME.validate_api_receipt if check == "telenet-remembered-sign-in" else UI.validate_api_receipt)(result)
+            def api_check():
+                try:
+                    result = json.loads(proof.run([str(proof.cli), "proof", oracle], timeout=180))
+                    return (HOME.validate_api_receipt if check == "telenet-remembered-sign-in"
+                            else UI.validate_api_receipt)(result)
+                except UIFailure as error:
+                    if str(error) == "session-busy":
+                        return None
+                    raise
+            result = UI.wait_for(api_check, lambda value: value is not None, seconds=30)
             UI.private_write(proof.directory / "independent-usage.json", result)
             receipt["stages"]["independent_usage"] = True
             proof.quit()
@@ -572,12 +585,26 @@ def run_setup(check, environment, execute=subprocess.run):
                 proof.verify_process()
                 time.sleep(1)
         oracle = "telenet-home-api" if home else "balance-api"
-        result = json.loads(proof.run([str(proof.cli), "proof", oracle], timeout=180))
-        (HOME.validate_api_receipt if home else UI.validate_api_receipt)(result)
+        def api_check():
+            try:
+                result = json.loads(proof.run([str(proof.cli), "proof", oracle], timeout=180))
+                return (HOME.validate_api_receipt if home else UI.validate_api_receipt)(result)
+            except UIFailure as error:
+                if str(error) == "session-busy":
+                    return None
+                raise
+        result = UI.wait_for(api_check, lambda value: value is not None, seconds=30)
         UI.private_write(proof.directory / "independent-usage.json", result)
         receipt["stages"]["independent_usage"] = True
-        after_api = proof.run([str(proof.cli), "live", "--cached"], "after-api-report.json")
-        stamp = HOME.home_timestamp(after_api, proof.account_selector) if home else UI.successful_timestamp(after_api)
+        def after_api_timestamp():
+            try:
+                report = proof.run([str(proof.cli), "live", "--cached"], "after-api-report.json")
+                return HOME.home_timestamp(report, proof.account_selector) if home else UI.successful_timestamp(report)
+            except UIFailure as error:
+                if str(error) == "session-busy":
+                    return None
+                raise
+        stamp = UI.wait_for(after_api_timestamp, lambda value: value is not None, seconds=30)
         if home:
             floor = stamp + datetime.timedelta(seconds=61)
             while datetime.datetime.now(datetime.timezone.utc) < floor:

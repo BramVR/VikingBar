@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, Mock, patch
 import uuid
 
 SPEC = importlib.util.spec_from_file_location("session_recovery", Path(__file__).resolve().parents[1]
@@ -202,6 +202,101 @@ class RecoveryProofTests(unittest.TestCase):
                                     "--format", "json"])
 
 
+class RecoveryMatchingTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.proof = object.__new__(PROOF.RecoveryNative)
+        self.proof.check = "direct-connect-ui"
+        self.proof.cli = Path("/synthetic/vikingbar")
+        self.proof.directory = Path(self.temporary.name)
+        self.proof.account_selector = "mobile-vikings/00000000-0000-0000-0000-000000000002"
+        self.proof.process = Mock(pid=12345)
+        self.proof.peekaboo = Path("/synthetic/peekaboo")
+        self.proof.screens = [{"bounds": {"x": 0, "y": 0, "width": 1000, "height": 800}}]
+        self.proof.expected_connection = hashlib.sha256(b"00000000-0000-0000-0000-000000000003").hexdigest()
+        menu = {"remainingText": "30.00 GB", "freshnessText": "Last updated today", "accessibilityLabel": "VikingBar",
+                "title": "Synthetic SIM", "balanceTitle": "Data remaining", "usedText": "20.00 GB used",
+                "totalText": "50.00 GB total", "expiryText": "Expires tomorrow", "sourceLabel": "Live"}
+        snapshot = {"source": {"live": {}}, "freshness": {"current": {"lastUpdated": "2026-09-07T12:00:00Z"}}}
+        self.report = {"schemaVersion": 1, "snapshot": snapshot, "menu": menu, "balanceDetails": {},
+                       "state": {"snapshot": snapshot, "balance": {"bundles": [1]},
+                                 "connectionID": {"rawValue": "00000000-0000-0000-0000-000000000003"},
+                                 "account": {"key": {"provider": "mobile-vikings",
+                                                     "slot": "00000000-0000-0000-0000-000000000002"}},
+                                 "selectedSubscriptionID": "synthetic", "selectedBundleIndex": 0}}
+        self.tree = {"elements": [{"AXIdentifier": "vikingbar.status",
+                                   "AXDescription": "VikingBar, Synthetic SIM, Last updated today",
+                                   "frame": [[100, 0], [50, 24]]},
+                                  {"AXIdentifier": "vikingbar.remaining", "AXValue": "30.00 GB"},
+                                  {"AXIdentifier": "vikingbar.freshness", "AXValue": "Last updated today"}]
+                                + [{"AXValue": value} for value in menu.values()]}
+        for element in self.tree["elements"][1:]:
+            element["frame"] = [[120, 100], [200, 20]]
+        self.tree["elements"].append({"AXRole": "AXPopover", "frame": [[100, 24], [500, 700]]})
+        self.tree["windows"] = [{"kCGWindowNumber": 42, "kCGWindowOwnerPID": 12345,
+                                 "kCGWindowIsOnscreen": True, "kCGWindowAlpha": 1,
+                                 "kCGWindowBounds": {"X": 100, "Y": 24, "Width": 500, "Height": 700}}]
+        self.proof.inspect = Mock(return_value=self.tree)
+        self.proof.press = Mock(side_effect=AssertionError("busy observation must not press a control"))
+        self.proof.verify_worker = Mock()
+
+    def test_cached_busy_retries_then_matches_identity_and_captures_verified_card(self):
+        self.proof.run = Mock(side_effect=[PROOF.UIFailure("session-busy"), self.report])
+        with patch.object(PROOF.UI.time, "sleep") as sleep, \
+                patch.object(PROOF.UI.UI, "capture_exact_window") as capture:
+            self.assertEqual(self.proof.matched("connected"), self.report)
+        self.assertEqual(self.proof.run.call_args_list,
+                         [call(["/synthetic/vikingbar", "live", "--cached"], "connected-report.json")] * 2)
+        self.assertEqual(self.proof.inspect.call_args_list,
+                         [call("connected-card.json"), call("connected-before-capture.json"),
+                          call("connected-capture.json"), call("connected-capture.json")])
+        self.assertEqual(sleep.call_args_list, [call(0.25), call(0.25)])
+        self.proof.verify_worker.assert_called_once_with("connected")
+        self.assertEqual(capture.call_args.args[:4], (Path("/synthetic/peekaboo"), 12345, 42,
+                                                    self.proof.directory / "connected-card.png"))
+        self.assertFalse(self.proof.capture_suppressed)
+
+    def test_busy_retry_still_rejects_changed_connection_or_account_before_capture(self):
+        for mismatch in ("connection", "account"):
+            with self.subTest(mismatch=mismatch), patch.object(PROOF.UI.time, "sleep"), \
+                    patch.object(PROOF.UI.UI, "capture_exact_window") as capture:
+                report = copy.deepcopy(self.report)
+                if mismatch == "connection":
+                    report["state"]["connectionID"]["rawValue"] = "00000000-0000-0000-0000-000000000004"
+                else:
+                    report["state"]["account"]["key"]["slot"] = "00000000-0000-0000-0000-000000000004"
+                self.proof.run = Mock(side_effect=[PROOF.UIFailure("session-busy"), report])
+                with self.assertRaisesRegex(PROOF.UIFailure, "^recovery-" + mismatch + "-mismatch$"):
+                    self.proof.matched("connected")
+                self.assertEqual(self.proof.run.call_count, 2)
+                capture.assert_not_called()
+
+    def test_cached_non_busy_failure_propagates_without_capture(self):
+        self.proof.run = Mock(side_effect=PROOF.UIFailure("proof-command-failed"))
+        with patch.object(PROOF.UI.time, "sleep") as sleep, \
+                patch.object(PROOF.UI.UI, "capture_exact_window") as capture, \
+                self.assertRaisesRegex(PROOF.UIFailure, "^proof-command-failed$"):
+            self.proof.matched("connected")
+        self.proof.run.assert_called_once_with(["/synthetic/vikingbar", "live", "--cached"], "connected-report.json")
+        self.proof.inspect.assert_not_called()
+        sleep.assert_not_called()
+        capture.assert_not_called()
+
+    def test_repeated_cached_busy_reaches_existing_bounded_timeout(self):
+        self.proof.run = Mock(side_effect=PROOF.UIFailure("session-busy"))
+        with patch.object(PROOF.UI.time, "monotonic", side_effect=[0, 30, 60]), \
+                patch.object(PROOF.UI.time, "sleep") as sleep, \
+                patch.object(PROOF.UI.UI, "capture_exact_window") as capture, \
+                self.assertRaisesRegex(PROOF.UIFailure, "^native-proof-timeout$"):
+            self.proof.matched("connected")
+        self.assertEqual(self.proof.run.call_count, 2)
+        sleep.assert_called_once_with(0.25)
+        self.proof.inspect.assert_not_called()
+        self.proof.verify_worker.assert_not_called()
+        capture.assert_not_called()
+
+
 class RecoveryWorkerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -293,6 +388,7 @@ class RecoveryOrchestrationTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.events = []
+        self.command_results = {}
         self.phase_error = None
         self.failed_phase = None
         self.provider = {'passed': False, 'owned': True, 'bootstrap': True, 'restored': True,
@@ -341,6 +437,12 @@ class RecoveryOrchestrationTests(unittest.TestCase):
                 return {'elements': [{'AXIdentifier': 'vikingbar.connect.direct'}]}
             def run(self, command, *args, **kwargs):
                 owner.events.append(('run', command))
+                pending = owner.command_results.get(tuple(command[1:]))
+                if pending:
+                    result = pending.pop(0)
+                    if isinstance(result, Exception):
+                        raise result
+                    return result
                 if command[1:2] == ['proof']:
                     return json.dumps(owner.home_oracle if self.check.startswith('telenet-') else owner.mobile_oracle)
                 return {}
@@ -440,6 +542,93 @@ class RecoveryOrchestrationTests(unittest.TestCase):
                                  'failure': 'isolated-provider-switching-and-history-unverified'})
         self.assertEqual(self.credentials.call_count, 1)
         self.assertEqual(json.loads((self.directory / 'independent-usage.json').read_bytes()), self.home_oracle)
+
+    def test_read_stages_retry_busy_without_repeating_credentials_or_native_actions(self):
+        self.patched()
+        self.provider['passed'] = True
+        cases = ((PROOF.run, 'mobile-session-recovery', ('proof', 'balance-api'), json.dumps(self.mobile_oracle)),
+                 (PROOF.run_setup, 'direct-connect-ui', ('proof', 'balance-api'), json.dumps(self.mobile_oracle)),
+                 (PROOF.run_setup, 'direct-connect-ui', ('live', '--cached'), {'synthetic': 'after-api'}))
+        for runner, check, command, response in cases:
+            with self.subTest(runner=runner.__name__, command=command):
+                self.events.clear()
+                self.credentials.reset_mock()
+                self.command_results = {command: [PROOF.UIFailure('session-busy'), response]}
+                result = runner(check, {})
+                self.assertTrue(result['passed'])
+                self.assertTrue(result['stages']['independent_usage'])
+                self.assertEqual(json.loads((self.directory / 'independent-usage.json').read_bytes()), self.mobile_oracle)
+                self.credentials.assert_called_once()
+                self.assertEqual([event for event in self.events if isinstance(event, tuple)
+                                  and event[0] == 'run' and tuple(event[1][1:]) == command],
+                                 [('run', ['/synthetic/cli', *command])] * 2)
+                if runner is PROOF.run_setup:
+                    self.assertEqual([event for event in self.events if isinstance(event, tuple)
+                                      and event[0] == 'connect_form'], [('connect_form', {'password': 'sentinel'})])
+                    self.assertEqual([event for event in self.events if isinstance(event, tuple)
+                                      and event[0] == 'press'], [('press', 'vikingbar.refresh')])
+
+    def test_non_busy_read_failures_remain_failed_and_do_not_retry(self):
+        self.patched()
+        self.provider['passed'] = True
+        cases = ((PROOF.run, 'mobile-session-recovery', ('proof', 'balance-api'), False, 'native-stage-failed'),
+                 (PROOF.run_setup, 'direct-connect-ui', ('proof', 'balance-api'), False, 'proof-command-failed'),
+                 (PROOF.run_setup, 'direct-connect-ui', ('live', '--cached'), True, 'proof-command-failed'))
+        for runner, check, command, independent, failure in cases:
+            with self.subTest(runner=runner.__name__, command=command):
+                self.events.clear()
+                self.credentials.reset_mock()
+                self.command_results = {command: [PROOF.UIFailure('proof-command-failed')]}
+                result = runner(check, {})
+                self.assertFalse(result['passed'])
+                self.assertEqual(result['stages']['independent_usage'], independent)
+                self.assertTrue(result['stages']['cleanup'])
+                self.assertEqual(json.loads((self.directory / 'failure.json').read_bytes()),
+                                 {'passed': False, 'error': failure})
+                self.credentials.assert_called_once()
+                self.assertEqual([event for event in self.events if isinstance(event, tuple)
+                                  and event[0] == 'run' and tuple(event[1][1:]) == command],
+                                 [('run', ['/synthetic/cli', *command])])
+
+    def test_repeated_busy_read_stages_reach_bounded_timeout_and_cleanup(self):
+        self.patched()
+        self.provider['passed'] = True
+        cases = ((PROOF.run, 'mobile-session-recovery', ('proof', 'balance-api'), False, 'native-stage-failed'),
+                 (PROOF.run_setup, 'direct-connect-ui', ('proof', 'balance-api'), False, 'native-proof-timeout'),
+                 (PROOF.run_setup, 'direct-connect-ui', ('live', '--cached'), True, 'native-proof-timeout'))
+        for runner, check, command, independent, failure in cases:
+            with self.subTest(runner=runner.__name__, command=command), \
+                    patch.object(PROOF.UI.time, 'monotonic', side_effect=([0, 0, 15, 30]
+                                 if command == ('live', '--cached') else [0, 15, 30])):
+                self.events.clear()
+                self.credentials.reset_mock()
+                self.command_results = {command: [PROOF.UIFailure('session-busy')] * 3}
+                result = runner(check, {})
+                self.assertFalse(result['passed'])
+                self.assertEqual(result['stages']['independent_usage'], independent)
+                self.assertTrue(result['stages']['cleanup'])
+                self.assertEqual(json.loads((self.directory / 'failure.json').read_bytes()),
+                                 {'passed': False, 'error': failure})
+                self.credentials.assert_called_once()
+                self.assertEqual([event for event in self.events if isinstance(event, tuple)
+                                  and event[0] == 'run' and tuple(event[1][1:]) == command],
+                                 [('run', ['/synthetic/cli', *command])] * 2)
+
+    def test_null_api_receipt_fails_validation_instead_of_becoming_a_busy_retry(self):
+        self.patched()
+        self.provider['passed'] = True
+        for runner, check, failure in ((PROOF.run, 'mobile-session-recovery', 'native-stage-failed'),
+                                       (PROOF.run_setup, 'direct-connect-ui', 'api-proof-receipt-invalid')):
+            with self.subTest(runner=runner.__name__), \
+                    patch.object(PROOF.UI.time, 'monotonic', side_effect=[0, 30]):
+                self.events.clear()
+                self.command_results = {('proof', 'balance-api'): ['null']}
+                result = runner(check, {})
+                self.assertFalse(result['passed'])
+                self.assertFalse(result['stages']['independent_usage'])
+                self.assertTrue(result['stages']['cleanup'])
+                self.assertEqual(json.loads((self.directory / 'failure.json').read_bytes()),
+                                 {'passed': False, 'error': failure})
 
 
 class PreexistingApplicationTests(unittest.TestCase):
