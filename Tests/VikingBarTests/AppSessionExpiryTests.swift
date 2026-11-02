@@ -99,6 +99,48 @@ struct AppSessionExpiryTests {
         await model.stop()
     }
 
+    @Test func `failed account save restores prior account expiry`() async throws {
+        let directory = RejectingAccountDirectory()
+        let mobile = ModelTestClient(state: AppSessionTests.connected())
+        var homeState = AppSessionTests.connected()
+        homeState.account = AccountContext(key: FixtureAccounts.home, providerName: "Home fixture", services: [],
+                                           selectedService: nil, capabilities: .usageOnly)
+        let homeExpiry = LiveModelsTests.now.addingTimeInterval(2000)
+        homeState.snapshot = UsageSnapshot(
+            source: .live, subscriptionName: "Home SIM",
+            allowance: .finite(totalBytes: 100, usedBytes: 50, remainingBytes: 50),
+            expiresAt: homeExpiry, freshness: .current(lastUpdated: LiveModelsTests.now),
+        )
+        let home = ModelTestClient(state: homeState)
+        let sleeper = ModelTestSleeper()
+        var now = LiveModelsTests.now
+        let app = try AppSession(options: LaunchOptions(arguments: []), preferences: MenuBarPreferences(fileURL: nil),
+                                 clientFactory: { $0 == .legacy ? mobile : home }, accountDirectory: directory,
+                                 now: { now }, sleepUntil: { try await sleeper.sleep(until: $0) })
+        var presented: [UsageSnapshot] = []
+        app.onPresentationChange = { [weak app] in app.map { presented.append($0.snapshot) } }
+        app.start()
+        try await AppSessionTests.until { app.activity == .idle }
+        app.selectAccount(FixtureAccounts.home)
+        try await AppSessionTests.until { app.activity == .idle }
+        directory.rejecting = true
+        app.selectAccount(.legacy)
+        try await AppSessionTests.until { directory.pending != nil }
+        now = try #require(mobile.state.snapshot.expiresAt)
+        sleeper.wakeAll()
+        try await AppSessionTests.until { presented.last?.allowance == .unavailable }
+        directory.release()
+        try await AppSessionTests.until { app.activity == .idle }
+        #expect(app.selectedAccount == FixtureAccounts.home)
+        #expect(app.snapshot.allowance == homeState.snapshot.allowance)
+        let beforeExpiry = presented.count
+        now = homeExpiry
+        sleeper.wakeAll()
+        try await AppSessionTests.until { presented.count > beforeExpiry }
+        #expect(presented.last?.allowance == .unavailable)
+        await app.stop()
+    }
+
     private static func model(
         client: ModelTestClient, sleeper: ModelTestSleeper, now: @escaping () -> Date,
     ) throws -> AppSession {
@@ -107,5 +149,32 @@ struct AppSessionExpiryTests {
             clientFactory: { _ in client }, connectorFactory: { _ in ModelTestConnector(fails: true) },
             now: now, sleepUntil: { try await sleeper.sleep(until: $0) },
         )
+    }
+}
+
+@MainActor
+private final class RejectingAccountDirectory: AccountDirectoryClient {
+    var catalog = FixtureAccounts.catalog
+    var rejecting = false
+    var pending: CheckedContinuation<Void, Never>?
+    func snapshot() async throws -> CatalogSnapshot {
+        self.catalog
+    }
+
+    func reserve(provider _: ProviderID) async throws -> AccountEntry {
+        throw LiveFailure.requestDenied
+    }
+
+    func select(_ key: AccountKey, replacing _: AccountKey?) async throws {
+        if self.rejecting {
+            await withCheckedContinuation { self.pending = $0 }
+            throw LiveFailure.busy
+        }
+        self.catalog.selected = key
+    }
+
+    func release() {
+        self.pending?.resume()
+        self.pending = nil
     }
 }
