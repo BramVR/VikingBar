@@ -785,6 +785,7 @@ extension AppSession {
                 guard self.isCurrent(intent) else { return }
                 self.selectedAccount = previousKey
                 self.liveState = self.savedAccounts[previousKey] ?? LiveSessionState()
+                self.scheduleExpiry()
                 await self.failWorker(intent: intent)
             }
         }
