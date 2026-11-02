@@ -50,6 +50,10 @@ check-proof:
 	python3 Scripts/test-proof-runner.py
 	python3 -m unittest discover -s Scripts/tests -p 'test_telenet_proof.py'
 
+.PHONY: check-formal
+check-formal:
+	./Scripts/check-formal.sh
+
 proof-live: build
 	INSTALL_TARGET="$(INSTALL_TARGET)" python3 Scripts/proof-live.py "$(CHECK)"
 
