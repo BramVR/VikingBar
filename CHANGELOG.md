@@ -2,6 +2,7 @@
 
 ## 0.1.1 (Unreleased)
 
+- Stop Bills from waiting forever after the account worker stops during a bills, points, history, PDF, or payment read: queued reads now fail visibly and the error points to Refresh, which restarts the worker and re-enables Bills.
 - Keep a working Telenet session after an interrupted refresh or reconnect; only a reported authentication failure asks for the password again.
 - Keep a stale bank transfer QR or a cancelled "Checking" review from reappearing in Bills after an interval change or account restore.
 - Preserve provider decimal precision in Telenet API proof comparisons, avoiding false daily-history failures while retaining exact value checks.
