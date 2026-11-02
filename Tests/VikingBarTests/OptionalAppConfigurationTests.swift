@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import VikingBarApp
+@testable import VikingBarCore
 
 extension OptionalAppTests {
     @Test func `late configuration success after stop cannot enqueue metadata`() async throws {
@@ -17,6 +18,18 @@ extension OptionalAppTests {
         #expect(model.activity == .stopped)
         #expect(model.pendingOptional.isEmpty)
         #expect(client.requests == ["restore", "refresh", "configure"])
+    }
+
+    @Test func `configure reply never republishes the worker payment review`() async throws {
+        let client = try OptionalModelClient()
+        let model = try Self.model(client)
+        model.start()
+        try await AppSessionTests.until { model.activity == .idle && model.activeOptional == nil }
+        client.state.paymentReview = .checking(invoiceID: "inv-1")
+        model.refreshInterval = .oneHour
+        try await AppSessionTests.until { client.requests.last == "configure" && model.activity == .idle }
+        #expect(model.paymentReview == .idle)
+        await model.stop()
     }
 
     @Test func `configuration errors remain visible and delayed replies cannot undo reconnect`() async throws {

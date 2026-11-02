@@ -2,6 +2,7 @@
 
 ## 0.1.1 (Unreleased)
 
+- Keep a stale bank transfer QR or a cancelled "Checking" review from reappearing in Bills after an interval change or account restore.
 - Preserve provider decimal precision in Telenet API proof comparisons, avoiding false daily-history failures while retaining exact value checks.
 - Add Telenet daily download charts with the same hover and detail panel as Mobile Vikings, with partial-day and missing-data states, separate cycle totals, and labeled estimates.
 - Add Telenet residential home internet beside Mobile Vikings, with a visual allowance card, separate peak/off-peak traffic breakdown, billing periods, account-scoped cookie sessions, conservative polling, and native/CLI proof.

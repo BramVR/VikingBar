@@ -130,13 +130,11 @@ public extension LiveSessionState {
         self.points = state.points
     }
 
-    mutating func mergeInvoices(from state: LiveSessionState, includePaymentReview: Bool = true) {
+    mutating func mergeInvoices(from state: LiveSessionState) {
         guard self.account?.key == state.account?.key, self.connectionID == state.connectionID else { return }
         self.invoices = state.invoices
         self.invoiceFailure = state.invoiceFailure
-        if includePaymentReview {
-            self.paymentReview = state.paymentReview
-        }
+        self.paymentReview = state.paymentReview
     }
 
     mutating func setPaymentReview(_ review: PaymentReview?) {

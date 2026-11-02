@@ -364,9 +364,10 @@ extension AppSession {
                 state.mergeHistory(from: self.liveState)
             }
             state.mergePoints(from: self.liveState)
-            state.mergeInvoices(from: self.liveState, includePaymentReview: false)
+            state.mergeInvoices(from: self.liveState)
         } else {
             self.pendingOptional.removeAll()
+            state.setPaymentReview(nil)
         }
         self.liveState = state
         self.savedAccounts[self.selectedAccount] = state

@@ -22,7 +22,8 @@ public extension VikingSession {
 }
 
 extension VikingSession {
-    private func fetchPaymentReview(id: String?, generation: UInt64) async throws -> LiveSessionState {
+    func fetchPaymentReview(id: String?, generation: UInt64) async throws -> LiveSessionState {
+        try self.checkGeneration(generation)
         self.current.paymentReview = .checking(invoiceID: id)
         let connectionID = self.current.connectionID
         let snapshot: InvoiceSnapshot

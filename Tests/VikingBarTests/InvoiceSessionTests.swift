@@ -146,6 +146,23 @@ struct InvoiceSessionTests {
         #expect(failed.paymentReview == .unavailable(.refreshFailed, candidates: []))
     }
 
+    @Test func `payment review cancelled before its fetch stays cleared and sends no invoices request`() async throws {
+        let transport = InvoiceTestTransport(pages: [InvoiceTests.page([
+            InvoiceTests.item(extra: ",\"reference_number\":\"+++123/4567/89002+++\""),
+        ])])
+        let session = Self.session(transport, renderer: TestPaymentRenderer())
+        _ = try await session.bootstrap(credentials: LiveSessionTests.credentials)
+        _ = try await session.refresh()
+        let requests = await transport.requests.count
+        let started = await session.generation
+        await session.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await session.fetchPaymentReview(id: "inv-1", generation: started)
+        }
+        #expect(await session.state().paymentReview == nil)
+        #expect(await transport.requests.count == requests)
+    }
+
     static func session(
         _ transport: any ProofHTTPTransport,
         renderer: any PaymentQRRendering = UnavailablePaymentQRRenderer(),
