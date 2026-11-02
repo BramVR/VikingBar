@@ -75,7 +75,11 @@ CONSTANTS
     \* run's defer clears isRefreshing on every exit, not only on success.
     FaithfulDeferClearsSpinner,
     \* runOptional: while let flight = self.flight { await it }.
-    FaithfulOptionalWaits
+    FaithfulOptionalWaits,
+    \* fetchPaymentReview: checkGeneration before paymentReview = .checking
+    \* (#58, fixed in #60). Its own flag, not FaithfulCheckBeforeWrite, so
+    \* that mutant keeps breaking only NoStaleDataWrite.
+    FaithfulCancelDropsReview
 
 None == "none"
 NoBal == <<0, None>>
@@ -557,7 +561,8 @@ HistRead(i) ==
 
 \* fetchInvoices: paymentReview = nil; connectionID = current.connectionID;
 \* the token must be valid (else the catch); await api.invoices.
-\* fetchPaymentReview: paymentReview = .checking first, then the same.
+\* fetchPaymentReview: checkGeneration, paymentReview = .checking, then
+\* the same. A cancelled or superseded review throws before .checking.
 \* Their catch: checkGeneration, withConnectionLease: invoices unavailable
 \* (fetchInvoices) or paymentReview = .unavailable (fetchPaymentReview).
 InvCatch(i, e, s, t) ==
@@ -574,10 +579,12 @@ InvBody(i) ==
     /\ LET p == P(i)
            s == [cur[p] EXCEPT !.review = IF call[i].kind = "invoices" THEN "none" ELSE "checking"]
            k == [call[i] EXCEPT !.conn = cur[p].conn, !.tok = tok[p]]
-       IN /\ strayCheck' = (strayCheck \/ (call[i].kind = "review" /\ ~Fresh(i)))
-          /\ IF tok[p] = 0 \/ ~tokValid[p]
-             THEN InvCatch(i, cur[p].conn, s, tok[p])
-             ELSE Continue(i, "inv", k, s, tok[p], cache, lease, FALSE, FALSE)
+       IN IF call[i].kind = "review" /\ FaithfulCancelDropsReview /\ ~Fresh(i)
+          THEN Cancelled(i) /\ UNCHANGED strayCheck
+          ELSE /\ strayCheck' = (strayCheck \/ (call[i].kind = "review" /\ ~Fresh(i)))
+               /\ IF tok[p] = 0 \/ ~tokValid[p]
+                  THEN InvCatch(i, cur[p].conn, s, tok[p])
+                  ELSE Continue(i, "inv", k, s, tok[p], cache, lease, FALSE, FALSE)
     /\ UNCHANGED <<tokValid, rconn, conns, gen, revs, cancels, nCalls, restoredOther, optCancelled>>
 
 \* After await api.invoices. fetchInvoices: withConnectionLease {

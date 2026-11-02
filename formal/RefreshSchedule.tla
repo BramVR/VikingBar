@@ -55,7 +55,10 @@ CONSTANTS
     \* scheduleExpiry(): self.allowanceExpired = false.
     FaithfulExpiryReset,
     \* finish(): `if appliedInterval != refreshInterval { configureIfIdle() }`.
-    FaithfulFinishConfigures
+    FaithfulFinishConfigures,
+    \* selectAccount's catch: self.scheduleExpiry() after restoring the
+    \* previous account's liveState (fix for #57).
+    FaithfulSelectFailureArmsExpiry
 
 A == {"a", "b"}
 Telenet(k) == k = "b"
@@ -172,10 +175,13 @@ Finish(l, e) ==
 
 \* failWorker, first half: bridgeFailure = .unavailable, redraw, then
 \* await failed?.shutdown().
-FailWorker(l) ==
+\* e is allowanceExpired when the redraw runs.
+FailWorkerWith(l, e) ==
     /\ bridgeFail' = TRUE
-    /\ bar' = Draw(l, expired)
+    /\ bar' = Draw(l, e)
     /\ pc' = "failShutdown"
+
+FailWorker(l) == FailWorkerWith(l, expired)
 
 -----------------------------------------------------------------------------
 Init ==
@@ -357,22 +363,23 @@ OptionalFails ==
 Rest == <<now, awake, sleeps, wakePending, autoStreak>>
 
 \* selectAccount task: await accountDirectory.select(key). The catch
-\* (AppSession.swift:785-787) puts the previous account and its saved state
-\* back, then failWorker. It does not call scheduleExpiry: the expiry timer
-\* and allowanceExpired still describe the state it replaced (finding
-\* formal/findings/RefreshSchedule/SelectFailure*.cfg).
+\* (AppSession.swift:785-789) puts the previous account and its saved state
+\* back, calls scheduleExpiry (re-arms the timer and clears allowanceExpired
+\* for the restored state, #57 fixed in #59), then failWorker redraws.
+\* Mutants formal/mutants/RefreshSchedule/SelectFailure*.cfg drop it.
 Persist ==
     /\ pc = "persist"
     /\ \/ /\ pc' = "restore"
           /\ manual' = FALSE
-          /\ UNCHANGED <<selected, live, bridgeFail, bar>>
+          /\ UNCHANGED <<selected, live, bridgeFail, bar, expTimer, expired>>
        \/ /\ PersistCanFail
           /\ selected' = prev
           /\ live' = saved[prev]
-          /\ FailWorker(saved[prev])
+          /\ expTimer' = IF FaithfulSelectFailureArmsExpiry THEN Arm(saved[prev]) ELSE expTimer
+          /\ expired' = IF FaithfulSelectFailureArmsExpiry THEN FALSE ELSE expired
+          /\ FailWorkerWith(saved[prev], expired')
           /\ UNCHANGED manual
-    /\ UNCHANGED <<saved, savedFail, cache, client, activity, prev, desired, applied, scheduled,
-                   expTimer, expired>>
+    /\ UNCHANGED <<saved, savedFail, cache, client, activity, prev, desired, applied, scheduled>>
     /\ UNCHANGED Rest
 
 \* failWorker after `await failed?.shutdown()`: client = nil, idle. No

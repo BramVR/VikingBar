@@ -20,11 +20,11 @@ Token rotation and `session.lock` around the exchange are `formal/TokenRotation.
 - `NoStuckSpinner`: `isRefreshing` only while a non-optional flight runs. Harm: a stuck refresh spinner.
 - `FlightTracksRunning`: `flight` is set while a task runs its operation. Harm: restore, selectBundle, or bootstrap run alongside it.
 - `OptionalNeverCancelsRefresh`: an optional read never cancels a running refresh. Harm: background reads abort the user's refresh.
-- `NoStaleReviewCheck` (open finding, [#58](https://github.com/BramVR/VikingBar/issues/58)): a cancelled payment review does not set `.checking`. The code breaks it: `run`'s task leaves the actor between `checkGeneration` and the nonisolated operation closure; a `cancel()` there runs first, then `fetchPaymentReview` sets `paymentReview = .checking` unchecked, sends the invoices request, and throws. The worker keeps reporting "Checking"; the app's next `configure` or `restore` reply publishes it.
+- `NoStaleReviewCheck`: a cancelled or superseded payment review does not set `.checking`. Harm: the worker keeps reporting "Checking"; the app's next `configure` or `restore` reply publishes it. Was finding [#58](https://github.com/BramVR/VikingBar/issues/58) (a `cancel()` between `run`'s `checkGeneration` and the nonisolated operation closure); fixed in #60: `fetchPaymentReview` calls `checkGeneration` before setting `.checking`.
 
 ## Coverage and sync
 
-Sync commit: `91b1b01`. At that commit the model describes:
+Sync commit: `5ec752b`. At that commit the model describes:
 
 - `Sources/VikingBarCore/VikingSession.swift`: `bootstrapWithDiagnostics`, `restore`, `refresh`, `refreshPoints`, `selectSubscription`, `selectBundle`, `cancel`, `connect`, `fetch`, `fetchBalance`, `authorize` (adopt, token reuse, held-lease exchange), `withConnectionLease`, `recordFailure`, `adopt`, `checkGeneration`.
 - `VikingSessionOperation.swift`: `runOptional`, `run`, `InFlight`, `OperationKind.isOptional`.
@@ -33,7 +33,7 @@ Sync commit: `91b1b01`. At that commit the model describes:
 - Call serialization: `SessionCommandQueue` in `Sources/VikingBarCLI/SessionCommands.swift`.
 
 ```sh
-git diff --stat 91b1b01 -- Sources/VikingBarCore/VikingSession*.swift Sources/VikingBarCore/SessionPersistence.swift Sources/VikingBarCore/UsageHistory.swift Sources/VikingBarCore/LiveModels.swift Sources/VikingBarCore/ProviderAccounts.swift Sources/VikingBarCLI/SessionCommands.swift
+git diff --stat 5ec752b -- Sources/VikingBarCore/VikingSession*.swift Sources/VikingBarCore/SessionPersistence.swift Sources/VikingBarCore/UsageHistory.swift Sources/VikingBarCore/LiveModels.swift Sources/VikingBarCore/ProviderAccounts.swift Sources/VikingBarCLI/SessionCommands.swift
 ```
 
 Output means: read the diff against the mapping below before trusting a pass.
@@ -44,12 +44,12 @@ Output means: read the diff against the mapping below before trusting a pass.
 ./Scripts/check-formal.sh VikingWorker   # `make check-formal` runs every model
 ```
 
-About 35 seconds (main model 6 million states, 18 s). Expect `PASS VikingWorker`, ten `PASS ... mutant` lines, and `OPEN VikingWorker finding CancelledReviewChecks`. Read results with the pstack `/statechart` skill on `formal/VikingWorker.tla` and the config that produced it; for a chart use `MaxCalls = 2`, `Concurrent = FALSE`.
+About 35 seconds (main model 6 million states, 18 s). Expect `PASS VikingWorker` and eleven `PASS ... mutant` lines; no open findings. Read results with the pstack `/statechart` skill on `formal/VikingWorker.tla` and the config that produced it; for a chart use `MaxCalls = 2`, `Concurrent = FALSE`.
 
 ## Model-to-code mapping
 
 - One TLC step is actor code between two awaits. `call[i]` is one public call plus its `run()` task; old tasks keep running after cancel until they check.
-- `Concurrent = TRUE` (main config) lets a process start calls while others run, the actor's own contract. Production serializes calls per process (`SessionCommandQueue`) except `cancel`; the finding config uses `Concurrent = FALSE` to show it is reachable there.
+- `Concurrent = TRUE` (main config) lets a process start calls while others run, the actor's own contract. Production serializes calls per process (`SessionCommandQueue`) except `cancel`; the `CancelledReviewChecks` mutant uses `Concurrent = FALSE` to show the old bug was reachable there.
 - `RefreshStart`, `SelectStart`, `OptStart`, `OptWait`, `Run`: `refresh` (join or busy on a non-optional flight), `selectSubscription`, `runOptional`'s wait loop (generation and connection checks), `run` (cancel previous, capture generation, `isRefreshing`, `flight`).
 - `Prev`: the task awaits the previous task and checks the generation. `prev` -> `body` is the hop into the nonisolated operation closure.
 - `RefreshAuth`, `PointsAuth`, `Exchange`: `authorize`. `Subs_`, `Balance`: `fetchBalance`'s two awaits and lease blocks. `Points`: both points reads, merged. `HistBody`, `HistRead`, `HistPublish`: `fetchHistory`/`checkHistory`. `InvBody`, `Invoices`, `InvCatch`: `fetchInvoices` and `fetchPaymentReview` (render merged into the invoices answer). `ConnBody`, `ConnToken`: `connect`.
@@ -67,12 +67,11 @@ Mutants in `formal/mutants/VikingWorker/`, each with an `\* expect:` line:
 - `FaithfulDeferChecksId` -> `DeferClearsAnyFlight` breaks `FlightTracksRunning`.
 - `FaithfulDeferClearsSpinner` -> `SpinnerClearedOnSuccessOnly` breaks `NoStuckSpinner`.
 - `FaithfulOptionalWaits` -> `OptionalSkipsWait` breaks `OptionalNeverCancelsRefresh`.
+- `FaithfulCancelDropsReview` (`fetchPaymentReview`'s first `checkGeneration`, #60) -> `CancelledReviewChecks` breaks `NoStaleReviewCheck`.
 
 ## When a check fails
 
 Map each trace step to the code. A trace every step of which the code allows is a real bug; tell it in the code's words. Check UI reachability: production calls are serialized per process, so a `Concurrent`-only trace is a contract break, not a user bug. If asked, file an issue with the `/statechart` chart and the bug path, and record it as `formal/findings/VikingWorker/<Name>.cfg` with `\* expect:` and `\* issue:` lines. Do not weaken a rule or change product code unless asked. If a step is impossible in the code, fix the model and cite the line. A mutant that passes means the model lost its power.
-
-If `CancelledReviewChecks` stops failing, the code changed: if fixed on purpose, delete the finding config and add `NoStaleReviewCheck` to `formal/VikingWorker.cfg`.
 
 ## When the change is intended
 
