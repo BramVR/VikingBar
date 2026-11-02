@@ -13,12 +13,12 @@ Use this skill before handing off any change to how the app queues optional read
 - `QRNotExpired`: a visible QR is not past `expiresAt` unless its expiry timer is armed. Harm: paying an amount verified more than five minutes ago.
 - `PdfMatchesRequest`: an opened PDF is the requested invoice of the shown connection. Harm: another bill or another customer's bill opens.
 - `PumpNotForgotten`: idle, connected, with a client and no optional operation, the queue is empty. Harm: reads never run and "Refreshing bills" stays on.
-- `StuckQueueReported` (open finding `OptionalFailureHidesStoppedWorker`, [#56](https://github.com/BramVR/VikingBar/issues/56)): queued work that cannot run because the client is gone comes with the worker-stopped message. The code breaks it: an optional read whose worker dies sets `client = nil` without `bridgeFailure`, so Bills shows "Could not load bills. Try again." with its retry disabled, and later reads wait for the next scheduled refresh.
-- Open finding `ConfigureRepublishesStaleQR` ([#58](https://github.com/BramVR/VikingBar/issues/58)) (breaks `QRMatchesView` with `UserBeatsConfigure = TRUE`): the worker keeps `.ready` after a collapse; `configure` returns it; `publish` takes it; `reviewPayment` returns early while bills load, so the old QR shows for another invoice, with no expiry timer. The user must reopen Bills during the configure round trip, so the main config assumes they cannot.
+- `StuckQueueReported`: settled with queued work, either a client can run it or the worker-stopped message shows. Harm: "Refreshing bills"/history loading stays on with Bills, PDF and QR disabled and no error. Former finding [#56](https://github.com/BramVR/VikingBar/issues/56), fixed in #62: `pumpOptional`'s `catch` now runs `failOptional` for the read and every queued one and empties `pendingOptional` before `client = nil`.
+- `QRMatchesView` also covers former finding [#58](https://github.com/BramVR/VikingBar/issues/58), fixed in #60: `publish` keeps the app's `paymentReview` for the same connection (`mergeInvoices(from: liveState)`) and clears it for another, so a `.ready` QR the worker kept after a collapse no longer comes back through `configure`/`refresh`. The main config sets `UserBeatsConfigure = TRUE` (the user may reach Bills during a configure round trip).
 
 ## Coverage and sync
 
-Sync commit: `91b1b01`. At that commit the model describes:
+Sync commit: `a797ae0`. At that commit the model describes:
 
 - `Sources/VikingBar/AppSessionOptional.swift`: `loadInvoices`, `reviewPayment` (non-fixture), `clearPaymentReview`, `clearPaymentExpiry`, `schedulePaymentExpiry`, `openInvoice`, `enqueueOptional`, `interruptOptional`, `pumpOptional`, `publishOptional`.
 - `Sources/VikingBar/AppSession.swift`: `begin`, `finish`, `perform`, `publish`, `failWorker`, `configureIfIdle`, `applyInterval`, `restoreAndPerform`, `selectAccount`, `refresh`.
@@ -27,7 +27,7 @@ Sync commit: `91b1b01`. At that commit the model describes:
 - `Sources/VikingBarCore`: `VikingSessionInvoices.swift`, `VikingSessionOperation.swift` (`run`, `runOptional`), `VikingSession.swift` (`configure`, `cancel`), `ProviderAccounts.swift` (`perform`), `LiveModels.swift` (`mergeInvoices`), `InvoicePayment.swift` (lifetime).
 
 ```sh
-git diff --stat 91b1b01 -- Sources/VikingBar/AppSessionOptional.swift Sources/VikingBar/AppSession.swift \
+git diff --stat a797ae0 -- Sources/VikingBar/AppSessionOptional.swift Sources/VikingBar/AppSession.swift \
   Sources/VikingBar/InvoicesView.swift Sources/VikingBar/SessionProcessClient.swift \
   Sources/VikingBarCLI/SessionCommands.swift Sources/VikingBarCore/VikingSessionInvoices.swift \
   Sources/VikingBarCore/VikingSessionOperation.swift Sources/VikingBarCore/VikingSession.swift \
@@ -41,7 +41,7 @@ git diff --stat 91b1b01 -- Sources/VikingBar/AppSessionOptional.swift Sources/Vi
 ./Scripts/check-formal.sh OptionalQueue   # `make check-formal` runs every model
 ```
 
-About 30 seconds; the main config explores 2.5 million states. Expect `PASS OptionalQueue`, five `PASS ... mutant` lines, and two `OPEN` lines. Read every result with the pstack `/statechart` skill on `formal/OptionalQueue.tla` and the config that produced it; for a chart use `MaxOps = 2`, `MaxOptStarts = 2`, `MaxCrashes = 0`.
+About 30 seconds; the main config explores 2.6 million states. Expect `PASS OptionalQueue` and seven `PASS ... mutant` lines. Read every result with the pstack `/statechart` skill on `formal/OptionalQueue.tla` and the config that produced it; for a chart use `MaxOps = 2`, `MaxOptStarts = 2`, `MaxCrashes = 0`.
 
 ## Model-to-code mapping
 
@@ -61,6 +61,8 @@ Mutants in `formal/mutants/OptionalQueue/`, each with an `\* expect:` line:
 - `FaithfulExpiryTimer` -> `ExpiryNotScheduled` breaks `QRNotExpired`.
 - `FaithfulDocumentChecks` -> `DocumentUnchecked` breaks `PdfMatchesRequest`.
 - `FaithfulPumpOnSettle` -> `PumpSkipped` breaks `PumpNotForgotten`.
+- `FaithfulStopFailsQueue` -> `OptionalFailureHidesStoppedWorker` breaks `StuckQueueReported` (code before #62: the `catch` failed only the active read and kept `pendingOptional`).
+- `FaithfulDropStaleReview` -> `ConfigureRepublishesStaleQR` breaks `QRMatchesView` (code before #60: `publish` took the worker's `paymentReview`). Needs `UserBeatsConfigure = TRUE`, `MaxOps = 2`, `MaxOptStarts = 3`.
 
 ## When a check fails
 
@@ -72,6 +74,7 @@ Edit the matching actions, one per main-actor step or worker command, with a com
 
 ## Assumptions and limits
 
+- The worker's `fetchPaymentReview` generation check (#60) is the VikingWorker model; here a cancel marks queued commands cancelled on arrival.
 - Two invoices, both listed and payable; accounts a and b, one connection each (connection ids encode the account). CLI reconnects are not modeled.
 - Only the current operation Task is kept; superseded ones exit at `isCurrent` (AccountSwitching model), but their commands still run in the worker.
 - Waiting on cancellation: perform/configure and optional Tasks wait for every cancel sent so far (the code chains through `optionalCancellation`; `pumpOptional` can drop the link).

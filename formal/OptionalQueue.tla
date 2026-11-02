@@ -65,7 +65,13 @@ CONSTANTS
     \* invoiceDocument = nil, and publishOptional's document.invoiceID == id.
     FaithfulDocumentChecks,
     \* finish() and pumpOptional's defer call pumpOptional().
-    FaithfulPumpOnSettle
+    FaithfulPumpOnSettle,
+    \* pumpOptional's catch fails the read and every queued one
+    \* (failOptional) and empties pendingOptional before client = nil (#56).
+    FaithfulStopFailsQueue,
+    \* publish(state) keeps the app's paymentReview for the same connection
+    \* (mergeInvoices(from: liveState)) and drops it for another (#58).
+    FaithfulDropStaleReview
 
 Accts == {"a", "b"}
 ConnOf(k) == IF k = "a" THEN 1 ELSE 2
@@ -169,15 +175,17 @@ Finish(x) ==
     ELSE IF FaithfulPumpOnSettle THEN Pump(y) ELSE y
 
 \* publish(state): drop another account's state; same connection keeps the
-\* shown invoices but takes the worker's paymentReview
-\* (mergeInvoices(includePaymentReview: false) on the incoming state);
-\* another connection replaces everything and clears pendingOptional.
+\* shown invoices and paymentReview (state.mergeInvoices(from: liveState));
+\* another connection replaces everything, clears pendingOptional and sets
+\* paymentReview = nil. Unfaithful (before #60): both take the worker's
+\* paymentReview, which can be a .ready QR the app already collapsed.
 Publish(x, r) ==
     IF r.conn # 0 /\ AcctOf(r.conn) # x.selected THEN x
     ELSE IF r.conn = x.liveConn
-         THEN [x EXCEPT !.review = r.review, !.bridgeFail = FALSE,
+         THEN [x EXCEPT !.review = IF FaithfulDropStaleReview THEN @ ELSE r.review, !.bridgeFail = FALSE,
                         !.saved = [@ EXCEPT ![x.selected] = r.conn]]
-         ELSE [x EXCEPT !.review = r.review, !.liveConn = r.conn, !.pending = << >>, !.bridgeFail = FALSE,
+         ELSE [x EXCEPT !.review = IF FaithfulDropStaleReview THEN NoReview ELSE r.review,
+                        !.liveConn = r.conn, !.pending = << >>, !.bridgeFail = FALSE,
                         !.saved = [@ EXCEPT ![x.selected] = r.conn]]
 
 \* failWorker: bridgeFailure = .unavailable, await shutdown, client = nil,
@@ -454,12 +462,19 @@ OptResume(n) ==
                /\ badPdf' = (badPdf \/ (ok /\ Opens(o.it, r)
                                         /\ (r.doc # o.it.i \/ r.conn # s.liveConn)))
                /\ UNCHANGED wv
-          \* catch: guard revision current; payment -> unavailable; client =
-          \* nil; await client.shutdown(); then the defer.
+          \* catch: guard revision current; failOptional for this read (and,
+          \* faithfully, every queued one: a payment -> unavailable), then
+          \* pendingOptional.removeAll(); client = nil; await
+          \* client.shutdown(); then the defer. ReviewPayment's Loading guard
+          \* keeps at most one payment intent in flight.
           ELSE IF o.cur
-               THEN /\ s' = Defer([x EXCEPT !.client = 0,
-                                    !.review = IF o.it.k = "pay"
-                                               THEN [k |-> "unavail", inv |-> o.it.i, conn |-> s.liveConn, exp |-> 0]
+               THEN LET failed == IF FaithfulStopFailsQueue THEN <<o.it>> \o x.pending ELSE <<o.it>>
+                        pays == SelectSeq(failed, LAMBDA e : e.k = "pay")
+                    IN
+                    /\ s' = Defer([x EXCEPT !.client = 0,
+                                    !.pending = IF FaithfulStopFailsQueue THEN << >> ELSE @,
+                                    !.review = IF pays # << >>
+                                               THEN [k |-> "unavail", inv |-> Head(pays).i, conn |-> s.liveConn, exp |-> 0]
                                                ELSE @])
                     /\ wv' = Kill(o.wk)
                     /\ UNCHANGED badPdf

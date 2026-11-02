@@ -10,13 +10,13 @@ Use this skill before handing off any change to how VikingBar signs in to Telene
 ## Rules the model checks
 
 - `RequestsSpaced`: no call starts within a minute of the previous call's start, or before a saved `Retry-After`. Harm: VikingBar hammers Telenet after it asked to wait.
-- `NoRejectedSessionReuse`: no request reuses a cookie session that Telenet already answered 401 for. Harm: a background loop of failing requests instead of one reconnect prompt.
+- `NoRejectedSessionReuse`: no request reuses a cookie session that Telenet already answered 401 for, once that 401's record save landed. Harm: a background loop of failing requests instead of one reconnect prompt.
 - `ReconnectSticks`: the Keychain keeps the connection from the latest saved login. Harm: a reconnect the user just finished is replaced by the old session.
-- `ReconnectOnlyWhenNeeded` (open finding, [#55](https://github.com/BramVR/VikingBar/issues/55)): with no call running, the record asks for reconnect only if Telenet no longer accepts its session. The current code breaks it: a refresh saves the pending flag, then the process dies, and a working session now demands a password.
+- `ReconnectOnlyWhenNeeded`: with no call running, the record asks for reconnect only if Telenet no longer accepts its session. Harm: quitting the app or pressing Ctrl-C mid-refresh forces a password sign-in for a working session. Was open finding [#55](https://github.com/BramVR/VikingBar/issues/55), fixed in #61: `reserveAttempt` and connect's new `Record` no longer set `rotationPending`.
 
 ## Coverage and sync
 
-Sync commit: `91b1b01`. At that commit the model describes this code:
+Sync commit: `d4f3a59`. At that commit the model describes this code:
 
 - `Sources/VikingBarCore/TelenetHomeAccount.swift`: `connect`, `restore` (pending check only), `refresh`, `read`, `reserveAttempt`, `finishFailure`, `loadRecord`, `saveRecord`, `Record`.
 - `Sources/VikingBarCore/TelenetAPI.swift`: `send` and `json` (cookie receive, 401/403/3xx/429 mapping).
@@ -25,7 +25,7 @@ Sync commit: `91b1b01`. At that commit the model describes this code:
 To see whether a change needs a recheck:
 
 ```sh
-git diff --stat 91b1b01 -- Sources/VikingBarCore/TelenetHomeAccount.swift Sources/VikingBarCore/TelenetAPI.swift Sources/VikingBarCore/SessionPersistence.swift
+git diff --stat d4f3a59 -- Sources/VikingBarCore/TelenetHomeAccount.swift Sources/VikingBarCore/TelenetAPI.swift Sources/VikingBarCore/SessionPersistence.swift
 ```
 
 Output means: read the diff against the mapping below before trusting a pass.
@@ -36,23 +36,23 @@ Output means: read the diff against the mapping below before trusting a pass.
 ./Scripts/check-formal.sh TelenetSession   # `make check-formal` runs every model
 ```
 
-Needs Java 11+; the first run downloads pinned TLC. It takes about 20 seconds (15 million states). Logs are in `.build/formal/TelenetSession*.log`.
+Needs Java 11+; the first run downloads pinned TLC. It takes about 20 seconds (12 million states). Logs are in `.build/formal/TelenetSession*.log`.
 
-Expect one `PASS TelenetSession`, five `PASS ... mutant` lines, and one `OPEN ... InterruptForcesReconnect` line. Any `FAIL` is a problem:
+Expect one `PASS TelenetSession` and six `PASS ... mutant` lines. No findings are open. Any `FAIL` is a problem:
 
 - The main model failing: a rule that held now breaks. That is a finding about the change.
 - A mutant passing: the model lost the power to catch that bug. Fix the model.
-- The finding no longer breaking: the code changed. If #55 was fixed on purpose, delete `formal/findings/TelenetSession/InterruptForcesReconnect.cfg`, add `ReconnectOnlyWhenNeeded` to `formal/TelenetSession.cfg`, and say so on the issue. Otherwise find out what changed.
+- A finding no longer breaking: the code changed. If it was fixed on purpose, move its rule into `formal/TelenetSession.cfg`, turn the finding into a mutant with a new `Faithful*` flag (as `InterruptForcesReconnect` was for #55), and say so on the issue. Otherwise find out what changed.
 
-Read every result with the pstack `/statechart` skill on `formal/TelenetSession.tla` and the config that produced it: on a failure, its shortest bad path in plain words; on a pass, a chart of how a session moves. With 15 million states, give `/statechart` a smaller config (one worker, `MaxTime = 2`) for the chart.
+Read every result with the pstack `/statechart` skill on `formal/TelenetSession.tla` and the config that produced it: on a failure, its shortest bad path in plain words; on a pass, a chart of how a session moves. With 12 million states, give `/statechart` a smaller config (one worker, `MaxTime = 2`) for the chart.
 
 ## Model-to-code mapping
 
 - `Acquire`: `self.lease.acquire()` then `loadRecord()`. `busy` and a held flock both throw before any step. `prior` is `record.rotationPending` as loaded, which connect hands to `finishFailure(.replacementLogin)`.
-- `Reserve`: refresh's `guard !record.rotationPending`, then `reserveAttempt`. It checks the deadline (connect passes `reconnecting: true`, which ignores `nextAllowedAt`), sets `nextAttemptAt = now + 60` and `rotationPending = true`, and saves. Both throw outside the `do`/`catch`.
+- `Reserve`: refresh's `guard !record.rotationPending`, then `reserveAttempt`. It checks the deadline (connect passes `reconnecting: true`, which ignores `nextAllowedAt`), sets `nextAttemptAt = now + 60`, and saves; `rotationPending` keeps its loaded value. Both throw outside the `do`/`catch`.
 - `ReadRequest`: `api.discover()` plus `api.read` as one request: ok (Telenet may replace the cookie), 429, 401 for a dead session, or a lost response. Only a received 401 marks the session rejected.
-- `ReadFinish`: `read`'s save on success, or `finishFailure` on failure. If the success save throws, the catch runs `finishFailure` as a storage failure. If the last save throws, the reserved record stays.
-- `LoginRequest` / `LoginSaved`: `api.login`, then the new `Record(connectionID: ConnectionID(), established: true, rotationPending: true)`. If that save throws, `finishFailure(.currentSession)` saves the same new connection without the flag.
+- `ReadFinish`: `read`'s save on success, or `finishFailure` on failure. If the success save throws, the catch runs `finishFailure` as a storage failure. If the last save throws, the reserved record stays. A 401 marks the session rejected only here, when `finishFailure`'s save lands.
+- `LoginRequest` / `LoginSaved`: `api.login`, then the new `Record(connectionID: ConnectionID(), established: true)` (`rotationPending` defaults to false). If that save throws, `finishFailure(.currentSession)` saves the same new connection without the flag.
 - `LoginFinishFailed`: `finishFailure(.replacementLogin)`: prior cookies, prior `needsReconnect`, saved deadlines.
 - `SessionEnds`: Telenet expiry or revocation. `Crash`: the process ends; the kernel releases the flock.
 
@@ -63,6 +63,7 @@ The `Faithful*` constants are `TRUE` for the code at the sync commit. Each has a
 - `FaithfulAuthFailureMarksReconnect` → `AuthFailureForgotten` breaks `NoRejectedSessionReuse`.
 - `FaithfulSaveRetryAfter` → `RetryAfterDropped` breaks `RequestsSpaced`.
 - `FaithfulRefreshHonorsPending` → `PendingIgnored` breaks `NoRejectedSessionReuse`.
+- `FaithfulInterruptKeepsSession` → `InterruptForcesReconnect` breaks `ReconnectOnlyWhenNeeded` (the pre-#61 `rotationPending = true` on reserve and new login).
 
 ## When a check fails
 
@@ -81,6 +82,6 @@ If a step is impossible in the code, the model is wrong. Common modeling errors:
 
 - Telenet may replace a cookie on any response and may end a session at any time; whether it does is unverified, so the model allows both.
 - The 401 path stands for every `authenticationFailed` failure (401, 403, 3xx).
-- A 429 counts toward `RequestsSpaced` only once a record save follows it. A crash or failed write before that loses the deadline in any design.
+- A 429 counts toward `RequestsSpaced`, and a 401 toward `NoRejectedSessionReuse`, only once a record save follows it. A crash or failed write before that loses it; the only guard, flagging every reservation as pending, is the #55 bug. Cost: one repeat request with the dead cookie, whose 401 then saves.
 - Bounds: 2 workers, 3 minutes, 4 cookie sessions, 2 saved logins, backoff and `Retry-After` of 2 minutes (the code's backoff is 30 minutes or more; only its order relative to the floor matters).
 - Not modeled: hourly automatic polling (an app scheduler deadline, not a record field), the jitter, `failures` counting, daily-usage failures, service selection, the balance cache, and in-actor `busy` and generation checks.

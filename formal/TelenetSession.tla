@@ -39,7 +39,10 @@ CONSTANTS
     \* finishFailure: serverRetryAfter = max(serverRetryAfter, retryAfter).
     FaithfulSaveRetryAfter,
     \* refresh: guard !record.rotationPending else reconnectRequired.
-    FaithfulRefreshHonorsPending
+    FaithfulRefreshHonorsPending,
+    \* reserveAttempt and connect's new Record leave rotationPending alone
+    \* (#55, fixed in #61); FALSE restores the old `rotationPending: true`.
+    FaithfulInterruptKeepsSession
 
 None == "none"
 Never == 0           \* deadlines hold minute + 1, so 0 means "none"
@@ -51,7 +54,7 @@ VARIABLES
     lease,       \* worker holding session.lock, or None
     store,       \* Keychain Record: conn, cookie, pending, attemptAt, retryAt, allowedAt
     live,        \* cookie sessions Telenet still accepts
-    rejected,    \* cookie sessions a worker has received a 401 for
+    rejected,    \* cookie sessions answered 401 with a record save after
     cookies,     \* cookie sessions issued so far (newest id)
     conns,       \* connection incarnations saved so far
     pc,
@@ -119,16 +122,17 @@ Acquire(w, kind) ==
     /\ UNCHANGED <<now, store, conns, jar, outcome, server, history>>
 
 \* refresh: guard !rotationPending. reserveAttempt: deadline check (connect
-\* ignores the failure backoff), then nextAttemptAt = now + 60 s and
-\* rotationPending = true, saved before any request. Both throw outside the
-\* do/catch, so a refusal or failed save writes nothing more.
+\* ignores the failure backoff), then nextAttemptAt = now + 60 s, saved
+\* before any request; rotationPending keeps its loaded value. Both throw
+\* outside the do/catch, so a refusal or failed save writes nothing more.
 Reserve(w) ==
     /\ pc[w] \in {"refresh", "connect"}
     /\ LET r == copy[w]
            deadline == IF pc[w] = "connect" THEN Max(r.attemptAt, r.retryAt)
                        ELSE Max(r.attemptAt, Max(r.retryAt, r.allowedAt))
            due == At(now) >= deadline
-           reserved == [r EXCEPT !.attemptAt = At(now + 1), !.pending = TRUE]
+           reserved == [r EXCEPT !.attemptAt = At(now + 1),
+                                 !.pending = (r.pending \/ ~FaithfulInterruptKeepsSession)]
        IN IF (pc[w] = "refresh" /\ r.pending /\ FaithfulRefreshHonorsPending)
              \/ (~due /\ FaithfulReserveChecksDeadline)
           THEN Finish(w) /\ UNCHANGED <<store, copy, lastStart, burst>>
@@ -163,9 +167,8 @@ ReadRequest(w) ==
                   /\ UNCHANGED <<live, cookies>>
           ELSE /\ \E o \in {"unauthorized", "transport"} : Answer(w, o, c)
                /\ UNCHANGED <<live, cookies>>
-       /\ rejected' = IF outcome'[w] = "unauthorized" THEN rejected \cup {c} ELSE rejected
     /\ Goto(w, "readAnswered")
-    /\ UNCHANGED <<now, lease, store, conns, copy, prior, latestConn, lastStart, announced, burst>>
+    /\ UNCHANGED <<now, lease, store, conns, copy, prior, rejected, latestConn, lastStart, announced, burst>>
 
 \* finishFailure: cookies = api.cookies, rotationPending = authenticationFailed,
 \* serverRetryAfter = max(..), nextAllowedAt = failureDeadline.
@@ -185,21 +188,26 @@ Announce(w) ==
 \* read: success saves cookies, rotationPending = false. If that save throws,
 \* the catch runs finishFailure (storage, not auth) and saves again. Any
 \* failure runs finishFailure. If the last save throws, the reserved record
-\* stays.
+\* stays. Like a 429, a 401 counts once finishFailure's save lands: a crash
+\* or failed save before that loses it in any design that does not flag
+\* every reservation as pending (the #55 bug).
 ReadFinish(w) ==
     /\ pc[w] = "readAnswered"
     /\ LET r == copy[w]
            o == outcome[w]
        IN \/ /\ o = "ok"
              /\ store' = [r EXCEPT !.cookie = jar[w], !.pending = FALSE, !.allowedAt = Never]
+             /\ UNCHANGED rejected
           \/ /\ o = "ok"
              /\ store' = Failed(r, "storage", jar[w])
+             /\ UNCHANGED rejected
           \/ /\ o # "ok"
              /\ store' = Failed(r, o, jar[w])
-          \/ UNCHANGED store
+             /\ rejected' = IF o = "unauthorized" THEN rejected \cup {jar[w]} ELSE rejected
+          \/ UNCHANGED <<store, rejected>>
     /\ Finish(w)
     /\ Announce(w)
-    /\ UNCHANGED <<now, conns, copy, prior, jar, outcome, server, latestConn, lastStart, burst, deadReuse>>
+    /\ UNCHANGED <<now, conns, copy, prior, jar, outcome, live, cookies, latestConn, lastStart, burst, deadReuse>>
 
 \* connect: api.login with the password starts a new cookie session.
 LoginRequest(w) ==
@@ -214,15 +222,17 @@ LoginRequest(w) ==
           /\ UNCHANGED <<live, cookies>>
     /\ UNCHANGED <<now, lease, store, conns, copy, prior, rejected, history>>
 
-\* connect: record = Record(connectionID: ConnectionID(), established: true,
-\* rotationPending: true); saveRecord; then discover + read. A failed save
-\* throws inside the do: the catch sees a new connection (.currentSession)
-\* and finishFailure saves the same new record with pending = false.
+\* connect: record = Record(connectionID: ConnectionID(), established: true)
+\* with rotationPending defaulting to false; saveRecord; then discover +
+\* read. A failed save throws inside the do: the catch sees a new
+\* connection (.currentSession) and finishFailure saves the same new record
+\* with pending = false.
 LoginSaved(w) ==
     /\ pc[w] = "loggedIn"
     /\ conns < MaxConnections
     /\ conns' = conns + 1
-    /\ LET r == [copy[w] EXCEPT !.conn = conns + 1, !.cookie = jar[w], !.pending = TRUE]
+    /\ LET r == [copy[w] EXCEPT !.conn = conns + 1, !.cookie = jar[w],
+                                !.pending = ~FaithfulInterruptKeepsSession]
        IN \/ /\ store' = r
              /\ copy' = [copy EXCEPT ![w] = r]
              /\ latestConn' = conns + 1
@@ -272,7 +282,8 @@ Spec == Init /\ [][Next]_vars
 \* asked to wait, which risks blocking the account.
 RequestsSpaced == ~burst
 
-\* No request reuses a cookie session that Telenet already answered 401 for.
+\* No request reuses a cookie session that Telenet already answered 401 for
+\* and whose 401 VikingBar saved.
 \* Harm: a background loop of failing requests instead of one reconnect prompt.
 NoRejectedSessionReuse == ~deadReuse
 
