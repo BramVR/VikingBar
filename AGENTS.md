@@ -52,3 +52,10 @@
 ## Local skills
 
 - For packaged fixture app or CLI verification, read `.agents/skills/verify-vikingbar/SKILL.md`.
+- For Mobile Vikings token rotation, `session.lock`, or Keychain session record changes, read `.agents/skills/verify-token-rotation/SKILL.md`.
+- For Telenet session, reconnect, cooldown, or Retry-After changes, read `.agents/skills/verify-telenet-session/SKILL.md`.
+- For app account switching, adding, reconnecting, or reply publishing changes, read `.agents/skills/verify-account-switching/SKILL.md`.
+- For `AccountCatalog` changes, read `.agents/skills/verify-account-catalog/SKILL.md`.
+- For app optional reads (bills, PDF, payment QR, points, history) queueing or publishing changes, read `.agents/skills/verify-optional-queue/SKILL.md`.
+- For `VikingSession` operation, cancel, generation, or balance cache changes, read `.agents/skills/verify-viking-worker/SKILL.md`.
+- For automatic refresh scheduling, wake, interval, or allowance-expiry changes, read `.agents/skills/verify-refresh-schedule/SKILL.md`.

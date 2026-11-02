@@ -24,6 +24,8 @@ For the pinned tools and full CI build, run `Scripts/bootstrap-ci-tools.sh`, the
 
 Run `make smoke-package` to build and inspect development app and CLI archives without opening the app. Run `make workflow-check` with actionlint 1.7.12 for GitHub Actions syntax, expressions, and embedded shell checks.
 
+Run `make check-formal` after changing session, worker, account-switching, catalog, optional-read, or refresh-scheduling code. It model-checks every `formal/*.tla` with pinned TLC 1.7.4 (about three minutes; needs Java 11+), confirms each mutant still fails, and reports open findings. Skills: [token rotation](../.agents/skills/verify-token-rotation/SKILL.md), [Telenet session](../.agents/skills/verify-telenet-session/SKILL.md), [account switching](../.agents/skills/verify-account-switching/SKILL.md), [account catalog](../.agents/skills/verify-account-catalog/SKILL.md), [optional reads](../.agents/skills/verify-optional-queue/SKILL.md), [Mobile Vikings worker](../.agents/skills/verify-viking-worker/SKILL.md), [refresh schedule](../.agents/skills/verify-refresh-schedule/SKILL.md).
+
 Inspect a synthetic allowance through the shared core:
 
 ```sh
