@@ -218,7 +218,7 @@ actor HomeTransport: TelenetTransport {
         #"[{"productType":"internet","identifier":"home-a"},{"productType":"internet","identifier":"home-b"}]"#.utf8,
     )
     private struct Failure { let suffix: String; let code: Int; let retry: String? }
-    private var shouldPause = false
+    private var pauseSuffix: String?
     private var paused: CheckedContinuation<Void, Never>?
     private var waiter: CheckedContinuation<Void, Never>?
     func fail(pathSuffix: String, status: Int, retry: String? = nil) {
@@ -227,6 +227,10 @@ actor HomeTransport: TelenetTransport {
 
     func enableLogin() {
         self.loginResponses = TelenetAPITests.loginResponses()
+    }
+
+    func disableLogin() {
+        self.loginResponses = []
     }
 
     func clearFailure() {
@@ -240,7 +244,11 @@ actor HomeTransport: TelenetTransport {
     }
 
     func pauseDaily() {
-        self.shouldPause = true
+        self.pause(pathSuffix: "/dailyusage")
+    }
+
+    func pause(pathSuffix: String) {
+        self.pauseSuffix = pathSuffix
     }
 
     func waitUntilPaused() async {
@@ -256,13 +264,13 @@ actor HomeTransport: TelenetTransport {
 
     func send(_ request: URLRequest) async -> TelenetResponse {
         self.requests.append(request)
+        let path = request.url!.path
+        if let pauseSuffix, path.hasSuffix(pauseSuffix) {
+            self.pauseSuffix = nil
+            await withCheckedContinuation { self.paused = $0; self.waiter?.resume(); self.waiter = nil }
+        }
         if !self.loginResponses.isEmpty {
             return self.loginResponses.removeFirst()
-        }
-        let path = request.url!.path
-        if path.hasSuffix("/dailyusage"), self.shouldPause {
-            self.shouldPause = false
-            await withCheckedContinuation { self.paused = $0; self.waiter?.resume(); self.waiter = nil }
         }
         if let failure, path.hasSuffix(failure.suffix) {
             return TelenetResponse(status: failure.code, headers: failure.retry.map { ["Retry-After": $0] } ?? [:])

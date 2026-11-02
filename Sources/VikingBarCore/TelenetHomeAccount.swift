@@ -69,7 +69,7 @@ public actor TelenetHomeAccount: ProviderAccountSession {
             try self.check(generation)
             record = await Record(account: self.key, connectionID: ConnectionID(), cookies: api.cookies,
                                   established: true, nextAttemptAt: record.nextAttemptAt,
-                                  serverRetryAfter: record.serverRetryAfter, rotationPending: true)
+                                  serverRetryAfter: record.serverRetryAfter)
             try self.saveRecord(record)
             self.current = self.emptyState(connectionID: record.connectionID)
             let services = try await api.discover()
@@ -233,7 +233,6 @@ extension TelenetHomeAccount {
             throw LiveFailure.rateLimited
         }
         record.nextAttemptAt = self.now().addingTimeInterval(60)
-        record.rotationPending = true
         try self.saveRecord(record)
     }
 
