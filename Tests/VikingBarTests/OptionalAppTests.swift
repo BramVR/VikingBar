@@ -114,7 +114,7 @@ struct OptionalAppTests {
         await model.stop()
     }
 
-    @Test func `optional worker failure retains queued Bills for one Refresh recovery`() async throws {
+    @Test func `optional worker failure fails queued Bills and Refresh restores Bills controls`() async throws {
         let client = try OptionalModelClient()
         client.hold = ["points"]
         let model = try Self.model(client)
@@ -125,17 +125,22 @@ struct OptionalAppTests {
         client.release("points", .failure(LiveBridgeFailure.invalidReply))
         try await AppSessionTests.until { client.shutdowns == 1 }
         #expect(client.requests == ["restore", "refresh", "points"])
-        #expect(model.isLoadingInvoices)
+        #expect(!model.isLoadingInvoices)
+        #expect(model.pendingOptional.isEmpty)
+        #expect(model.invoiceError == "Could not load bills. Refresh to try again.")
         #expect(model.snapshot == usage.snapshot)
         #expect(model.liveState.failure == usage.failure)
         #expect(model.liveState.nextRefreshAt == usage.nextRefreshAt)
         #expect(model.bridgeError == nil)
+        #expect(model.canRefresh)
         client.hold.remove("points")
         model.refresh()
-        try await AppSessionTests.until { client.requests.count == 7 }
-        #expect(client.requests == ["restore", "refresh", "points", "restore", "refresh", "invoices", "points"])
+        try await AppSessionTests.until { client.requests.count == 6 && model.canLoadInvoices }
+        model.loadInvoices()
+        try await AppSessionTests.until { client.requests.count == 7 && !model.isLoadingInvoices }
+        #expect(client.requests == ["restore", "refresh", "points", "restore", "refresh", "points", "invoices"])
         #expect(model.liveState.invoices == client.state.invoices)
-        #expect(model.canRefresh)
+        #expect(model.invoiceError == nil)
         await model.stop()
     }
 

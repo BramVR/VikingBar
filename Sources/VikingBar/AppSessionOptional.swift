@@ -257,19 +257,24 @@ extension AppSession {
                 self.onPresentationChange?()
             } catch {
                 guard revision == self.optionalRevision, !Task.isCancelled else { return }
-                if optional == .points {
-                    self.liveState.markPointsUnavailable(.transport)
-                } else if optional == .history {
-                    self.historyError = "History unavailable. Refresh to try again."
-                } else if optional.isPayment {
-                    self.liveState.setPaymentReview(.unavailable(.refreshFailed, candidates: self.paymentCandidates))
-                } else {
-                    self.invoiceError = "Could not load bills. Try again."
+                // Without a client the queue cannot drain until Refresh restarts the worker, so fail every queued read.
+                for failed in [optional] + self.pendingOptional {
+                    self.failOptional(failed)
                 }
+                self.pendingOptional.removeAll()
                 self.client = nil
                 self.onPresentationChange?()
                 await client.shutdown()
             }
+        }
+    }
+
+    private func failOptional(_ intent: OptionalIntent) {
+        switch intent {
+        case .points: self.liveState.markPointsUnavailable(.transport)
+        case .history: self.historyError = "History unavailable. Refresh to try again."
+        case .payment: self.liveState.setPaymentReview(.unavailable(.refreshFailed, candidates: self.paymentCandidates))
+        case .invoices, .pdf: self.invoiceError = "Could not load bills. Refresh to try again."
         }
     }
 
