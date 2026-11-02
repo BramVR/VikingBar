@@ -6,7 +6,14 @@
 #   A finding that stops failing means the code changed: move its rule into <Spec>.cfg.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-command -v java >/dev/null || { echo 'check-formal requires Java 11 or newer on PATH' >&2; exit 1; }
+for tool in java curl shasum; do
+    command -v "$tool" >/dev/null || { echo "check-formal requires $tool on PATH" >&2; exit 1; }
+done
+java_version="$(java -version 2>&1 | sed -n 's/.*version "\([0-9]*\)\.\{0,1\}\([0-9]*\).*/\1 \2/p' | head -1)"
+read -r java_major java_minor <<<"$java_version"
+# Java 8 and older report "1.x".
+[[ "${java_major:-0}" == 1 ]] && java_major="${java_minor:-0}"
+(( ${java_major:-0} >= 11 )) || { echo "check-formal requires Java 11 or newer; found: ${java_version:-unknown}" >&2; exit 1; }
 tools="$PWD/.build/formal-tools"
 jar="$tools/tla2tools-1.7.4.jar"
 checksum=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
